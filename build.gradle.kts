@@ -1,0 +1,80 @@
+// import xyz.jpenilla.runpaper.task.RunServe
+
+plugins {
+  `java-library`
+  id("io.papermc.paperweight.userdev") version "2.0.0-beta.18"
+  id("xyz.jpenilla.run-paper") version "2.3.1" // runServer and runMojangMappedServer tasks for testing
+  id("com.gradleup.shadow") version "8.3.8"
+  id("eclipse") 
+}
+
+group = "com.ionsignal.minecraft.ionnerrus"
+version = "0.0.1-alpha.1-SNAPSHOT"
+description = "An LLM powered NPC decision engine"
+
+java {
+  // Configure the java toolchain. This allows gradle to auto-provision JDK 21 on systems that only have JDK 11 installed for example.
+  toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+dependencies {
+  compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
+  paperweight.paperDevBundle("1.21.7-R0.1-SNAPSHOT")
+
+  // HTTP Client for future LLM integration
+  implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.14")
+
+  // JSON Processor for LLM integration
+  implementation("com.google.code.gson:gson:2.13.1")
+}
+
+repositories {
+  mavenCentral()
+  maven {
+    name = "alessiodp"
+    url = uri("https://repo.alessiodp.com/releases/")
+  }
+  maven {
+    name = "papermc"
+    url = uri("https://repo.papermc.io/repository/maven-public/")
+  }
+}
+
+tasks {
+  compileJava {
+    // Set the release flag. This configures what version bytecode the compiler will emit, as well as what JDK APIs are usable.
+    // See https://openjdk.java.net/jeps/247 for more information.
+    options.release = 21
+  }
+  javadoc {
+    options.encoding = Charsets.UTF_8.name() // We want UTF-8 for everything
+  }
+  named("eclipse") {
+    dependsOn(named("cleanEclipse"))
+  }
+  runServer {
+    val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
+    javaLauncher.set(toolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
+    })
+    jvmArgs(
+      "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005",
+      "-XX:+AllowEnhancedClassRedefinition"
+    )
+    minecraftVersion("1.21.7")
+  }
+
+  // shadowJar task to relocate dependencies
+  shadowJar {
+    relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3") // 
+    relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio") // okhttp's dependency
+    relocate("com.google.gson", "com.ionsignal.minecraft.ionnerrus.lib.gson") // json parsing
+    
+    archiveClassifier.set("") // single, shaded JAR without a classifier
+  }
+
+  build {
+    dependsOn(shadowJar)
+  }
+}
