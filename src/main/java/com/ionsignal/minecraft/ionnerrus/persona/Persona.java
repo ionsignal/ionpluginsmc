@@ -10,6 +10,7 @@ import org.bukkit.Location;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 
 import org.jetbrains.annotations.Nullable;
@@ -139,6 +140,14 @@ public class Persona {
 
     public NerrusManager getManager() {
         return manager;
+    }
+
+    @Nullable
+    public PlayerInventory getInventory() {
+        if (!isSpawned()) {
+            return null;
+        }
+        return this.personaEntity.getBukkitEntity().getInventory();
     }
 
     @Nullable
