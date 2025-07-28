@@ -119,7 +119,7 @@ We welcome contributions of all kinds, from bug fixes to new features.
 
 ## Git Commit Guide
 
-```
+```txt
 <type>(<scope>): <subject>
 <BLANK LINE>
 [optional body]
@@ -147,9 +147,21 @@ The type describes the *kind* of change you are making.
 
 #### **Scope** (optional)
 
-The scope is a noun that specifies the area or component of the codebase affected by the change.
+The scope is a noun that specifies the area or component of the codebase affected by the change. Use a comma separated list if multiple are involved.
 
-Examples: `agent`, `skill`, `navigation`, `task`, `config`, `build`.
+- `agent`
+- `skill`
+- `persona`
+- `navigation`
+- `build`
+- `nmsbridge`
+- `command`
+- `listener` (for event handlers)
+- `api` (we aren't doing these yet)
+- `config`
+- `data` (for data storage)
+- `gui` (for inventory-based menus)
+- `task` (for schedulers)
 
 #### **Subject**
 
