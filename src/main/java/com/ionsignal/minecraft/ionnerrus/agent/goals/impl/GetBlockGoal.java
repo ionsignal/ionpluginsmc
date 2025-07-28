@@ -4,6 +4,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlocksTask.GatherResult;
@@ -15,13 +16,14 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class GetBlockGoal implements Goal {
 
     private enum State {
-        IDLE, GATHERING_LOCALLY, SEARCHING_FOR_DENSE_AREA, MOVING_TO_DENSE_AREA, GATHERING_IN_DENSE_AREA, COMPLETED, FAILED
+        CHECKING_INVENTORY, GATHERING, SEARCHING_FOR_DENSE_AREA, MOVING_TO_DENSE_AREA, COMPLETED, FAILED
     }
 
     private final TaskFactory taskFactory;
@@ -29,17 +31,16 @@ public class GetBlockGoal implements Goal {
     private final int requiredCount;
     private final Logger logger;
 
-    private State state = State.IDLE;
+    private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
 
-    // TEMPORARY HARDCODED MATERIALS // <-- Add block name classification/tagging system
     private static final Set<Material> WOOD_LOGS = Arrays.stream(Material.values())
             .filter(m -> m.name().endsWith("_LOG"))
             .collect(Collectors.toSet());
 
-    public GetBlockGoal(TaskFactory taskFactory, int count) { // (TaskFactory taskFactory, Set<Material> materials, int count) {
+    public GetBlockGoal(TaskFactory taskFactory, int count) {
         this.taskFactory = taskFactory;
-        this.materials = WOOD_LOGS; // materials; // <-- Add block name classification/tagging system
+        this.materials = WOOD_LOGS;
         this.requiredCount = count;
         this.logger = IonNerrus.getInstance().getLogger();
     }
@@ -48,23 +49,44 @@ public class GetBlockGoal implements Goal {
     public void start(NerrusAgent agent) {
         agent.speak(
                 "Okay, I'll get " + requiredCount + " " + materials.iterator().next().toString().toLowerCase().replace('_', ' ') + "s.");
-        this.state = State.GATHERING_LOCALLY;
     }
 
     @Override
     @SuppressWarnings("incomplete-switch")
     public void process(NerrusAgent agent) {
-        updateStateFromBlackboard(agent);
+        updateStateFromTaskResults(agent);
         if (isFinished()) {
+            switch (state) {
+                case FAILED:
+                    agent.speak("I tried, but I couldn't get all the blocks.");
+                    logger.warning("GetBlockGoal has failed.");
+                    break;
+                case COMPLETED:
+                    agent.speak("I've gathered all the blocks!");
+                    logger.info("GetBlockGoal has completed successfully.");
+                    break;
+            }
             return;
         }
         Task nextTask = null;
         switch (state) {
-            case GATHERING_LOCALLY:
-                logger.info("GetBlockGoal: Attempting to gather blocks locally.");
-                nextTask = createGatherTask(50);
+            case CHECKING_INVENTORY:
+                logger.info("GetBlockGoal: Checking inventory count.");
+                nextTask = createUpdateCountTask();
+                break;
+            case GATHERING:
+                logger.info("GetBlockGoal: Attempting to gather one block.");
+                nextTask = createGatherOneBlockTask(50);
                 break;
 
+            // NEEDS TO BE UPDATED TO SUPPORT LOOKAT BLOCK
+            // case MOVING_TO_DENSE_AREA:
+            //     logger.info("GetBlockGoal: Moving to the new area.");
+            //     nextTask = taskFactory.createTask("GOTO_LOCATION", Map.of());
+            //     this.state = State.GATHERING_IN_DENSE_AREA; // Optimistically transition
+            //     break;
+
+            // NEEDS TO BE UPDATED TO SUPPORT CLOSEST STANDING BLOCK
             // case SEARCHING_FOR_DENSE_AREA:
             //     agent.speak("Can't find any nearby. I'll look for a better spot.");
             //     logger.info("GetBlockGoal: Searching for a dense area of blocks.");
@@ -72,76 +94,63 @@ public class GetBlockGoal implements Goal {
             //     this.state = State.MOVING_TO_DENSE_AREA; // Optimistically transition
             //     break;
 
-            // case MOVING_TO_DENSE_AREA:
-            //     logger.info("GetBlockGoal: Moving to the new area.");
-            //     nextTask = taskFactory.createTask("GOTO_LOCATION", Map.of());
-            //     this.state = State.GATHERING_IN_DENSE_AREA; // Optimistically transition
-            //     break;
-
-            // case GATHERING_IN_DENSE_AREA:
-            //     agent.speak("Okay, let's try gathering here.");
-            //     logger.info("GetBlockGoal: Attempting to gather in the new area.");
-            //     nextTask = createGatherTask(50);
-            //     break;
-
-            case FAILED:
-                agent.speak("I tried, but I couldn't get all the blocks.");
-                logger.warning("GetBlockGoal has failed.");
-                break;
-
-            case COMPLETED:
-                agent.speak("I've gathered all the blocks!");
-                logger.info("GetBlockGoal has completed successfully.");
-                break;
-
-            case IDLE:
+            default:
+                logger.info("GetBlockGoal: Unhandled state <" + state + "> please check.");
                 break;
         }
-
         if (nextTask != null) {
             agent.setCurrentTask(nextTask);
         }
     }
 
-    private void updateStateFromBlackboard(NerrusAgent agent) {
-        gatheredCount = agent.getBlackboard().getInt(BlackboardKeys.GATHERED_COUNT, gatheredCount);
-        if (gatheredCount >= requiredCount) {
-            this.state = State.COMPLETED;
-            return;
-        }
-
-        // Check for GatherBlocksTask result
-        agent.getBlackboard().getEnum(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.class).ifPresent(result -> {
-            if (state == State.GATHERING_LOCALLY) {
-                if (result == GatherResult.NO_BLOCKS_FOUND) {
-                    // this.state = State.SEARCHING_FOR_DENSE_AREA;
-                    // FAIL AND STOP if we can't gather locally
-                    this.state = State.FAILED;
-                } else if (result == GatherResult.FAILED_TO_COLLECT) {
-                    this.state = State.FAILED;
-                }
-            } else if (state == State.GATHERING_IN_DENSE_AREA) {
-                // If it fails even in the new area, we give up.
-                this.state = State.FAILED;
+    private void updateStateFromTaskResults(NerrusAgent agent) {
+        // Did an UpdateInventoryCountTask just finish?
+        agent.getBlackboard().get(BlackboardKeys.GATHER_CURRENT_COUNT, Integer.class).ifPresent(count -> {
+            this.gatheredCount = count;
+            agent.getBlackboard().remove(BlackboardKeys.GATHER_CURRENT_COUNT);
+            if (gatheredCount >= requiredCount) {
+                this.state = State.COMPLETED;
+            } else {
+                this.state = State.GATHERING;
             }
-            agent.getBlackboard().remove(BlackboardKeys.GATHER_BLOCKS_RESULT);
         });
-
-        // Check for FindDenseBlockAreaTask result
-        agent.getBlackboard().get(BlackboardKeys.FIND_AREA_RESULT, Boolean.class).ifPresent(found -> {
-            if (!found) { // If the search failed to find any area
-                this.state = State.FAILED;
+        // Did a GatherBlocksTask just finish?
+        agent.getBlackboard().getEnum(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.class).ifPresent(result -> {
+            agent.getBlackboard().remove(BlackboardKeys.GATHER_BLOCKS_RESULT);
+            switch (result) {
+                case SUCCESS:
+                    // After a successful gather, we must re-check the inventory to confirm.
+                    this.state = State.CHECKING_INVENTORY;
+                    break;
+                case NO_BLOCKS_FOUND:
+                case FAILED_TO_COLLECT:
+                    this.state = State.FAILED;
+                    break;
             }
-            agent.getBlackboard().remove(BlackboardKeys.FIND_AREA_RESULT);
         });
     }
 
-    private Task createGatherTask(int radius) {
+    private Task createGatherOneBlockTask(int radius) {
         Map<String, Object> params = new HashMap<>();
         params.put("materials", materials);
-        params.put("count", requiredCount - gatheredCount);
         params.put("radius", radius);
         return taskFactory.createTask("GATHER_BLOCKS", params);
+    }
+
+    private Task createUpdateCountTask() {
+        return new Task() {
+            @Override
+            public CompletableFuture<Void> execute(NerrusAgent agent) {
+                return new CountItemsSkill(materials).execute(agent)
+                        .thenAccept(count -> agent.getBlackboard().put(BlackboardKeys.GATHER_CURRENT_COUNT, count))
+                        .thenApply(v -> null); // Convert CompletableFuture<Void> to CompletableFuture<Void>
+            }
+
+            @Override
+            public void cancel() {
+                /* No-op */
+            }
+        };
     }
 
     // private Task createFindDenseAreaTask(int radius) {
@@ -167,7 +176,9 @@ public class GetBlockGoal implements Goal {
 
     @Override
     public void stop(NerrusAgent agent) {
-        this.state = State.FAILED;
+        if (state != State.COMPLETED) {
+            this.state = State.FAILED;
+        }
         logger.info("Goal stopped: 'get block' goal");
     }
 }

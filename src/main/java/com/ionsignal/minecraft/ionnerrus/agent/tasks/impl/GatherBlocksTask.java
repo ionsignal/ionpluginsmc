@@ -26,10 +26,8 @@ import java.util.logging.Logger;
 public class GatherBlocksTask implements Task {
     private NerrusAgent agent;
     private Executor mainThreadExecutor;
-    private int gatheredCount;
     private final Set<Location> attemptedLocations = new HashSet<>();
     private final Set<Material> materials;
-    private final int requiredCount;
     private final int searchRadius;
     private final Logger logger;
     private volatile boolean cancelled = false;
@@ -38,9 +36,8 @@ public class GatherBlocksTask implements Task {
         SUCCESS, NO_BLOCKS_FOUND, FAILED_TO_COLLECT
     }
 
-    public GatherBlocksTask(Set<Material> materials, int requiredCount, int searchRadius) {
+    public GatherBlocksTask(Set<Material> materials, int searchRadius) {
         this.materials = materials;
-        this.requiredCount = requiredCount;
         this.searchRadius = searchRadius;
         this.logger = IonNerrus.getInstance().getLogger();
         this.mainThreadExecutor = IonNerrus.getInstance().getMainThreadExecutor();
@@ -57,16 +54,13 @@ public class GatherBlocksTask implements Task {
     @Override
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         this.agent = agent;
-        this.gatheredCount = agent.getBlackboard().getInt(BlackboardKeys.GATHERED_COUNT, 0);
         this.cancelled = false;
-        return gatherAndLoop().whenComplete((res, ex) -> {
-            agent.getBlackboard().put(BlackboardKeys.GATHERED_COUNT, gatheredCount);
-        });
+        // The task now only performs one gather cycle.
+        return gatherSingleBlock();
     }
 
-    private CompletableFuture<Void> gatherAndLoop() {
-        if (cancelled || gatheredCount >= requiredCount) {
-            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.SUCCESS);
+    private CompletableFuture<Void> gatherSingleBlock() {
+        if (cancelled) {
             return CompletableFuture.completedFuture(null);
         }
         return new FindAccessibleBlockSkill(materials, searchRadius, 3, 6, attemptedLocations)
@@ -76,15 +70,11 @@ public class GatherBlocksTask implements Task {
                         return CompletableFuture.completedFuture(null);
                     }
                     if (resultOpt.isEmpty()) {
-                        // No accessible blocks found in the entire search radius.
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.NO_BLOCKS_FOUND);
                         return CompletableFuture.completedFuture(null);
                     }
                     AccessibleBlockResult result = resultOpt.get();
-                    // Add the found block to the ignore list for subsequent searches.
                     attemptedLocations.add(result.blockLocation());
-                    // The logic to find a standing spot is now encapsulated in the skill.
-                    // We can proceed directly to navigating and breaking.
                     return navigateToAndBreak(result.standingLocation(), result.blockLocation());
                 }, mainThreadExecutor);
     }
@@ -93,11 +83,17 @@ public class GatherBlocksTask implements Task {
         return new NavigateToLocationSkill(standLocation, blockToBreak).execute(agent)
                 .thenCompose(navSuccess -> {
                     if (cancelled || !navSuccess) {
-                        if (!cancelled) {
-                            logger.info("Could not navigate to the spot to break the block. Finding next one.");
-                        }
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.FAILED_TO_COLLECT);
-                        return CompletableFuture.completedFuture(false);
+                        return CompletableFuture.completedFuture(false); // Abort this attempt
+                    }
+                    return new EquipBestToolSkill(blockToBreak.getBlock()).execute(agent);
+                })
+                .thenCompose(equipSuccess -> {
+                    if (cancelled || !equipSuccess) {
+                        if (!cancelled)
+                            logger.warning("Could not equip best tool. Finding next block.");
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.FAILED_TO_COLLECT);
+                        return CompletableFuture.completedFuture(false); // Abort this attempt
                     }
                     return new BreakBlockSkill(blockToBreak).execute(agent);
                 })
@@ -107,7 +103,8 @@ public class GatherBlocksTask implements Task {
                     }
                     if (!breakSuccess) {
                         logger.warning("Could not break the block. Finding next one.");
-                        return gatherAndLoop();
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.FAILED_TO_COLLECT);
+                        return CompletableFuture.completedFuture(null);
                     }
                     return collectNearbyItem(blockToBreak);
                 });
@@ -124,22 +121,20 @@ public class GatherBlocksTask implements Task {
                     Item targetItem = findDroppedItem(brokenBlockLocation);
                     if (targetItem == null || targetItem.isDead()) {
                         logger.warning("Could not find dropped item. Assuming it was collected or despawned. Moving on.");
-                        // This is a success from the perspective of breaking the block, so increment count.
                         return CompletableFuture.completedFuture(true);
                     }
                     return new CollectItemSkill(targetItem).execute(agent);
                 }, mainThreadExecutor)
-                .thenCompose(collectSuccess -> {
+                .thenAccept(collectSuccess -> {
                     if (cancelled) {
-                        return CompletableFuture.completedFuture(null);
+                        return;
                     }
                     if (collectSuccess) {
-                        gatheredCount++;
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.SUCCESS);
                     } else {
-                        logger.warning("Failed to navigate to pick up item. Still counting block as gathered.");
-                        gatheredCount++; // Still count it, as the block is broken. Pickup is best-effort.
+                        logger.warning("Failed to navigate to pick up item. Still counting as a partial success.");
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.SUCCESS);
                     }
-                    return gatherAndLoop();
                 });
     }
 

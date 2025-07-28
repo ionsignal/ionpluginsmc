@@ -10,6 +10,6 @@ public final class BlackboardKeys {
 
     // Task-specific results
     public static final String GATHER_BLOCKS_RESULT = "gatherBlocks.result";
-    public static final String GATHERED_COUNT = "gatherBlocks.gatheredCount";
+    public static final String GATHER_CURRENT_COUNT = "gather.currentCount";
     public static final String FIND_AREA_RESULT = "findArea.result";
 }
