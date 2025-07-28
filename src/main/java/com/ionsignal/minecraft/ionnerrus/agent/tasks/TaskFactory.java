@@ -1,9 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks;
 
-// import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-// import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.FindDenseBlockAreaTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.FindBiomeTask;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GoToLocationTask;
+// import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GoToLocationTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlocksTask;
 import org.bukkit.Material;
 import org.bukkit.block.Biome;
@@ -35,15 +33,14 @@ public class TaskFactory {
                 //     int areaRadius = (int) parameters.getOrDefault("radius", 150);
                 //     return new FindDenseBlockAreaTask(areaMaterials, areaRadius);
 
-                case "GOTO_LOCATION":
-                    String key = (String) parameters.getOrDefault("locationBlackboardKey", "targetLocation");
-                    return new GoToLocationTask(key);
+                // case "GOTO_LOCATION":
+                //     String key = (String) parameters.getOrDefault("locationBlackboardKey", "targetLocation");
+                //     return new GoToLocationTask(key);
 
                 case "GATHER_BLOCKS":
                     Set<Material> materials = (Set<Material>) parameters.get("materials");
-                    int count = (int) parameters.get("count");
                     int gatherRadius = (int) parameters.getOrDefault("radius", 50);
-                    return new GatherBlocksTask(materials, count, gatherRadius);
+                    return new GatherBlocksTask(materials, gatherRadius);
 
                 default:
                     logger.warning("Unknown task name: " + taskName);
