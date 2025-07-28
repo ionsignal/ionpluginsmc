@@ -1,0 +1,12 @@
+# List of world names where this plugin should be active.
+# An empty list [] means the plugin is disabled everywhere.
+# Example:
+# enabled-worlds:
+#   - "world"
+#   - "world_nether"
+#   - "world_the_end"
+enabled-worlds:
+  - "world"
+
+integrations:
+  huskhomes: false

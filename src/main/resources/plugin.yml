@@ -1,0 +1,17 @@
+main: com.ionsignal.minecraft.ionnerrus.IonNerrus
+name: IonNerrus
+version: 0.0.1-alpha.1
+api-version: '1.21.7'
+author: Ion Signal
+description: An LLM powered NPC decision engine
+depend: []
+commands:
+  nerrus:
+    description: Manages Nerrus agents and their tasks.
+    usage: "/<command> <spawn|remove|stop|getblock|list> ..."
+    aliases: [ionnerrus]
+    permission: ionnerrus.admin
+permissions:
+  ionnerrus.admin:
+    description: Allows usage of all IonNerrus commands.
+    default: op
