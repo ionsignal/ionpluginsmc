@@ -8,6 +8,8 @@ import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.ChatType;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundDisguisedChatPacket;
@@ -19,9 +21,15 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkMap.TrackedEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerPlayerGameMode;
 import net.minecraft.server.network.ServerPlayerConnection;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity.RemovalReason;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.state.BlockState;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -116,6 +124,77 @@ public class PersonaNMSBridge {
             return;
         broadcastPacketToTrackers(serverPlayer, new ClientboundBlockDestructionPacket(serverPlayer.getId(),
                 new net.minecraft.core.BlockPos(block.getX(), block.getY(), block.getZ()), stage));
+    }
+
+    public int calculateBreakTicks(Persona persona, Block block) {
+        PersonaEntity personaEntity = persona.getPersonaEntity();
+        if (personaEntity == null) {
+            return Integer.MAX_VALUE;
+        }
+        ServerLevel level = personaEntity.level();
+        BlockPos blockPos = new BlockPos(block.getX(), block.getY(), block.getZ());
+        BlockState nmsBlockState = level.getBlockState(blockPos);
+        // The old method, getDestroyProgress(), returns the final damage-per-tick, which is incorrect here.
+        float hardness = nmsBlockState.getDestroySpeed(level, blockPos);
+        if (hardness < 0) { // Unbreakable block (e.g., bedrock)
+            return Integer.MAX_VALUE;
+        }
+        if (hardness == 0) { // Instantly breakable block (e.g., flower)
+            return 1;
+        }
+        // Simplified and corrected logic.
+        // This single formula now correctly handles all cases.
+        float destroySpeed = getPlayerDestroySpeed(personaEntity, nmsBlockState);
+        boolean hasCorrectTool = personaEntity.hasCorrectToolForDrops(nmsBlockState);
+        float divisor = hasCorrectTool ? 30.0f : 100.0f;
+        float damagePerTick = destroySpeed / hardness / divisor;
+        if (damagePerTick <= 0) {
+            return Integer.MAX_VALUE; // Cannot be broken
+        }
+        return (int) Math.ceil(1.0 / damagePerTick);
+    }
+
+    private float getPlayerDestroySpeed(PersonaEntity personaEntity, BlockState nmsBlockState) {
+        var enchantmentRegistry = personaEntity.registryAccess().lookupOrThrow(Registries.ENCHANTMENT);
+        float speed = personaEntity.getInventory().getSelectedItem().getDestroySpeed(nmsBlockState);
+        if (speed > 1.0F) {
+            var efficiencyHolder = enchantmentRegistry.getOrThrow(Enchantments.EFFICIENCY);
+            int efficiencyLevel = EnchantmentHelper.getItemEnchantmentLevel(efficiencyHolder, personaEntity.getMainHandItem());
+            if (efficiencyLevel > 0) {
+                speed += (float) (efficiencyLevel * efficiencyLevel + 1);
+            }
+        }
+        if (personaEntity.hasEffect(MobEffects.HASTE)) {
+            speed *= 1.0F + (float) (Objects.requireNonNull(personaEntity.getEffect(MobEffects.HASTE)).getAmplifier() + 1) * 0.2F;
+        }
+        if (personaEntity.hasEffect(MobEffects.MINING_FATIGUE)) {
+            float fatigueMultiplier = switch (Objects.requireNonNull(personaEntity.getEffect(MobEffects.MINING_FATIGUE)).getAmplifier()) {
+                case 0 -> 0.3F;
+                case 1 -> 0.09F;
+                case 2 -> 0.0027F;
+                default -> 8.1E-4F;
+            };
+            speed *= fatigueMultiplier;
+        }
+        var aquaHolder = enchantmentRegistry.getOrThrow(Enchantments.AQUA_AFFINITY);
+        int aquaLevel = EnchantmentHelper.getItemEnchantmentLevel(aquaHolder, personaEntity.getMainHandItem());
+        if (personaEntity.isEyeInFluid(FluidTags.WATER) && aquaLevel == 0) {
+            speed /= 5.0F;
+        }
+        if (!personaEntity.onGround()) {
+            speed /= 5.0F;
+        }
+        return speed;
+    }
+
+    public boolean destroyBlock(Persona persona, Block block) {
+        PersonaEntity personaEntity = persona.getPersonaEntity();
+        if (personaEntity == null) {
+            return false;
+        }
+        ServerPlayerGameMode gameMode = personaEntity.gameMode;
+        BlockPos blockPos = new BlockPos(block.getX(), block.getY(), block.getZ());
+        return gameMode.destroyBlock(blockPos);
     }
 
     public void showToPlayer(Persona persona, Player viewer) {

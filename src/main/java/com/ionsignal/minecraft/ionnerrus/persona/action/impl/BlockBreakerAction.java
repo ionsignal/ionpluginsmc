@@ -16,7 +16,7 @@ public class BlockBreakerAction implements Action {
     private static final int SWING_INTERVAL = 10;
     private final Block block;
     private final CompletableFuture<ActionStatus> future = new CompletableFuture<>();
-    private final int ticksToBreak = 100; // 5 seconds
+    private int ticksToBreak;
 
     private FaceHeadBodyAction faceAction;
     private ActionStatus status = ActionStatus.RUNNING;
@@ -40,6 +40,22 @@ public class BlockBreakerAction implements Action {
 
         if (block.getType() == Material.AIR) {
             finish(ActionStatus.SUCCESS);
+            return;
+        }
+
+        var bridge = persona.getManager().getPlatformBridge();
+        this.ticksToBreak = bridge.calculateBreakTicks(persona, this.block);
+        if (this.ticksToBreak == Integer.MAX_VALUE) {
+            IonNerrus.getInstance().getLogger()
+                    .warning("Persona " + persona.getName() + " tried to break an unbreakable block: " + block.getType());
+            finish(ActionStatus.FAILURE);
+            return;
+        }
+
+        // Handle instant-break blocks
+        if (this.ticksToBreak <= 1) {
+            boolean success = bridge.destroyBlock(persona, this.block);
+            finish(success ? ActionStatus.SUCCESS : ActionStatus.FAILURE);
         }
     }
 
@@ -57,14 +73,23 @@ public class BlockBreakerAction implements Action {
             persona.playAnimation(PlayerAnimation.SWING_MAIN_ARM);
             ticksSinceLastSwing = 0;
         }
-        int stage = (int) (((double) ticksElapsed / ticksToBreak) * 10.0);
+        int stage = (int) (((double) ticksElapsed / this.ticksToBreak) * 10.0);
         persona.getManager().getPlatformBridge().sendBlockBreakAnimation(persona, block, stage);
-        if (ticksElapsed >= ticksToBreak) {
+        if (ticksElapsed >= this.ticksToBreak) {
             IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                if (block.getType() != Material.AIR) {
-                    block.breakNaturally();
+                if (persona.isSpawned() && block.getType() != Material.AIR) {
+                    var bridge = persona.getManager().getPlatformBridge();
+                    boolean success = bridge.destroyBlock(persona, this.block);
+                    if (success) {
+                        finish(ActionStatus.SUCCESS);
+                    } else {
+                        // This can happen if a plugin cancels the BlockBreakEvent, etc.
+                        finish(ActionStatus.FAILURE);
+                    }
+                } else {
+                    // If the block is already air or the entity is invalid, it's a success.
+                    finish(ActionStatus.SUCCESS);
                 }
-                finish(ActionStatus.SUCCESS);
             });
         }
     }

@@ -7,13 +7,15 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlocksTask.GatherResult;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask.GatherResult;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
 // import org.bukkit.block.Biome;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +33,8 @@ public class GetBlockGoal implements Goal {
     private final int requiredCount;
     private final Logger logger;
 
+    private final Set<Location> attemptedLocations = new HashSet<>();
+
     private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
 
@@ -47,6 +51,7 @@ public class GetBlockGoal implements Goal {
 
     @Override
     public void start(NerrusAgent agent) {
+        this.attemptedLocations.clear();
         agent.speak(
                 "Okay, I'll get " + requiredCount + " " + materials.iterator().next().toString().toLowerCase().replace('_', ' ') + "s.");
     }
@@ -115,16 +120,21 @@ public class GetBlockGoal implements Goal {
             }
         });
         // Did a GatherBlocksTask just finish?
-        agent.getBlackboard().getEnum(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.class).ifPresent(result -> {
-            agent.getBlackboard().remove(BlackboardKeys.GATHER_BLOCKS_RESULT);
+        agent.getBlackboard().getEnum(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.class).ifPresent(result -> {
+            agent.getBlackboard().remove(BlackboardKeys.GATHER_BLOCK_RESULT);
             switch (result) {
                 case SUCCESS:
                     // After a successful gather, we must re-check the inventory to confirm.
                     this.state = State.CHECKING_INVENTORY;
                     break;
                 case NO_BLOCKS_FOUND:
-                case FAILED_TO_COLLECT:
+                    // If we can't find any blocks at all, then we have to fail.
                     this.state = State.FAILED;
+                    break;
+                // It just means we should try gathering again from a different block.
+                case FAILED_TO_COLLECT:
+                    logger.info("GetBlockGoal: A single gather attempt failed. Retrying...");
+                    this.state = State.GATHERING;
                     break;
             }
         });
@@ -134,6 +144,7 @@ public class GetBlockGoal implements Goal {
         Map<String, Object> params = new HashMap<>();
         params.put("materials", materials);
         params.put("radius", radius);
+        params.put("attemptedLocations", this.attemptedLocations);
         return taskFactory.createTask("GATHER_BLOCKS", params);
     }
 
@@ -179,6 +190,7 @@ public class GetBlockGoal implements Goal {
         if (state != State.COMPLETED) {
             this.state = State.FAILED;
         }
+        this.attemptedLocations.clear();
         logger.info("Goal stopped: 'get block' goal");
     }
 }

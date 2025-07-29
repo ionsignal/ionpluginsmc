@@ -7,7 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationParameters
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Navigator;
 
-import org.bukkit.Effect;
+// import org.bukkit.Effect;
 import org.bukkit.Location;
 
 import java.util.concurrent.CompletableFuture;
@@ -33,9 +33,10 @@ public class NavigateToLocationSkill implements Skill<Boolean> {
         if (!persona.isSpawned()) {
             return CompletableFuture.completedFuture(false);
         }
-        if (target.getWorld() != null) {
-            target.getWorld().playEffect(target, Effect.ENDER_SIGNAL, 0);
-        }
+        // Testing effect, this can probably be removed
+        // if (target.getWorld() != null) {
+        //     target.getWorld().playEffect(target, Effect.ENDER_SIGNAL, 0);
+        // }
         Navigator navigator = persona.getNavigator();
         if (persona.getLocation().distanceSquared(target) < ARRIVAL_DISTANCE_SQUARED) {
             if (navigator.isNavigating()) {

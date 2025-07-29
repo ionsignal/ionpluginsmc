@@ -37,5 +37,6 @@ public class PersonaMoveControl extends MoveControl {
         // Apply to zza for travel 
         this.personaEntity.setSpeed(speed);
         this.personaEntity.zza = 1.0F;
+        //this.personaEntity.xxa // future strafe
     }
 }

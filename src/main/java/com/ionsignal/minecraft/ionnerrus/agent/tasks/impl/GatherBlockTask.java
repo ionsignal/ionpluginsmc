@@ -16,17 +16,16 @@ import org.bukkit.entity.Item;
 
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
-public class GatherBlocksTask implements Task {
+public class GatherBlockTask implements Task {
     private NerrusAgent agent;
     private Executor mainThreadExecutor;
-    private final Set<Location> attemptedLocations = new HashSet<>();
+    private final Set<Location> attemptedLocations;
     private final Set<Material> materials;
     private final int searchRadius;
     private final Logger logger;
@@ -36,9 +35,10 @@ public class GatherBlocksTask implements Task {
         SUCCESS, NO_BLOCKS_FOUND, FAILED_TO_COLLECT
     }
 
-    public GatherBlocksTask(Set<Material> materials, int searchRadius) {
+    public GatherBlockTask(Set<Material> materials, int searchRadius, Set<Location> attemptedLocations) {
         this.materials = materials;
         this.searchRadius = searchRadius;
+        this.attemptedLocations = attemptedLocations;
         this.logger = IonNerrus.getInstance().getLogger();
         this.mainThreadExecutor = IonNerrus.getInstance().getMainThreadExecutor();
     }
@@ -70,7 +70,7 @@ public class GatherBlocksTask implements Task {
                         return CompletableFuture.completedFuture(null);
                     }
                     if (resultOpt.isEmpty()) {
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.NO_BLOCKS_FOUND);
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.NO_BLOCKS_FOUND);
                         return CompletableFuture.completedFuture(null);
                     }
                     AccessibleBlockResult result = resultOpt.get();
@@ -83,16 +83,17 @@ public class GatherBlocksTask implements Task {
         return new NavigateToLocationSkill(standLocation, blockToBreak).execute(agent)
                 .thenCompose(navSuccess -> {
                     if (cancelled || !navSuccess) {
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.FAILED_TO_COLLECT);
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false); // Abort this attempt
                     }
                     return new EquipBestToolSkill(blockToBreak.getBlock()).execute(agent);
                 })
                 .thenCompose(equipSuccess -> {
                     if (cancelled || !equipSuccess) {
-                        if (!cancelled)
+                        if (!cancelled) {
                             logger.warning("Could not equip best tool. Finding next block.");
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.FAILED_TO_COLLECT);
+                        }
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false); // Abort this attempt
                     }
                     return new BreakBlockSkill(blockToBreak).execute(agent);
@@ -103,7 +104,7 @@ public class GatherBlocksTask implements Task {
                     }
                     if (!breakSuccess) {
                         logger.warning("Could not break the block. Finding next one.");
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.FAILED_TO_COLLECT);
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(null);
                     }
                     return collectNearbyItem(blockToBreak);
@@ -130,10 +131,10 @@ public class GatherBlocksTask implements Task {
                         return;
                     }
                     if (collectSuccess) {
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.SUCCESS);
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
                     } else {
                         logger.warning("Failed to navigate to pick up item. Still counting as a partial success.");
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCKS_RESULT, GatherResult.SUCCESS);
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
                     }
                 });
     }

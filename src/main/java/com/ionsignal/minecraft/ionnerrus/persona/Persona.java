@@ -6,6 +6,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.Navigator;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 
+import net.minecraft.world.Container;
 import org.bukkit.Location;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Entity;
@@ -79,6 +80,9 @@ public class Persona {
         if (!isSpawned()) {
             return;
         }
+        if (isInventoryLocked()) {
+            return;
+        }
         navigator.tick();
         actionController.tick();
     }
@@ -148,6 +152,18 @@ public class Persona {
             return null;
         }
         return this.personaEntity.getBukkitEntity().getInventory();
+    }
+
+    @Nullable
+    public Container getNmsInventory() {
+        if (!isSpawned()) {
+            return null;
+        }
+        return this.personaEntity.getInventory();
+    }
+
+    public boolean isInventoryLocked() {
+        return isSpawned() && personaEntity.isInventoryLocked();
     }
 
     @Nullable
