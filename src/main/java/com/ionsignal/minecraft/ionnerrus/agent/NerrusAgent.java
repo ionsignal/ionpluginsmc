@@ -72,19 +72,11 @@ public class NerrusAgent {
         if (currentGoal == null) {
             return;
         }
-
-        if (currentGoal.isFinished()) {
-            // Goal has finished (completed or failed), run its final process() to speak, then clean up.
-            currentGoal.process(this);
-            assignGoal(null);
+        currentGoal.process(this);
+        if (currentTask != null) {
             return;
         }
-
-        currentGoal.process(this);
-
-        // If process() didn't assign a task and the goal is now finished, clean up.
-        if (currentTask == null && currentGoal.isFinished()) {
-            currentGoal.process(this); // Final words
+        if (currentGoal.isFinished()) {
             assignGoal(null);
         }
     }

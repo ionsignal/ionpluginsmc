@@ -134,7 +134,7 @@ public class GatherBlockTask implements Task {
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
                     } else {
                         logger.warning("Failed to navigate to pick up item. Still counting as a partial success.");
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
+                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                     }
                 });
     }
