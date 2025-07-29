@@ -9,7 +9,7 @@ public final class BlackboardKeys {
     public static final String ISSUE = "issue";
 
     // Task-specific results
-    public static final String GATHER_BLOCKS_RESULT = "gatherBlocks.result";
+    public static final String GATHER_BLOCK_RESULT = "gatherBlocks.result";
     public static final String GATHER_CURRENT_COUNT = "gather.currentCount";
     public static final String FIND_AREA_RESULT = "findArea.result";
 }
