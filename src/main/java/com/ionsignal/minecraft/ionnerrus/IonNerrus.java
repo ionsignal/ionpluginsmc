@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
+import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCommand;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
@@ -22,6 +23,7 @@ public class IonNerrus extends JavaPlugin {
     private AgentService agentService;
     private TaskFactory taskFactory;
     private NerrusManager nerrusManager;
+    private BlockTagManager blockTagManager;
 
     @SuppressWarnings("unused")
     private PluginConfig pluginConfig;
@@ -36,7 +38,7 @@ public class IonNerrus extends JavaPlugin {
 
         load();
 
-        NerrusCommand nerrusCommand = new NerrusCommand(this.agentService, this.taskFactory);
+        NerrusCommand nerrusCommand = new NerrusCommand(this.agentService, this.taskFactory, this.blockTagManager);
         PluginCommand command = getCommand("nerrus");
         Objects.requireNonNull(command, "The 'nerrus' command is not registered in plugin.yml");
         command.setExecutor(nerrusCommand);
@@ -66,6 +68,7 @@ public class IonNerrus extends JavaPlugin {
 
         this.pluginConfig = new PluginConfig(getConfig());
         this.taskFactory = new TaskFactory(getLogger());
+        this.blockTagManager = new BlockTagManager();
         this.agentService = new AgentService(this, this.nerrusManager);
 
         // TODO: saved agent loading
