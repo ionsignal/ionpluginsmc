@@ -13,14 +13,12 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 // import org.bukkit.block.Biome;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 public class GetBlockGoal implements Goal {
 
@@ -30,6 +28,7 @@ public class GetBlockGoal implements Goal {
 
     private final TaskFactory taskFactory;
     private final Set<Material> materials;
+    private final String groupName;
     private final int requiredCount;
     private final Logger logger;
 
@@ -38,14 +37,11 @@ public class GetBlockGoal implements Goal {
     private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
 
-    private static final Set<Material> WOOD_LOGS = Arrays.stream(Material.values())
-            .filter(m -> m.name().endsWith("_LOG"))
-            .collect(Collectors.toSet());
-
-    public GetBlockGoal(TaskFactory taskFactory, int count) {
+    public GetBlockGoal(TaskFactory taskFactory, Set<Material> materials, String groupName, int requiredCount) {
         this.taskFactory = taskFactory;
-        this.materials = WOOD_LOGS;
-        this.requiredCount = count;
+        this.materials = materials;
+        this.groupName = groupName;
+        this.requiredCount = requiredCount;
         this.logger = IonNerrus.getInstance().getLogger();
     }
 
@@ -53,7 +49,7 @@ public class GetBlockGoal implements Goal {
     public void start(NerrusAgent agent) {
         this.attemptedLocations.clear();
         agent.speak(
-                "Okay, I'll get " + requiredCount + " " + materials.iterator().next().toString().toLowerCase().replace('_', ' ') + "s.");
+                "Okay, I'll get " + requiredCount + " " + groupName + ".");
     }
 
     @Override

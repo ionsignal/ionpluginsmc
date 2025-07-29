@@ -3,6 +3,7 @@ package com.ionsignal.minecraft.ionnerrus.commands;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GetBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
@@ -12,16 +13,19 @@ import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class NerrusCommand implements CommandExecutor, TabCompleter {
@@ -29,11 +33,13 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     private final IonNerrus plugin;
     private final AgentService agentService;
     private final TaskFactory taskFactory;
+    private final BlockTagManager blockTagManager;
 
-    public NerrusCommand(AgentService agentService, TaskFactory taskFactory) {
+    public NerrusCommand(AgentService agentService, TaskFactory taskFactory, BlockTagManager blockTagManager) {
         this.plugin = IonNerrus.getInstance();
         this.agentService = agentService;
         this.taskFactory = taskFactory;
+        this.blockTagManager = blockTagManager;
     }
 
     @Override
@@ -138,8 +144,8 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean handleGetBlock(CommandSender sender, String[] args) {
-        if (args.length < 2) {
-            sender.sendMessage(Component.text("Usage: /nerrus getblock <name> [amount]", NamedTextColor.RED));
+        if (args.length < 4) {
+            sender.sendMessage(Component.text("Usage: /nerrus getblock <name> <type> <amount>", NamedTextColor.RED));
             return true;
         }
         String name = args[1];
@@ -148,20 +154,29 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
             return true;
         }
-        int amount = 1;
-        if (args.length > 2) {
-            try {
-                amount = Integer.parseInt(args[2]);
-                if (amount <= 0) {
-                    sender.sendMessage(Component.text("Amount must be a positive number.", NamedTextColor.RED));
-                    return true;
-                }
-            } catch (NumberFormatException e) {
-                sender.sendMessage(Component.text("Invalid amount. Must be a number.", NamedTextColor.RED));
+
+        String type = args[2].toLowerCase();
+        Set<Material> materials = blockTagManager.getMaterialSet(type);
+        if (materials == null || materials.isEmpty()) {
+            sender.sendMessage(Component.text("Invalid block type: " + type, NamedTextColor.RED));
+            String availableTypes = String.join(", ", blockTagManager.getRegisteredGroupNames());
+            sender.sendMessage(Component.text("Available types: " + availableTypes, NamedTextColor.GRAY));
+            return true;
+        }
+
+        int amount;
+        try {
+            amount = Integer.parseInt(args[3]);
+            if (amount <= 0) {
+                sender.sendMessage(Component.text("Amount must be a positive number.", NamedTextColor.RED));
                 return true;
             }
+        } catch (NumberFormatException e) {
+            sender.sendMessage(Component.text("Invalid amount. Must be a number.", NamedTextColor.RED));
+            return true;
         }
-        Goal getBlockGoal = new GetBlockGoal(taskFactory, amount);
+
+        Goal getBlockGoal = new GetBlockGoal(taskFactory, materials, type, amount);
         agent.assignGoal(getBlockGoal);
         return true;
     }
@@ -207,10 +222,13 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                             .map(Player::getName)
                             .collect(Collectors.toList());
                 case "getblock":
-                    return List.of("8", "16", "32", "64");
+                    return blockTagManager.getRegisteredGroupNames().stream().sorted().collect(Collectors.toList());
                 default:
                     return Collections.emptyList();
             }
+        }
+        if (args.length == 4 && "getblock".equalsIgnoreCase(args[0])) {
+            return List.of("8", "16", "32", "64");
         }
         return Collections.emptyList();
     }

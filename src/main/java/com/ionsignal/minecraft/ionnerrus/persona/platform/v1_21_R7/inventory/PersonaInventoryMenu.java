@@ -98,6 +98,7 @@ public class PersonaInventoryMenu extends AbstractContainerMenu {
     }
 
     @Override
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     public @NotNull InventoryView getBukkitView() {
         if (this.bukkitView == null) {
             CraftInventory inventory = new CraftInventory(this.personaInventory);
