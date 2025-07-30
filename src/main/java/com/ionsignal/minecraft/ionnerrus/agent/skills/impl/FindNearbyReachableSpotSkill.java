@@ -25,6 +25,7 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
     private final Location targetLocation;
     private final int searchRadius;
     private final int verticalRadius;
+    private static final double MAX_REACH_SQUARED = 6.0 * 6.0; // 36, a generous 6-block reach.
 
     /**
      * Constructs the skill with a cubic search area.
@@ -58,6 +59,7 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
 
             // Search in a cube around the target
             List<Location> candidates = new ArrayList<>();
+            Location targetCenter = targetLocation.clone().add(0.5, 0.5, 0.5);
             int startX = targetLocation.getBlockX();
             int startY = targetLocation.getBlockY();
             int startZ = targetLocation.getBlockZ();
@@ -69,7 +71,10 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
                         Block bodyBlock = feetBlock.getRelative(BlockFace.UP);
 
                         if (isSolid(standBlock) && isPassable(feetBlock) && isPassable(bodyBlock)) {
-                            candidates.add(feetBlock.getLocation().add(0.5, 0, 0.5));
+                            Location standingSpot = feetBlock.getLocation().add(0.5, 0, 0.5);
+                            if (standingSpot.distanceSquared(targetCenter) <= MAX_REACH_SQUARED) {
+                                candidates.add(standingSpot);
+                            }
                         }
                     }
                 }

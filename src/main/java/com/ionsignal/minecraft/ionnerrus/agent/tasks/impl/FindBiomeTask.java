@@ -4,7 +4,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindNearestBiomeSkill;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindStandingLocationSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindNearbyReachableSpotSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 
 import org.bukkit.Location;
@@ -57,12 +57,13 @@ public class FindBiomeTask implements Task {
     }
 
     private CompletableFuture<Void> processSingleBlock(Location blockLocation, String biomeNames) {
-        return new FindStandingLocationSkill(blockLocation).execute(agent)
-                .thenCompose(standLocation -> {
+        return new FindNearbyReachableSpotSkill(blockLocation, 32).execute(agent)
+                .thenCompose(standLocationOpt -> {
                     if (cancelled) {
                         return CompletableFuture.completedFuture(null);
                     }
-                    if (standLocation != null) {
+                    if (standLocationOpt.isPresent()) {
+                        Location standLocation = standLocationOpt.get();
                         agent.getBlackboard().put(BlackboardKeys.TARGET_LOCATION, standLocation);
                         logger.info("Agent found location nearby at " + standLocation.toString());
                     } else {
