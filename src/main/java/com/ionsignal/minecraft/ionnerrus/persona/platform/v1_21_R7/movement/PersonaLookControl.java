@@ -54,7 +54,7 @@ public class PersonaLookControl {
         } else {
             // This is the idle `PersonaEntity` look and face behavior
             // When not looking at a specific point, smoothly align head with body and look forward.
-            this.entity.setXRot(this.rotlerp(this.entity.getXRot(), 0.0F, 2.0F));
+            this.entity.setXRot(this.rotlerp(this.entity.getXRot(), 0.0F, 8.0F));
             this.entity.setYHeadRot(this.rotlerp(this.entity.getYHeadRot(), this.entity.yBodyRot, this.yHeadRotSpeed));
         }
     }

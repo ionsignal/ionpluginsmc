@@ -2,14 +2,17 @@ package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 // import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import net.minecraft.core.BlockPos;
+
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.util.Vector;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-// import java.util.logging.Logger;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -18,7 +21,7 @@ import java.util.stream.Collectors;
  */
 public class Path {
     private static final int SPLINE_POINTS_PER_SEGMENT = 10;
-    // private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
+    private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final List<Location> points;
     private final List<Location> waypoints;
@@ -41,8 +44,8 @@ public class Path {
         this.points = initialPoints;
         this.waypoints = simplifyPath(initialPoints);
         this.smoothedPoints = PathSmoother.generateSpline(this.waypoints, SPLINE_POINTS_PER_SEGMENT);
-        // LOGGER.info(String.format("Path created. Raw points: %d, Simplified waypoints: %d, Smoothed points: %d",
-        //         this.points.size(), this.waypoints.size(), this.smoothedPoints.size()));
+        // DEBUG
+        this.debug(this.waypoints);
     }
 
     /**
@@ -55,8 +58,17 @@ public class Path {
         this.points = Collections.unmodifiableList(new ArrayList<>(points));
         this.waypoints = simplifyPath(this.points);
         this.smoothedPoints = PathSmoother.generateSpline(this.waypoints, SPLINE_POINTS_PER_SEGMENT);
-        // LOGGER.info(String.format("Path created. Raw points: %d, Simplified waypoints: %d, Smoothed points: %d",
-        //         this.points.size(), this.waypoints.size(), this.smoothedPoints.size()));
+        // DEBUG
+        this.debug(this.waypoints);
+    }
+
+    private void debug(List<Location> waypoints) {
+        StringBuilder sb = new StringBuilder("Path created with " + waypoints.size() + " waypoints:");
+        for (int i = 0; i < waypoints.size(); i++) {
+            Location loc = waypoints.get(i);
+            sb.append(String.format("\n  [%d] -> (%.1f, %.1f, %.1f)", i, loc.getX(), loc.getY(), loc.getZ()));
+        }
+        LOGGER.info(sb.toString());
     }
 
     /**
