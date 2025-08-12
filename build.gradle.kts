@@ -21,11 +21,15 @@ dependencies {
   compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
   paperweight.paperDevBundle("1.21.7-R0.1-SNAPSHOT")
 
+  // Simple OpenAI API Layer
+  implementation("io.github.sashirestela:simple-openai:3.22.1")
+
+
   // HTTP Client for future LLM integration
   implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.14")
 
-  // JSON Processor for LLM integration
-  implementation("com.google.code.gson:gson:2.13.1")
+  // // JSON Processor for LLM integration
+  // implementation("com.google.code.gson:gson:2.13.1")
 }
 
 repositories {
@@ -69,7 +73,7 @@ tasks {
   shadowJar {
     relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3") // 
     relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio") // okhttp's dependency
-    relocate("com.google.gson", "com.ionsignal.minecraft.ionnerrus.lib.gson") // json parsing
+    // relocate("com.google.gson", "com.ionsignal.minecraft.ionnerrus.lib.gson") // json parsing
     
     archiveClassifier.set("") // single, shaded JAR without a classifier
   }

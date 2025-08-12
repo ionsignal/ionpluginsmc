@@ -8,7 +8,7 @@ depend: []
 commands:
   nerrus:
     description: Manages Nerrus agents and their tasks.
-    usage: "/<command> <spawn|remove|stop|getblock|list> ..."
+    usage: "/<command> <spawn|remove|stop|getblock|do|list> ..."
     aliases: [ionnerrus]
     permission: ionnerrus.admin
 permissions:
