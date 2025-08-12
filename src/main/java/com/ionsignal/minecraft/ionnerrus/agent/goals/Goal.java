@@ -29,4 +29,12 @@ public interface Goal {
      * Use this for any cleanup logic.
      */
     void stop(NerrusAgent agent);
+
+    /**
+     * Gets the final result of the goal after it has finished.
+     * This should only be called when isFinished() returns true.
+     *
+     * @return A GoalResult object containing the outcome and a descriptive message.
+     */
+    GoalResult getFinalResult();
 }

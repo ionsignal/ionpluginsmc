@@ -10,3 +10,8 @@ enabled-worlds:
 
 integrations:
   huskhomes: false
+
+llm:
+  apiKey: ""
+  baseUrl: "http://172.20.2.104:8000"
+  modelName: "qwen3-coder"
