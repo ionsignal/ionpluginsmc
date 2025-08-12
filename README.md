@@ -1,20 +1,29 @@
 # IonNerrus
 
+![IonNerrus](./logo.png)
+
 ![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
-![Minecraft Version](https://img.shields.io/badge/Minecraft-1.21+-green.svg)
-<!-- ![Discord](https://img.shields.io/discord/your-discord-invite-code?label=Join%20Our%20Discord&logo=discord) -->
+![Minecraft Version](https://img.shields.io/badge/Minecraft-1.21.7-green.svg)
+![Discord](https://img.shields.io/discord/your-discord-invite-code?label=Join%20Our%20Discord&logo=discord)
 
-IonNerrus is an advanced AI engine for Minecraft NPCs, built on the PaperMC platform. Our mission is to create truly intelligent, autonomous agents that can understand complex, natural language commands and execute multi-step plans to interact with the world in meaningful ways.
+IonNerrus is an advanced AI engine for Minecraft NPCs, built on the PaperMC platform. Our mission is to create truly intelligent, autonomous agents that can understand complex goals and execute multi-step plans to interact with the world in meaningful ways.
 
 This project is architected from the ground up to be "LLM-Ready," providing a robust framework for integrating Large Language Models to drive NPC decision-making, while keeping the moment-to-moment actions performant and reliable.
 
+## Project Philosophy
+
+The goal of IonNerrus is to create AI agents, or "Personas," that are more than just mindless mobs. We aim for a level of believability and capability that makes them feel like genuine participants in the world. This is achieved by combining a high-performance, game-native engine for core actions (like movement and interaction) with a sophisticated hierarchical AI for high-level reasoning. The result is an agent that can navigate complex terrain, use tools, manage its inventory, and react to its environment, all while providing a stable foundation for LLM-driven planning (coming soon).
+
 ## Core Features
 
-* **Hierarchical Task Execution:** A sophisticated `Goal -> Task -> Skill` architecture that translates high-level objectives into concrete, low-level actions.
-* **Dynamic Goal Planning:** Agents can be assigned complex goals that they will pursue until completion, reacting to their environment along the way.
-* **Extensible Skill System:** Easily add new abilities to agents (from breaking blocks to crafting items) by implementing a simple `Skill` interface, without needing to modify the core agent logic.
-* **LLM-Ready Architecture:** The entire system is designed for a Large Language Model to act as a "planner," generating `Goal` plans that the agent can execute. The expensive AI thinking happens once, and the fast Java code handles the rest.
+* **Hierarchical AI (`Goal -> Task -> Skill`):** A sophisticated architecture that translates high-level objectives into concrete, low-level actions, making complex behaviors manageable and extensible.
+* **High-Performance Asynchronous Navigation:** A custom, multi-threaded A* pathfinder that uses world snapshots for thread-safe calculation. It finds optimal paths through complex 3D environments, including climbing, falling, and swimming, without impacting server performance.
+* **Advanced Look & Body Control:** A custom controller that provides smooth, context-aware head and body rotation. Personas will realistically turn to face their navigation waypoints, look at blocks they are breaking, and turn to face players who interact with them.
+* **Queued Action System:** A robust controller that manages a queue of actions (e.g., breaking a block, looking at a target), ensuring that a Persona can perform complex sequences of behaviors without conflicts.
+* **Interactive Inventory Management:** Right-clicking a Persona opens a custom GUI, allowing players to directly view and manage the Persona's inventory alongside their own.
+* **Interaction State-Locking:** To ensure stability, a Persona's AI, navigation, and actions are automatically paused when a player is viewing its inventory. The Persona will remain stationary and look at the player until the inventory is closed, at which point it seamlessly resumes its prior activity.
+* **Extensible Skill Library:** A collection of fundamental, reusable abilities (e.g., `FindAccessibleBlockSkill`, `BreakBlockSkill`, `EquipBestToolSkill`, `CollectItemSkill`) that serve as the building blocks for all higher-level tasks.
 
 ## The IonNerrus Architecture: A Hierarchy of Intent
 
@@ -22,19 +31,20 @@ The power of IonNerrus lies in its clean separation of concerns. Every action an
 
 ### **Goal (The "Why")**
 
-* **Role:** The highest-level objective. This is what the agent ultimately wants to achieve. A goal is responsible for creating a plan, which is a sequence of tasks.
-* **Example:** "Get 64 oak logs."
-* **LLM Integration:** This is the primary entry point for an LLM. A natural language command like "build me a shelter" will be interpreted by an LLM, which then generates a `Goal` plan (a list of tasks) for the agent to follow.
+* **Role:** The highest-level objective. This is what the agent ultimately wants to achieve. A goal is a state machine that decides which task to run next based on the agent's state and the results of previous tasks.
+* **Example:** A `GetBlockGoal` is given the objective "get 64 oak logs." It will first run a task to check its inventory, then loop through gathering tasks until the count is met.
+* **LLM Integration:** This is the primary entry point for an LLM. A natural language command will be interpreted by an LLM, which then generates a `Goal` plan for the agent to follow.
+clear
 
 ### **Task (The "What")**
 
 * **Role:** A major, self-contained step required to achieve a `Goal`. A task orchestrates a sequence of low-level skills to get its job done.
-* **Example:** To fulfill the "Get Logs" goal, an agent might execute a `FindBiomeTask` (to find a forest), a `GoToLocationTask` (to travel there), and a `GatherBlocksTask`.
+* **Example:** To fulfill its objective, the `GetBlockGoal` repeatedly runs a `GatherBlockTask`. This task is responsible for the entire "find one, go to one, break one, collect one" cycle.
 
 ### **Skill (The "How")**
 
-* **Role:** A single, atomic, and reusable action. Skills are the fundamental building blocks of all agent behavior and are direct wrappers around game APIs.
-* **Example:** The `GatherBlocksTask` uses a loop of `FindNearestBlockSkill`, `NavigateToLocationSkill`, `BreakBlockSkill`, and `CollectItemSkill` to do its job.
+* **Role:** A single, atomic, and reusable action. Skills are the fundamental building blocks of all agent behavior and are often direct wrappers around game APIs or complex calculations.
+* **Example:** The `GatherBlockTask` uses a chain of skills: `FindAccessibleBlockSkill` -> `NavigateToLocationSkill` -> `EquipBestToolSkill` -> `BreakBlockSkill` -> `CollectItemSkill`.
 
 This hierarchy makes the system incredibly robust and extensible. To teach an agent a new trick, you just need to write a new `Skill`—the `Task` and `Goal` layers can then orchestrate it to build complex behaviors.
 
@@ -47,48 +57,57 @@ This hierarchy makes the system incredibly robust and extensible. To teach an ag
 
 ### Installation
 
-1. Download the latest release from the [Releases](https://github.com/your-username/ionnerrus/releases) page.
+1. Download the latest release from the [Releases](https://github.com/ionsignal/ionnerrus/releases) page.
 2. Place the plugin file into your server's `/plugins` directory.
 3. Start or restart your server.
-4. (Optional) Configure the `plugins/IonNerrus/config.yml` file with your settings, such as the LLM API endpoint and key when that feature is available.
+4. (Optional) Configure the `plugins/IonNerrus/config.yml` file.
 
 ## Usage & Commands
 
-You can manage Nerrus agents using the `/nerrus` command.
+You can manage Personas using the `/nerrus` command.
 
-* **Spawn an agent:**
+* **Spawn a Persona:**
 
-```bash
-/nerrus spawn <name> [skin_name]
-```
+    ```bash
+    /nerrus spawn <name> [skin_name]
+    ```
 
-*Example: `/nerrus spawn Bob Notch`*
+    *Example: `/nerrus spawn Bob Notch`*
 
-* **Remove an agent:**
+* **Remove a Persona:**
 
-```bash
-/nerrus remove <name>
-```
+    ```bash
+    /nerrus remove <name>
+    ```
 
-* **Stop an agent's current goal:**
+* **Stop a Persona's current goal:**
 
-```bash
-/nerrus stop <name>
-```
+    ```bash
+    /nerrus stop <name>
+    ```
 
-* **Give an agent a simple goal:**
+* **List all active Personas:**
 
-```bash
-/nerrus getblock <name> [amount]
-```
+    ```bash
+    /nerrus list
+    ```
 
-*This command demonstrates the Goal system by telling an agent to gather wood logs.*
+* **Give a Persona a simple goal:**
 
-* **(Future) Give an agent a complex, natural language goal:**
+    ```bash
+    /nerrus getblock <name> [amount]
+    ```
 
-```bash
-/nerrus ask <name> "find a cave and gather a stack of iron ore for me"
-```
+    *This command demonstrates the Goal system by telling a Persona to gather wood logs.*
+
+* **Manage Inventory:**
+  * **Right-click** a Persona to open its inventory.
+
+* **(Future) Give a Persona a complex, natural language goal:**
+
+    ```bash
+    /nerrus ask <name> "find a cave and gather a stack of iron ore for me"
+    ```
 
 ## For Developers
 
@@ -116,27 +135,32 @@ Interested in contributing? Here's how to get a development environment set up.
 
 3. The compiled, shaded JAR will be located in `build/libs/`.
 
-## Roadmap
+## Project Status & Roadmap
 
-This project is under active development. Our roadmap is broken down into several key phases.
+This project is under active development.
 
-* **Phase 1: Core Framework**
-  * Establish the `Goal -> Task -> Skill` architecture.
-  * Implement a robust `AgentService` for managing NPCs.
-  * Create a foundational set of skills for navigation, mining, and collection.
-  * Build basic commands for spawning and managing agents.
+### **Current Status: Engine Complete**
 
-* **Phase 2: LLM Integration (In Progress)**
-  * Develop the proprietary API endpoint that translates structured requests into optimized LLM prompts.
-  * Create the `LLMService` in the plugin to communicate with the API.
-  * Implement the `LLMGeneratedGoal` to execute plans received from the API.
-  * Add the `/nerrus ask` command for natural language instructions.
+The core engine is feature-complete and stable. Key systems developed include:
 
-* **Phase 3: Advanced Behaviors & Memory (Spring 2026)**
-  * Expand the `Skill` library to include combat, farming, building, and crafting.
-  * Implement a long-term memory system for agents using a persistent database.
-  * Develop agent-to-agent communication and collaboration.
-  * Introduce autonomous agent drives (e.g., self-preservation, resource stockpiling).
+* **Core Engine & Behavior Systems:** Foundational infrastructure (`Persona`, `NerrusManager`), robust NMS integration (`PersonaEntity`), asynchronous navigation, and a queued action/animation controller.
+* **World Presence & Foundational Skills:** World presence through chat and player list management, basic player engagement reactions, and core pathfinding utilities.
+* **Advanced Intelligence & Believability:** Sophisticated skills for pathing dead-end resolution and advanced look/body controllers for smooth, context-aware rotation.
+* **Interactive Inventory Management:** A fully interactive, custom inventory GUI with a robust state-locking mechanism to ensure stability during player interaction.
+
+### **Next Steps: LLM Planner Integration**
+
+* Develop the proprietary API endpoint that translates structured requests into optimized LLM prompts.
+* Create the `LLMService` in the plugin to communicate with the API.
+* Implement an `LLMPlanner` to generate and execute plans received from the API.
+* Add the `/nerrus ask` command for natural language instructions.
+
+### **Future Vision**
+
+* **Advanced Skill Library:** Expand the `Skill` library to include combat, farming, building, and crafting.
+* **Long-Term Memory:** Implement a persistent memory system for agents.
+* **Agent Collaboration:** Develop agent-to-agent communication and collaborative task execution.
+* **Autonomous Drives:** Introduce agent drives (e.g., self-preservation, resource stockpiling) for fully autonomous behavior.
 
 ## Contributing
 
