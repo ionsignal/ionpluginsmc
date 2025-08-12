@@ -43,11 +43,11 @@ public class AgentContext {
         sb.append("   - If the objective is achievable, select the single best tool to make progress.\n");
         sb.append("   - If the objective is impossible with your tools, you MUST use the `CANNOT_COMPLETE` tool to explain why.\n");
         sb.append("3. **Act:** After the tool result is returned, repeat the loop.\n");
-        sb.append(
-                "4. **Report:** Once the objective is fully achieved or you have used `CANNOT_COMPLETE`, respond with a brief message to the user instead of calling another tool.\n\n");
+        sb.append("4. **Report:** Once the objective is fully achieved or you have used `CANNOT_COMPLETE`,");
+        sb.append(" respond with a brief message to the user instead of calling another tool.\n\n");
 
         // Global Rule - A direct command to keep spoken responses short.
-        sb.append("IMPORTANT: Keep all your spoken responses (your `content` replies) brief and to the point.");
+        sb.append("IMPORTANT: Keep your responses (your `content` replies) brief and to the point.");
 
         return sb.toString();
     }
@@ -65,7 +65,7 @@ public class AgentContext {
                         "- Time: %s (isDay: %b)\n",
                 world.getName(),
                 location.getX(), location.getY(), location.getZ(),
-                world.getBiome(location).name(),
+                world.getComputedBiome(location.getBlockX(), location.getBlockY(), location.getBlockZ()).getKey().getKey(),
                 time,
                 world.isDayTime());
     }

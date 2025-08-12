@@ -229,7 +229,6 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    // TODO: Get an explaination on the changes to our switch statements here (do before commit/checkin)
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
