@@ -16,6 +16,8 @@ public class LLMService {
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
     private final SimpleOpenAI openAI;
     private final String modelName;
+
+    @SuppressWarnings("unused")
     private final IonNerrus plugin;
 
     public LLMService(IonNerrus plugin) {

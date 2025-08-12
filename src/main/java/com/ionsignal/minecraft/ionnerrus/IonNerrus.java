@@ -2,22 +2,24 @@ package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.ParameterDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CannotCompleteParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCommand;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
-import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
+import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.Map;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import java.util.Objects;
 import java.util.concurrent.Executor;
 
@@ -87,7 +89,7 @@ public class IonNerrus extends JavaPlugin {
         this.goalRegistry = new GoalRegistry();
         registerGoals(); // Keep the load() method clean, maybe move to init() method
 
-        this.goalFactory = new GoalFactory(this.goalRegistry, this.taskFactory, this.blockTagManager);
+        this.goalFactory = new GoalFactory(this.taskFactory, this.blockTagManager);
         this.llmService = new LLMService(this);
 
         // Load saved agents, future implementation
@@ -99,21 +101,27 @@ public class IonNerrus extends JavaPlugin {
      * This is where new agent capabilities are "announced" to the system.
      */
     private void registerGoals() {
-        goalRegistry.register(new GoalDefinition(
+        goalRegistry.register(new ToolDefinition(
                 "CANNOT_COMPLETE",
                 "Call this function if and only if the user's objective is impossible to achieve with the other available tools. Use it to explain why the task cannot be done.",
-                Map.of("reason",
-                        new ParameterDefinition("String", "A clear explanation about why the objective failed.", true))));
-        goalRegistry.register(new GoalDefinition(
+                CannotCompleteParameters.class));
+        goalRegistry.register(new ToolDefinition(
                 "GET_BLOCKS",
                 "Navigates to and gathers a specified quantity of a block type from a predefined group.",
-                Map.of(
-                        "groupName",
-                        new ParameterDefinition("String",
-                                "The block group to collect (only 'wood', 'stone', 'dirt', 'sand', 'flowers' and 'mushroom' are supported).",
-                                true),
-                        "quantity", new ParameterDefinition("int", "The number of blocks to collect.", true))));
-        // Future goals like CRAFT_ITEM would be registered here
+                GetBlockParameters.class,
+                // append to the `groupName` property description a valid list of `blockTagManager` group names
+                schema -> {
+                    String validGroups = String.join(", ", blockTagManager.getRegisteredGroupNames());
+                    ObjectNode properties = (ObjectNode) schema.get("properties");
+                    if (properties != null) {
+                        ObjectNode groupNameProp = (ObjectNode) properties.get("groupName");
+                        if (groupNameProp != null) {
+                            String currentDesc = groupNameProp.get("description").asText();
+                            groupNameProp.put("description", currentDesc + " Available groups: " + validGroups);
+                        }
+                    }
+                    return schema;
+                }));
     }
 
     public static IonNerrus getInstance() {

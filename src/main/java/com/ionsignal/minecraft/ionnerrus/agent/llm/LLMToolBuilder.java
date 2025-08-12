@@ -1,62 +1,42 @@
 package com.ionsignal.minecraft.ionnerrus.agent.llm;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import io.github.sashirestela.openai.common.tool.ToolType;
+import io.github.sashirestela.openai.common.function.SchemaConverter;
 import io.github.sashirestela.openai.common.tool.Tool;
-
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalDefinition;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.ParameterDefinition;
+import io.github.sashirestela.openai.common.tool.ToolType;
+import io.github.sashirestela.openai.support.DefaultSchemaConverter;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 
 public class LLMToolBuilder {
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final SchemaConverter schemaConverter = new DefaultSchemaConverter();
 
-    public static List<Tool> fromGoalDefinitions(Collection<GoalDefinition> goalDefinitions) {
+    public static List<Tool> fromToolDefinitions(Collection<ToolDefinition> toolDefinitions) {
         List<Tool> tools = new ArrayList<>();
-        for (GoalDefinition goalDef : goalDefinitions) {
-            tools.add(createToolFromGoal(goalDef));
+        for (ToolDefinition toolDef : toolDefinitions) {
+            tools.add(createToolFromDefinition(toolDef));
         }
         return tools;
     }
 
-    private static Tool createToolFromGoal(GoalDefinition goalDef) {
-        ObjectNode propertiesNode = objectMapper.createObjectNode();
-        ArrayNode requiredPropertiesNode = objectMapper.createArrayNode();
-        for (Map.Entry<String, ParameterDefinition> entry : goalDef.parameters().entrySet()) {
-            String paramName = entry.getKey();
-            ParameterDefinition paramDef = entry.getValue();
-            ObjectNode propertyNode = objectMapper.createObjectNode();
-            propertyNode.put("type", mapJavaTypeToJsonSchemaType(paramDef.type()));
-            propertyNode.put("description", paramDef.description());
-            propertiesNode.set(paramName, propertyNode);
-            if (paramDef.required()) {
-                requiredPropertiesNode.add(paramName);
-            }
-        }
-        ObjectNode parametersSchema = objectMapper.createObjectNode();
-        parametersSchema.put("type", "object");
-        parametersSchema.set("properties", propertiesNode);
-        if (!requiredPropertiesNode.isEmpty()) {
-            parametersSchema.set("required", requiredPropertiesNode);
-        }
-        return new Tool(ToolType.FUNCTION, new Tool.ToolFunctionDef(
-                goalDef.name(), goalDef.description(), parametersSchema, true));
-    }
+    private static Tool createToolFromDefinition(ToolDefinition toolDef) {
+        // 1. Generate the base schema from the record using the library's converter.
+        ObjectNode parametersSchema = (ObjectNode) schemaConverter.convert(toolDef.parametersClass());
 
-    private static String mapJavaTypeToJsonSchemaType(String javaType) {
-        return switch (javaType.toLowerCase()) {
-            case "string" -> "string";
-            case "int", "integer", "long" -> "integer";
-            case "double", "float" -> "number";
-            case "boolean" -> "boolean";
-            default -> throw new IllegalArgumentException("Unsupported parameter type for LLM tool schema: " + javaType);
-        };
+        // 2. Apply the dynamic enhancer function to modify the schema.
+        ObjectNode enhancedSchema = toolDef.schemaEnhancer().apply(parametersSchema);
+
+        // 3. Create the tool with the final, enhanced schema.
+        return new Tool(ToolType.FUNCTION, new Tool.ToolFunctionDef(
+                toolDef.name(),
+                toolDef.description(),
+                enhancedSchema,
+                true // strict mode
+        ));
     }
 }
