@@ -4,7 +4,9 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,22 +21,23 @@ import org.bukkit.Bukkit;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.logging.Level;
 
 public class ReActDirector {
     private final IonNerrus plugin;
     private final LLMService llmService;
     private final GoalFactory goalFactory;
+    private final GoalRegistry goalRegistry;
     private final List<ChatMessage> conversationHistory;
     private final List<Tool> availableTools;
     private final AgentContext agentContext;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ReActDirector(NerrusAgent agent, List<Tool> availableTools, GoalFactory goalFactory, LLMService llmService) {
+    public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.plugin = IonNerrus.getInstance();
         this.agentContext = new AgentContext(agent);
-        this.availableTools = availableTools;
+        this.availableTools = LLMToolBuilder.fromToolDefinitions(goalRegistry.getAll());
+        this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.conversationHistory = new ArrayList<>();
@@ -62,15 +65,11 @@ public class ReActDirector {
                 .build();
         // TEMPORARY
         try {
-            plugin.getLogger().info("--- DRY RUN: ReActDirector Cognitive Step ---");
-            plugin.getLogger()
-                    .info("Constructed ChatRequest (JSON): " + objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request));
-            agent.speak("I'm thinking about that, but my connection is offline for testing.");
-            agent.setBusyWithDirective(false); // Manually unset for the test so the agent isn't stuck
-            // return; // Stop before making the actual LLM call
+            plugin.getLogger().info("--- DRY RUN: Constructed ChatRequest (JSON) ---");
+            plugin.getLogger().info(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request));
         } catch (JsonProcessingException e) {
             plugin.getLogger().log(Level.SEVERE, "Dry run serialization failed", e);
-            agent.setBusyWithDirective(false); // Also unset on failure
+            agent.setBusyWithDirective(false);
         }
         // ..
         llmService.getNextToolCall(request).whenCompleteAsync((chat, throwable) -> {
@@ -100,35 +99,26 @@ public class ReActDirector {
         }, plugin.getMainThreadExecutor());
     }
 
-    // MODIFIED: This method now uses the CompletableFuture returned by assignGoal.
     private void handleToolCall(ToolCall toolCall, NerrusAgent agent) {
         String toolName = toolCall.getFunction().getName();
         String argumentsJson = toolCall.getFunction().getArguments();
+        ToolDefinition toolDef = goalRegistry.get(toolName);
         plugin.getLogger().info("LLM requested tool: " + toolName + " with args: " + argumentsJson);
-
-        // CLEANUP NECESSARY
-        if ("CANNOT_COMPLETE".equalsIgnoreCase(toolName)) {
-            try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> arguments = objectMapper.readValue(argumentsJson, Map.class);
-                String reason = (String) arguments.getOrDefault("reason", "I am unable to complete the objective for an unstated reason.");
+        if (toolDef == null) {
+            reportErrorToLLM("Error: Unknown tool '" + toolName + "'.", toolCall, agent);
+            return;
+        }
+        try {
+            Object params = objectMapper.readValue(argumentsJson, toolDef.parametersClass());
+            if ("CANNOT_COMPLETE".equalsIgnoreCase(toolName)) {
+                // Special handling for the termination tool
+                String reason = ((com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CannotCompleteParameters) params).reason();
                 agent.speak("I can't do that. " + reason);
                 plugin.getLogger().warning("ReActDirector terminated by CANNOT_COMPLETE tool. Reason: " + reason);
                 agent.setBusyWithDirective(false);
-                return; // Terminate the cognitive loop
-            } catch (JsonProcessingException | ClassCastException e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to parse arguments for CANNOT_COMPLETE tool.", e);
-                agent.speak("I'm having trouble explaining why I can't do that.");
-                agent.setBusyWithDirective(false);
                 return;
             }
-        }
-
-        try {
-            // Assign the goal and attach a callback to the returned future.
-            @SuppressWarnings("unchecked")
-            Map<String, Object> arguments = objectMapper.readValue(argumentsJson, Map.class);
-            Goal newGoal = goalFactory.createGoal(toolName, arguments);
+            Goal newGoal = goalFactory.createGoal(toolName, params);
             agent.assignGoal(newGoal).whenCompleteAsync((goalResult, throwable) -> {
                 String resultMessage;
                 if (throwable != null) {
@@ -138,9 +128,7 @@ public class ReActDirector {
                     // Use the rich information from the GoalResult object.
                     resultMessage = goalResult.status() + ": " + goalResult.message();
                 }
-                plugin.getLogger()
-                        .info("Goal '" + toolCall.getFunction().getName() + "' finished with result: " + resultMessage);
-                // Create and add the tool message to history
+                plugin.getLogger().info("Goal '" + toolName + "' finished with result: " + resultMessage);
                 ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
                 conversationHistory.add(toolMessage);
                 // Trigger the next cognitive step
@@ -148,16 +136,16 @@ public class ReActDirector {
             }, plugin.getMainThreadExecutor());
         } catch (JsonProcessingException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to parse tool arguments from LLM.", e);
-            // We need to report this failure back to the LLM.
-            ChatMessage toolMessage = ChatMessage.ToolMessage.of("Error: Invalid arguments provided. " + e.getMessage(),
-                    toolCall.getId());
-            conversationHistory.add(toolMessage);
-            cognitiveStep(agent); // Try again
+            reportErrorToLLM("Error: Invalid arguments provided. " + e.getMessage(), toolCall, agent);
         } catch (IllegalArgumentException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to create goal: " + e.getMessage());
-            ChatMessage toolMessage = ChatMessage.ToolMessage.of("Error: " + e.getMessage(), toolCall.getId());
-            conversationHistory.add(toolMessage);
-            cognitiveStep(agent); // Try again
+            reportErrorToLLM("Error: " + e.getMessage(), toolCall, agent);
         }
+    }
+
+    private void reportErrorToLLM(String errorMessage, ToolCall toolCall, NerrusAgent agent) {
+        ChatMessage toolMessage = ChatMessage.ToolMessage.of(errorMessage, toolCall.getId());
+        conversationHistory.add(toolMessage);
+        cognitiveStep(agent);
     }
 }

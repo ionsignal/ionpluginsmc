@@ -7,10 +7,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMToolBuilder;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
-import io.github.sashirestela.openai.common.tool.Tool;
-import java.util.Arrays;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -23,13 +21,11 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
-
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 public class NerrusCommand implements CommandExecutor, TabCompleter {
@@ -186,9 +182,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         }
         // Use the GoalFactory to create the goal and assign it as a single-item plan.
         try {
-            Map<String, Object> params = new HashMap<>();
-            params.put("groupName", groupName);
-            params.put("quantity", amount);
+            GetBlockParameters params = new GetBlockParameters(groupName, amount);
             Goal getBlockGoal = goalFactory.createGoal("GET_BLOCKS", params);
             agent.assignGoal(getBlockGoal);
         } catch (IllegalArgumentException e) {
@@ -214,8 +208,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String directive = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
-        List<Tool> tools = LLMToolBuilder.fromGoalDefinitions(goalRegistry.getAll());
-        ReActDirector director = new ReActDirector(agent, tools, goalFactory, plugin.getLlmService());
+        ReActDirector director = new ReActDirector(agent, goalRegistry, goalFactory, plugin.getLlmService());
         director.executeDirective(directive, agent);
         sender.sendMessage(Component.text("Directive issued to " + name + ": '" + directive + "'", NamedTextColor.GREEN));
         return true;
@@ -229,13 +222,14 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("There are no active Nerrus agents.", NamedTextColor.YELLOW));
         } else {
             sender.sendMessage(Component.text("Active Nerrus agents:", NamedTextColor.GOLD));
-            for (String name : agentNames) {
-                sender.sendMessage(Component.text("- " + name, NamedTextColor.GRAY));
+            for (String agentName : agentNames) {
+                sender.sendMessage(Component.text("- " + agentName, NamedTextColor.GRAY));
             }
         }
         return true;
     }
 
+    // TODO: Get an explaination on the changes to our switch statements here (do before commit/checkin)
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
@@ -244,28 +238,29 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "remove":
-                case "stop":
-                case "getblock":
-                case "do":
+                case "remove", "stop", "getblock", "do" -> {
                     return agentService.getAgents().stream()
                             .map(NerrusAgent::getName)
                             .collect(Collectors.toList());
-                case "spawn":
-                default:
+                }
+                default -> {
                     return Collections.emptyList();
+                }
             }
         }
         if (args.length == 3) {
             switch (args[0].toLowerCase()) {
-                case "spawn":
+                case "spawn" -> {
                     return Bukkit.getOnlinePlayers().stream()
                             .map(Player::getName)
                             .collect(Collectors.toList());
-                case "getblock":
+                }
+                case "getblock" -> {
                     return blockTagManager.getRegisteredGroupNames().stream().sorted().collect(Collectors.toList());
-                default:
+                }
+                default -> {
                     return Collections.emptyList();
+                }
             }
         }
         if (args.length == 4 && "getblock".equalsIgnoreCase(args[0])) {

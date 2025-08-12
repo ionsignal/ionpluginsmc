@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
@@ -22,35 +23,30 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class GetBlockGoal implements Goal {
-
     private enum State {
         CHECKING_INVENTORY, GATHERING, SEARCHING_FOR_DENSE_AREA, MOVING_TO_DENSE_AREA, COMPLETED, FAILED
     }
 
+    private final Logger logger;
     private final TaskFactory taskFactory;
     private final Set<Material> materials;
-    private final String groupName;
-    private final int requiredCount;
-    private final Logger logger;
-
+    private final GetBlockParameters params;
     private final Set<Location> attemptedLocations = new HashSet<>();
 
     private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
 
-    public GetBlockGoal(TaskFactory taskFactory, Set<Material> materials, String groupName, int requiredCount) {
+    public GetBlockGoal(TaskFactory taskFactory, Set<Material> materials, GetBlockParameters params) {
         this.taskFactory = taskFactory;
         this.materials = materials;
-        this.groupName = groupName;
-        this.requiredCount = requiredCount;
+        this.params = params;
         this.logger = IonNerrus.getInstance().getLogger();
     }
 
     @Override
     public void start(NerrusAgent agent) {
         this.attemptedLocations.clear();
-        agent.speak(
-                "Okay, I'll get " + requiredCount + " " + groupName + ".");
+        agent.speak("Okay, I'll get " + params.quantity() + " " + params.groupName() + ".");
     }
 
     @Override
@@ -110,7 +106,7 @@ public class GetBlockGoal implements Goal {
         agent.getBlackboard().get(BlackboardKeys.GATHER_CURRENT_COUNT, Integer.class).ifPresent(count -> {
             this.gatheredCount = count;
             agent.getBlackboard().remove(BlackboardKeys.GATHER_CURRENT_COUNT);
-            if (gatheredCount >= requiredCount) {
+            if (gatheredCount >= params.quantity()) {
                 this.state = State.COMPLETED;
             } else {
                 this.state = State.GATHERING;
@@ -194,11 +190,10 @@ public class GetBlockGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         if (state == State.COMPLETED) {
-            String message = "Successfully gathered " + gatheredCount + " " + groupName + ".";
+            String message = "Successfully gathered " + gatheredCount + " " + params.groupName() + ".";
             return new GoalResult(GoalResult.Status.SUCCESS, message);
         } else {
-            // This covers FAILED state and any other unexpected state.
-            String message = "Failed to gather the required " + requiredCount + " " + groupName + ". Only found "
+            String message = "Failed to gather the required " + params.quantity() + " " + params.groupName() + ". Only found "
                     + gatheredCount + ".";
             return new GoalResult(GoalResult.Status.FAILURE, message);
         }

@@ -51,7 +51,6 @@ public class NerrusAgent {
         return currentGoal;
     }
 
-    // MODIFIED: Method signature and logic changed to manage and return a CompletableFuture.
     public CompletableFuture<GoalResult> assignGoal(Goal goal) {
         if (this.currentGoal != null) {
             this.currentGoal.stop(this);
