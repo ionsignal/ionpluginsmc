@@ -139,4 +139,8 @@ public class IonNerrus extends JavaPlugin {
     public LLMService getLlmService() {
         return llmService;
     }
+
+    public AgentService getAgentService() {
+        return agentService;
+    }
 }

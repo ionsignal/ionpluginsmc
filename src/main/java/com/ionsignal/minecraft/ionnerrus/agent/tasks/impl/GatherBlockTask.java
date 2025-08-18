@@ -75,16 +75,23 @@ public class GatherBlockTask implements Task {
                     }
                     AccessibleBlockResult result = resultOpt.get();
                     attemptedLocations.add(result.blockLocation());
-                    return navigateToAndBreak(result.standingLocation(), result.blockLocation());
+                    // Chain to thenAccept to correctly terminate the future chain as void
+                    return navigateToAndBreak(result.standingLocation(), result.blockLocation())
+                            .thenAccept(success -> {
+                                // The blackboard is updated within the chain. We just need to end the future here.
+                                if (!success) {
+                                    logger.info("Gather cycle failed for block at " + result.blockLocation());
+                                }
+                            });
                 }, mainThreadExecutor);
     }
 
-    private CompletableFuture<Void> navigateToAndBreak(Location standLocation, Location blockToBreak) {
+    private CompletableFuture<Boolean> navigateToAndBreak(Location standLocation, Location blockToBreak) {
         return new NavigateToLocationSkill(standLocation, blockToBreak).execute(agent)
                 .thenCompose(navSuccess -> {
                     if (cancelled || !navSuccess) {
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
-                        return CompletableFuture.completedFuture(false); // Abort this attempt
+                        return CompletableFuture.completedFuture(false);
                     }
                     return new EquipBestToolSkill(blockToBreak.getBlock()).execute(agent);
                 })
@@ -94,24 +101,24 @@ public class GatherBlockTask implements Task {
                             logger.warning("Could not equip best tool. Finding next block.");
                         }
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
-                        return CompletableFuture.completedFuture(false); // Abort this attempt
+                        return CompletableFuture.completedFuture(false);
                     }
                     return new BreakBlockSkill(blockToBreak).execute(agent);
                 })
                 .thenCompose(breakSuccess -> {
                     if (cancelled) {
-                        return CompletableFuture.completedFuture(null);
+                        return CompletableFuture.completedFuture(false);
                     }
                     if (!breakSuccess) {
                         logger.warning("Could not break the block. Finding next one.");
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
-                        return CompletableFuture.completedFuture(null);
+                        return CompletableFuture.completedFuture(false);
                     }
                     return collectNearbyItem(blockToBreak);
                 });
     }
 
-    private CompletableFuture<Void> collectNearbyItem(Location brokenBlockLocation) {
+    private CompletableFuture<Boolean> collectNearbyItem(Location brokenBlockLocation) {
         return CompletableFuture.runAsync(() -> {
             // waiting for drop
         }, CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS))
@@ -126,9 +133,9 @@ public class GatherBlockTask implements Task {
                     }
                     return new CollectItemSkill(targetItem).execute(agent);
                 }, mainThreadExecutor)
-                .thenAccept(collectSuccess -> {
+                .thenApply(collectSuccess -> {
                     if (cancelled) {
-                        return;
+                        return false;
                     }
                     if (collectSuccess) {
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
@@ -136,6 +143,7 @@ public class GatherBlockTask implements Task {
                         logger.warning("Failed to navigate to pick up item. Still counting as a partial success.");
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                     }
+                    return collectSuccess;
                 });
     }
 
