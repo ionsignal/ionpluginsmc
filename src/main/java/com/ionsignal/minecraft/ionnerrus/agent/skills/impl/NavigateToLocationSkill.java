@@ -13,8 +13,8 @@ import org.bukkit.Location;
 import java.util.concurrent.CompletableFuture;
 
 public class NavigateToLocationSkill implements Skill<Boolean> {
-    private static final double ARRIVAL_DISTANCE = 0.25;
-    private static final double ARRIVAL_DISTANCE_SQUARED = ARRIVAL_DISTANCE * ARRIVAL_DISTANCE;
+    // private static final double ARRIVAL_DISTANCE = 0.25;
+    // private static final double ARRIVAL_DISTANCE_SQUARED = ARRIVAL_DISTANCE * ARRIVAL_DISTANCE;
     private final Location target;
     private final Location lookAt;
 
@@ -35,15 +35,15 @@ public class NavigateToLocationSkill implements Skill<Boolean> {
         }
         // Testing effect, this can probably be removed
         // if (target.getWorld() != null) {
-        //     target.getWorld().playEffect(target, Effect.ENDER_SIGNAL, 0);
+        // target.getWorld().playEffect(target, Effect.ENDER_SIGNAL, 0);
         // }
         Navigator navigator = persona.getNavigator();
-        if (persona.getLocation().distanceSquared(target) < ARRIVAL_DISTANCE_SQUARED) {
-            if (navigator.isNavigating()) {
-                navigator.cancelNavigation(NavigationResult.SUCCESS);
-            }
-            return CompletableFuture.completedFuture(true);
-        }
+        // if (persona.getLocation().distanceSquared(target) < ARRIVAL_DISTANCE_SQUARED) {
+        // if (navigator.isNavigating()) {
+        // navigator.cancelNavigation(NavigationResult.SUCCESS);
+        // }
+        // return CompletableFuture.completedFuture(true);
+        // }
         // Call the new navigator method and simply return its result.
         return navigator.navigateTo(target, lookAt, NavigationParameters.DEFAULT)
                 .thenApply(result -> result == NavigationResult.SUCCESS);

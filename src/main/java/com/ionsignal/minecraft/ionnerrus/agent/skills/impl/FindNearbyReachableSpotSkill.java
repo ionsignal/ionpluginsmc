@@ -29,8 +29,11 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
 
     /**
      * Constructs the skill with a cubic search area.
-     * @param targetLocation The center of the search area.
-     * @param searchRadius The radius for the search in all three dimensions (x, y, z).
+     * 
+     * @param targetLocation
+     *            The center of the search area.
+     * @param searchRadius
+     *            The radius for the search in all three dimensions (x, y, z).
      */
     public FindNearbyReachableSpotSkill(Location targetLocation, int searchRadius) {
         this(targetLocation, searchRadius, searchRadius);
@@ -38,9 +41,13 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
 
     /**
      * Constructs the skill with a cuboid search area.
-     * @param targetLocation The center of the search area.
-     * @param searchRadius The horizontal radius (x, z).
-     * @param verticalRadius The vertical radius (y).
+     * 
+     * @param targetLocation
+     *            The center of the search area.
+     * @param searchRadius
+     *            The horizontal radius (x, z).
+     * @param verticalRadius
+     *            The vertical radius (y).
      */
     public FindNearbyReachableSpotSkill(Location targetLocation, int searchRadius, int verticalRadius) {
         this.targetLocation = targetLocation;
@@ -56,7 +63,6 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
             if (world == null) {
                 return Optional.empty();
             }
-
             // Search in a cube around the target
             List<Location> candidates = new ArrayList<>();
             Location targetCenter = targetLocation.clone().add(0.5, 0.5, 0.5);
@@ -82,11 +88,8 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
             if (candidates.isEmpty()) {
                 return Optional.empty();
             }
-
-            // Sort by distance to the agent to find the closest reachable spot
-            Location agentLocation = persona.getLocation();
-            candidates.sort(Comparator.comparingDouble(loc -> loc.distanceSquared(agentLocation)));
-
+            // Sort by distance to the target to find the closest reachable spot
+            candidates.sort(Comparator.comparingDouble(loc -> loc.distanceSquared(targetLocation)));
             // Find the first one that is actually pathable
             for (Location candidate : candidates) {
                 boolean canNavigate = AStarPathfinder.findPath(persona.getLocation(), candidate, NavigationParameters.DEFAULT)
@@ -95,7 +98,6 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
                     return Optional.of(candidate);
                 }
             }
-
             return Optional.empty();
         }, IonNerrus.getInstance().getOffloadThreadExecutor());
     }

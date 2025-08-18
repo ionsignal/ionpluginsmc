@@ -12,9 +12,6 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * A skill for an agent to navigate to and collect a specific item entity.
- * This skill improves pickup reliability by calculating an "overshoot" target,
- * encouraging the NPC to walk through the item's location rather than just to it.
- * It also safely manages the NPC's item pickup metadata flag.
  */
 public class CollectItemSkill implements Skill<Boolean> {
     private final Item targetItem;
@@ -26,18 +23,23 @@ public class CollectItemSkill implements Skill<Boolean> {
     @Override
     public CompletableFuture<Boolean> execute(NerrusAgent agent) {
         if (targetItem == null || targetItem.isDead()) {
-            return CompletableFuture.completedFuture(true); // Already collected or invalid
+            return CompletableFuture.completedFuture(true);
         }
-
-        Location location = targetItem.getLocation();
-        return new NavigateToLocationSkill(location, location).execute(agent)
-                .thenCompose(navSuccess -> {
-                    if (!navSuccess) {
-                        // This can happen if the item is truly unreachable.
+        return new FindNearbyReachableSpotSkill(targetItem.getLocation(), 2, 1).execute(agent)
+                .thenCompose(standingSpotOpt -> {
+                    if (standingSpotOpt.isEmpty()) {
+                        // No pathable location near the item was found.
                         return CompletableFuture.completedFuture(false);
                     }
-
-                    // 3. Wait briefly for the server to process the pickup.
+                    Location destination = standingSpotOpt.get();
+                    Location lookAt = targetItem.getLocation();
+                    return new NavigateToLocationSkill(destination, lookAt).execute(agent);
+                })
+                .thenCompose(navSuccess -> {
+                    if (!navSuccess) {
+                        // This can happen if the item is truly unreachable or navigation is interrupted.
+                        return CompletableFuture.completedFuture(false);
+                    }
                     CompletableFuture<Boolean> pickupFuture = new CompletableFuture<>();
                     new BukkitRunnable() {
                         @Override
