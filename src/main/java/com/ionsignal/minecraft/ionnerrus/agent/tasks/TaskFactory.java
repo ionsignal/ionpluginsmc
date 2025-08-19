@@ -31,13 +31,13 @@ public class TaskFactory {
 
                 // // Currently disabled as this seems a little over powered
                 // case "FIND_DENSE_BLOCK_AREA":
-                //     Set<Material> areaMaterials = (Set<Material>) parameters.get("materials");
-                //     int areaRadius = (int) parameters.getOrDefault("radius", 150);
-                //     return new FindDenseBlockAreaTask(areaMaterials, areaRadius);
+                // Set<Material> areaMaterials = (Set<Material>) parameters.get("materials");
+                // int areaRadius = (int) parameters.getOrDefault("radius", 150);
+                // return new FindDenseBlockAreaTask(areaMaterials, areaRadius);
 
                 // case "GOTO_LOCATION":
-                //     String key = (String) parameters.getOrDefault("locationBlackboardKey", "targetLocation");
-                //     return new GoToLocationTask(key);
+                // String key = (String) parameters.getOrDefault("locationBlackboardKey", "targetLocation");
+                // return new GoToLocationTask(key);
 
                 case "GATHER_BLOCKS":
                     Set<Material> materials = (Set<Material>) parameters.get("materials");

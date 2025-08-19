@@ -4,12 +4,16 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import net.minecraft.world.phys.AABB;
 
+import org.bukkit.block.Block;
+import org.bukkit.block.Biome;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Tag;
 import org.bukkit.World;
 
 import java.util.Optional;
@@ -60,28 +64,30 @@ public class AStarPathfinder {
 
     private Optional<Path> calculatePath() {
         LOGGER.info(String.format("Starting A* pathfinding from %s to %s", startPos.toString(), endPos.toString()));
-
-        BlockPos actualStartPos = isWater(startPos) && params.canSwim() ? startPos : findGround(startPos);
-        BlockPos actualEndPos = isWater(endPos) && params.canSwim() ? endPos : findGround(endPos);
-
+        BlockPos actualStartPos = resolveStartPosition(startPos);
+        BlockPos actualEndPos = endPos;
         if (actualStartPos == null || actualEndPos == null) {
             LOGGER.info("Could not find valid ground for start or end position, continuing...");
             return Optional.empty();
         }
-
+        // Prepare for pathing
         PriorityQueue<Node> openSet = new PriorityQueue<>();
         Map<BlockPos, Node> allNodes = new HashMap<>();
         Node startNode = new Node(actualStartPos, null, 0, getHeuristic(actualStartPos, actualEndPos));
-
         openSet.add(startNode);
         allNodes.put(actualStartPos, startNode);
-
+        // Begin iterations
+        long startTime = System.nanoTime();
         int iterations = 0;
         while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
             Node currentNode = openSet.poll();
             if (currentNode.pos.equals(actualEndPos)) {
                 Path path = reconstructPath(currentNode);
-                LOGGER.info(String.format("Path found after %d iterations with %d points.", iterations, path.size()));
+                long endTime = System.nanoTime();
+                long durationNanos = endTime - startTime;
+                double durationMillis = durationNanos / 1_000_000.0;
+                LOGGER.info(String.format("Path found after in %.3f ms %d iterations with %d points.", durationMillis, iterations,
+                        path.size()));
                 return Optional.of(path);
             }
             for (Node neighbor : getNeighbors(currentNode)) {
@@ -94,6 +100,13 @@ public class AStarPathfinder {
         }
         LOGGER.warning(String.format("Pathfinding failed after %d iterations. Open set size: %d", iterations, openSet.size()));
         return Optional.empty();
+    }
+
+    private BlockPos resolveStartPosition(BlockPos pos) {
+        if (isWater(pos) && params.canSwim()) {
+            return pos;
+        }
+        return findGround(pos);
     }
 
     private List<Node> getNeighbors(Node node) {
@@ -115,6 +128,34 @@ public class AStarPathfinder {
                                 continue;
                             addNeighbor(neighbors, node, swimPos);
                         }
+                    }
+                }
+            }
+        }
+        // Handle water-land transitions
+        if (params.canSwim() && isWater(currentPos)) {
+            for (int x = -1; x <= 1; x++) {
+                for (int z = -1; z <= 1; z++) {
+                    if (x == 0 && z == 0)
+                        continue;
+                    // Check for water exit points
+                    BlockPos exitPos = currentPos.offset(x, 0, z);
+                    if (!isWater(exitPos) && isValidStandingPos(exitPos)) {
+                        // Can we exit water here?
+                        if (canExitWaterTo(currentPos, exitPos)) {
+                            addNeighbor(neighbors, node, exitPos);
+                        }
+                    }
+                    // Check for jumping out of water onto higher ground
+                    BlockPos jumpExitPos = currentPos.offset(x, 1, z);
+                    if (!isWater(jumpExitPos) && isValidStandingPos(jumpExitPos)) {
+                        if (canExitWaterTo(currentPos, jumpExitPos)) {
+                            addNeighbor(neighbors, node, jumpExitPos);
+                        }
+                    }
+                    // Check for lily pads and similar surfaces
+                    if (isWaterWithSurface(exitPos)) {
+                        addNeighbor(neighbors, node, exitPos.above());
                     }
                 }
             }
@@ -195,22 +236,107 @@ public class AStarPathfinder {
     private boolean isDiagonalMoveClear(BlockPos from, BlockPos to) {
         int dx = to.getX() - from.getX();
         int dz = to.getZ() - from.getZ();
-        // Identify the two intermediate corner blocks relative to the start position.
-        // We check these corners at the destination Y-level.
-        BlockPos corner1Base = from.offset(dx, 0, 0); // e.g., (x+1, y_from, z_from)
-        BlockPos corner2Base = from.offset(0, 0, dz); // e.g., (x_from, y_from, z_from+1)
-        // Check the 1x2 column at corner 1, but at the destination's height.
+        // // EXPENSIVE LOGIC, IMPROVES PATHING (maybe enable indoors/caves)
+        // // CHANGE: Check intermediate positions for entity collision box
+        // // Entity occupies roughly 0.6x0.6 blocks, so check a slightly wider path
+        // for (float t = 0.1f; t <= 0.9f; t += 0.2f) {
+        // double checkX = from.getX() + dx * t;
+        // double checkZ = from.getZ() + dz * t;
+        // double checkY = from.getY() + (to.getY() - from.getY()) * t;
+        // BlockPos checkPos = BlockPos.containing(checkX, checkY, checkZ);
+        // if (!isPassableWithCollisionCheck(checkPos) ||
+        // !isPassableWithCollisionCheck(checkPos.above())) {
+        // return false;
+        // }
+        // }
+        BlockPos corner1Base = from.offset(dx, 0, 0);
+        BlockPos corner2Base = from.offset(0, 0, dz);
+        // Check at destination Y-level
         BlockPos corner1AtDestY = corner1Base.atY(to.getY());
-        if (!isAirOrPassable(snapshot.getBlockState(corner1AtDestY)) || !isAirOrPassable(snapshot.getBlockState(corner1AtDestY.above()))) {
-            return false;
-        }
-        // Check the 1x2 column at corner 2, but at the destination's height.
         BlockPos corner2AtDestY = corner2Base.atY(to.getY());
-        if (!isAirOrPassable(snapshot.getBlockState(corner2AtDestY)) || !isAirOrPassable(snapshot.getBlockState(corner2AtDestY.above()))) {
+        // Enhanced check for partial blocks using collision shapes
+        if (!isPassableWithCollisionCheck(corner1AtDestY) || !isPassableWithCollisionCheck(corner1AtDestY.above())) {
             return false;
         }
-
+        if (!isPassableWithCollisionCheck(corner2AtDestY) || !isPassableWithCollisionCheck(corner2AtDestY.above())) {
+            return false;
+        }
+        // Additional check for stairs and slabs at the corners
+        BlockState corner1State = snapshot.getBlockState(corner1AtDestY);
+        BlockState corner2State = snapshot.getBlockState(corner2AtDestY);
+        if (isPartialBlock(corner1State) || isPartialBlock(corner2State)) {
+            // For partial blocks, do a more thorough collision check
+            return checkPartialBlockClearance(from, to, corner1AtDestY, corner2AtDestY);
+        }
         return true;
+    }
+
+    private boolean isPassableWithCollisionCheck(BlockPos pos) {
+        BlockState state = snapshot.getBlockState(pos);
+        if (state == null)
+            return false;
+        VoxelShape shape = state.getCollisionShape(EmptyBlockGetter.INSTANCE, pos);
+        if (shape.isEmpty()) {
+            return true;
+        }
+        // Check if the collision shape allows passage
+        AABB entityBox = new AABB(0.3, 0, 0.3, 0.7, 1.0, 0.7);
+        return !shape.bounds().intersects(entityBox);
+    }
+
+    private boolean isPartialBlock(BlockState state) {
+        if (state == null)
+            return false;
+        Material mat = state.getBukkitMaterial();
+        return Tag.SLABS.isTagged(mat) ||
+                Tag.STAIRS.isTagged(mat) ||
+                Tag.FENCES.isTagged(mat) ||
+                Tag.WALLS.isTagged(mat) ||
+                Tag.FENCE_GATES.isTagged(mat);
+    }
+
+    private boolean checkPartialBlockClearance(BlockPos from, BlockPos to, BlockPos corner1, BlockPos corner2) {
+        // Use collision shapes to determine if diagonal movement is possible
+        BlockState state1 = snapshot.getBlockState(corner1);
+        BlockState state2 = snapshot.getBlockState(corner2);
+        if (state1 != null) {
+            VoxelShape shape1 = state1.getCollisionShape(EmptyBlockGetter.INSTANCE, corner1);
+            if (!shape1.isEmpty() && shape1.max(Direction.Axis.Y) > 0.5) {
+                return false; // Too tall to step over diagonally
+            }
+        }
+        if (state2 != null) {
+            VoxelShape shape2 = state2.getCollisionShape(EmptyBlockGetter.INSTANCE, corner2);
+            if (!shape2.isEmpty() && shape2.max(Direction.Axis.Y) > 0.5) {
+                return false; // Too tall to step over diagonally
+            }
+        }
+        return true;
+    }
+
+    private boolean canExitWaterTo(BlockPos waterPos, BlockPos landPos) {
+        // Check if we can exit water to this position
+        BlockPos aboveLand = landPos.above();
+        if (!isAirOrPassable(snapshot.getBlockState(aboveLand))) {
+            return false; // No headroom to exit
+        }
+        // Check if the exit requires jumping (higher than water level)
+        if (landPos.getY() > waterPos.getY()) {
+            // Need space above water to jump
+            return isAirOrPassable(snapshot.getBlockState(waterPos.above()));
+        }
+        return true;
+    }
+
+    private boolean isWaterWithSurface(BlockPos pos) {
+        if (!isWater(pos))
+            return false;
+        BlockState above = snapshot.getBlockState(pos.above());
+        if (above == null)
+            return false;
+        Material mat = above.getBukkitMaterial();
+        return mat == Material.LILY_PAD || Tag.WOOL_CARPETS.isTagged(mat) ||
+                (mat.isSolid() && above.getCollisionShape(EmptyBlockGetter.INSTANCE, pos.above()).isEmpty());
     }
 
     private boolean isFallPathClear(BlockPos takeoffPos, BlockPos landingPos) {
@@ -238,9 +364,21 @@ public class AStarPathfinder {
 
     private boolean isValidStandingPos(BlockPos pos) {
         BlockState ground = snapshot.getBlockState(pos.below());
-        if (ground == null || !ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP)) {
+        if (ground == null) {
             return false;
         }
+        // CHANGE: Allow standing on leaves, which are not considered "sturdy" but are walkable.
+        // PROBLEM: Causes issues because now we path incorrectly to get fallen blocks.
+        boolean canStandOn = ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP)
+                || Tag.LEAVES.isTagged(ground.getBukkitMaterial());
+        if (!canStandOn) {
+            return false;
+        }
+        // END CHANGE
+        // boolean canStandOn = ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP);
+        // if (!canStandOn) {
+        // return false;
+        // }
         BlockState feet = snapshot.getBlockState(pos);
         if (feet == null || !isAirOrPassable(feet)) {
             return false;
@@ -275,10 +413,10 @@ public class AStarPathfinder {
     private boolean isAirOrPassable(BlockState state) {
         if (state == null)
             return false;
-        if (state.is(BlockTags.LEAVES)) {
+        Material mat = state.getBukkitMaterial();
+        if (Tag.LEAVES.isTagged(mat)) {
             return false;
         }
-        Material mat = state.getBukkitMaterial();
         if (mat.isAir())
             return true;
         if (mat == Material.WATER && params.canSwim())
@@ -288,12 +426,35 @@ public class AStarPathfinder {
     }
 
     private BlockPos findGround(BlockPos start) {
-        return findGround(start, 10); // Search up/down 10 blocks by default
+        // Determine search range based on terrain/biome
+        int searchRange = getSearchRangeForLocation(start);
+        return findGround(start, searchRange);
+    }
+
+    private int getSearchRangeForLocation(BlockPos pos) {
+        // Get biome at position to determine appropriate search range
+        Block block = world.getBlockAt(pos.getX(), pos.getY(), pos.getZ());
+        Biome biome = block.getBiome();
+        String biomeName = biome.getKey().getKey();
+        if (biomeName.contains("mountain") || biomeName.contains("peak") ||
+                biomeName.contains("slope") || biomeName.contains("cliff")) {
+            return 30; // Mountains need more vertical search
+        }
+        if (biomeName.contains("cave") || biomeName.contains("deep")) {
+            return 25; // Caves and deep dark need extensive search
+        }
+        if (biomeName.contains("ocean") || biomeName.contains("river")) {
+            return 20; // Water biomes might need to search deeper
+        }
+        if (biomeName.contains("jungle") || biomeName.contains("forest")) {
+            return 15; // Trees might require some vertical search
+        }
+        return 10; // Default for relatively flat biomes
     }
 
     private BlockPos findGround(BlockPos start, int searchRange) {
-        BlockPos current = start;
         // Search down first
+        BlockPos current = start;
         for (int i = 0; i < searchRange; i++) {
             if (isValidStandingPos(current))
                 return current;
@@ -335,8 +496,21 @@ public class AStarPathfinder {
             horizontalCost = dx + dz;
         }
         double totalCost = horizontalCost + verticalCost;
+        // Additional cost modifiers
         if (isWater(to)) {
-            totalCost *= 4.0; // Make water significantly more "expensive" to path through
+            totalCost *= 4.0; // Water is expensive
+        }
+        // Increase cost for water-land transitions
+        if (isWater(from) && !isWater(to)) {
+            totalCost *= 1.5; // Exiting water has extra cost
+        }
+        // Check for difficult terrain
+        BlockState toState = snapshot.getBlockState(to.below());
+        if (toState != null) {
+            Material mat = toState.getBukkitMaterial();
+            if (mat == Material.SOUL_SAND || mat == Material.HONEY_BLOCK) {
+                totalCost *= 2.0; // Slow blocks are more expensive
+            }
         }
         return totalCost;
     }

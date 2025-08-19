@@ -3,8 +3,12 @@ package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.AccessibleBlockResult;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.*;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.OptimalCollectTarget;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.BreakBlockSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CollectItemSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EquipBestToolSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindOptimalBlockToCollectSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationResult;
 
@@ -55,7 +59,6 @@ public class GatherBlockTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         this.agent = agent;
         this.cancelled = false;
-        // The task now only performs one gather cycle.
         return gatherSingleBlock();
     }
 
@@ -63,7 +66,8 @@ public class GatherBlockTask implements Task {
         if (cancelled) {
             return CompletableFuture.completedFuture(null);
         }
-        return new FindAccessibleBlockSkill(materials, searchRadius, 3, 6, attemptedLocations)
+
+        return new FindOptimalBlockToCollectSkill(materials, searchRadius, attemptedLocations)
                 .execute(agent)
                 .thenComposeAsync(resultOpt -> {
                     if (cancelled) {
@@ -73,54 +77,65 @@ public class GatherBlockTask implements Task {
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.NO_BLOCKS_FOUND);
                         return CompletableFuture.completedFuture(null);
                     }
-                    AccessibleBlockResult result = resultOpt.get();
-                    attemptedLocations.add(result.blockLocation());
-                    // Chain to thenAccept to correctly terminate the future chain as void
-                    return navigateToAndBreak(result.standingLocation(), result.blockLocation())
+                    OptimalCollectTarget target = resultOpt.get();
+                    attemptedLocations.add(target.blockLocation());
+                    return navigateToAndBreak(target)
                             .thenAccept(success -> {
                                 // The blackboard is updated within the chain. We just need to end the future here.
                                 if (!success) {
-                                    logger.info("Gather cycle failed for block at " + result.blockLocation());
+                                    logger.info("Gather cycle failed for block at " + target.blockLocation());
                                 }
                             });
                 }, mainThreadExecutor);
     }
 
-    private CompletableFuture<Boolean> navigateToAndBreak(Location standLocation, Location blockToBreak) {
-        return new NavigateToLocationSkill(standLocation, blockToBreak).execute(agent)
+    private CompletableFuture<Boolean> navigateToAndBreak(OptimalCollectTarget target) {
+        // Use the new skill to navigate while looking at the target block.
+        NavigateToLocationSkill navSkill = new NavigateToLocationSkill(target.pathToStand(), target.blockLocation());
+        return navSkill.execute(agent)
                 .thenCompose(navSuccess -> {
                     if (cancelled || !navSuccess) {
+                        clearLookTarget();
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false);
                     }
-                    return new EquipBestToolSkill(blockToBreak.getBlock()).execute(agent);
+                    return new EquipBestToolSkill(target.blockLocation().getBlock()).execute(agent);
                 })
                 .thenCompose(equipSuccess -> {
                     if (cancelled || !equipSuccess) {
-                        if (!cancelled) {
-                            logger.warning("Could not equip best tool. Finding next block.");
-                        }
+                        clearLookTarget();
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false);
                     }
-                    return new BreakBlockSkill(blockToBreak).execute(agent);
+                    // The agent is still looking at the block because the skill didn't clear it.
+                    return new BreakBlockSkill(target.blockLocation()).execute(agent);
                 })
                 .thenCompose(breakSuccess -> {
-                    if (cancelled) {
-                        return CompletableFuture.completedFuture(false);
-                    }
-                    if (!breakSuccess) {
-                        logger.warning("Could not break the block. Finding next one.");
+                    if (cancelled || !breakSuccess) {
+                        clearLookTarget();
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false);
                     }
-                    return collectNearbyItem(blockToBreak);
+                    clearLookTarget();
+                    return collectNearbyItem(target.blockLocation());
                 });
+    }
+
+    private void clearLookTarget() {
+        if (agent != null && agent.getPersona().isSpawned() && agent.getPersona().getPersonaEntity() != null) {
+            agent.getPersona().getPersonaEntity().getLookControl().stopLooking();
+        }
     }
 
     private CompletableFuture<Boolean> collectNearbyItem(Location brokenBlockLocation) {
         return CompletableFuture.runAsync(() -> {
-            // waiting for drop
+            //
+            // waiting for drop...
+            //
+            // we need to add logic to track entities that we tried to pickup but couldn't because they fell somewhere un-pathable
+            // findDroppedItem will keep returning out of reach dropped items (this isn't a problem for airborne items which are only
+            // temporarily un-pathable)
+            //
         }, CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS))
                 .thenComposeAsync(v -> {
                     if (cancelled) {
@@ -129,7 +144,7 @@ public class GatherBlockTask implements Task {
                     Item targetItem = findDroppedItem(brokenBlockLocation);
                     if (targetItem == null || targetItem.isDead()) {
                         logger.warning("Could not find dropped item. Assuming it was collected or despawned. Moving on.");
-                        return CompletableFuture.completedFuture(true);
+                        return CompletableFuture.completedFuture(false);
                     }
                     return new CollectItemSkill(targetItem).execute(agent);
                 }, mainThreadExecutor)
@@ -140,7 +155,7 @@ public class GatherBlockTask implements Task {
                     if (collectSuccess) {
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
                     } else {
-                        logger.warning("Failed to navigate to pick up item. Still counting as a partial success.");
+                        logger.warning("Failed to navigate to pick up item.");
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                     }
                     return collectSuccess;

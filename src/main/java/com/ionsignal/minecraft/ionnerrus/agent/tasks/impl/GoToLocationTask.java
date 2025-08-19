@@ -37,10 +37,17 @@ public class GoToLocationTask implements Task {
             agent.speak("I don't have a location to go to.");
             return CompletableFuture.completedFuture(null);
         }
+        // Use the skill for simple movement, no look target.
         NavigateToLocationSkill navSkill = new NavigateToLocationSkill(target);
         return navSkill.execute(agent).thenAccept(success -> {
             if (cancelled)
                 return;
+
+            // A simple GoTo should always clean up the look state to prevent aimless staring.
+            if (agent.getPersona().isSpawned() && agent.getPersona().getPersonaEntity() != null) {
+                agent.getPersona().getPersonaEntity().getLookControl().stopLooking();
+            }
+
             if (success) {
                 logger.info("Agent has arrived.");
             } else {
