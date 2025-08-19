@@ -41,7 +41,7 @@ public class TaskFactory {
 
                 case "GATHER_BLOCKS":
                     Set<Material> materials = (Set<Material>) parameters.get("materials");
-                    int gatherRadius = (int) parameters.getOrDefault("radius", 50);
+                    int gatherRadius = (int) parameters.getOrDefault("radius", 30);
                     Set<Location> attemptedLocations = (Set<Location>) parameters.get("attemptedLocations");
                     return new GatherBlockTask(materials, gatherRadius, attemptedLocations);
 
