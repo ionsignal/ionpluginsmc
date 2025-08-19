@@ -9,17 +9,19 @@ import java.util.concurrent.CompletableFuture;
  * All skills are executed asynchronously from the caller's perspective,
  * providing their result via a CompletableFuture.
  *
- * @param <T> The result type of the skill.
+ * @param <R>
+ *            The result type of the skill.
  */
 @FunctionalInterface
-public interface Skill<T> {
+public interface Skill<R> {
     /**
      * Executes the skill. The implementation is responsible for its own threading.
      * If it's a long, synchronous operation, it should be run on an async thread.
      * If it wraps an async API, it should just delegate.
      *
-     * @param agent    The agent performing the skill.
+     * @param agent
+     *            The agent performing the skill.
      * @return A CompletableFuture that will be completed with the skill's result.
      */
-    CompletableFuture<T> execute(NerrusAgent agent);
+    CompletableFuture<R> execute(NerrusAgent agent);
 }

@@ -15,5 +15,5 @@ import org.bukkit.Location;
  * @param pathToStand
  *            The pre-calculated path from the agent's current location to the standingLocation.
  */
-public record OptimalCollectTarget(Location blockLocation, Location standingLocation, Path pathToStand) {
+public record CollectableTarget(Location blockLocation, Location standingLocation, Path pathToStand) {
 }
