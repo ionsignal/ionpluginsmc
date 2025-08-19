@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.persona.navigation;
+package com.ionsignal.minecraft.ionnerrus.persona.navigation.results;
 
 /**
  * Represents the result of a navigation attempt.
