@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.persona.MetadataKeys;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaMoveControl;
 
