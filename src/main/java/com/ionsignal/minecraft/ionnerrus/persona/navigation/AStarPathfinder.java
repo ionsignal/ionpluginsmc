@@ -27,6 +27,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class AStarPathfinder {
+    private static final double WARN_THRESHOLD_MS = 250.0;
     private static final int MAX_ITERATIONS = 16500;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
@@ -63,7 +64,7 @@ public class AStarPathfinder {
     }
 
     private Optional<Path> calculatePath() {
-        LOGGER.info(String.format("Starting A* pathfinding from %s to %s", startPos.toString(), endPos.toString()));
+        // LOGGER.info(String.format("Starting A* pathfinding from %s to %s", startPos.toString(), endPos.toString()));
         BlockPos actualStartPos = resolveStartPosition(startPos);
         BlockPos actualEndPos = endPos;
         if (actualStartPos == null || actualEndPos == null) {
@@ -85,9 +86,11 @@ public class AStarPathfinder {
                 Path path = reconstructPath(currentNode);
                 long endTime = System.nanoTime();
                 long durationNanos = endTime - startTime;
-                double durationMillis = durationNanos / 1_000_000.0;
-                LOGGER.info(String.format("Path found after in %.3f ms %d iterations with %d points.", durationMillis, iterations,
-                        path.size()));
+                double durationMillis = durationNanos / 1000000.0;
+                if (durationMillis > WARN_THRESHOLD_MS) {
+                    LOGGER.warning(String.format("Path found after in %.3f ms %d iterations with %d points.", durationMillis, iterations,
+                            path.size()));
+                }
                 return Optional.of(path);
             }
             for (Node neighbor : getNeighbors(currentNode)) {
