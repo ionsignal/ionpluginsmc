@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
+import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -147,6 +148,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         }
         agent.assignGoal(null); // This stops the current goal and task
         sender.sendMessage(Component.text("Stopped current goal for agent " + name, NamedTextColor.YELLOW));
+        DebugPath.logAreaAround(agent.getPersona().getLocation(), 5);
         return true;
     }
 
