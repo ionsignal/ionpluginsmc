@@ -61,7 +61,7 @@ public class PersonaInventoryMenu extends AbstractContainerMenu {
     }
 
     @Override
-    public @NotNull ItemStack quickMoveStack(@NotNull Player player, int index) {
+    public @NotNull ItemStack quickMoveStack(@SuppressWarnings("null") @NotNull Player player, int index) {
         ItemStack itemStack = ItemStack.EMPTY;
         Slot slot = this.slots.get(index);
         if (slot != null && slot.hasItem()) {
@@ -86,12 +86,12 @@ public class PersonaInventoryMenu extends AbstractContainerMenu {
     }
 
     @Override
-    public boolean stillValid(@NotNull Player player) {
+    public boolean stillValid(@SuppressWarnings("null") @NotNull Player player) {
         return this.persona.isAlive() && player.distanceToSqr(this.persona) <= 64.0;
     }
 
     @Override
-    public void removed(@NotNull Player player) {
+    public void removed(@SuppressWarnings("null") @NotNull Player player) {
         super.removed(player);
         this.personaInventory.stopOpen(player);
         this.persona.stopViewing();
