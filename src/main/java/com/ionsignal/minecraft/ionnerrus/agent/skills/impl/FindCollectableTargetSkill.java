@@ -29,7 +29,8 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
- * A skill to find the best block of a given material to collect. It uses a three-phase "Exposure-First" strategy:
+ * A skill to find the best block of a given material to collect. It uses a three-phase
+ * "Exposure-First" strategy:
  * 
  * 1. Find blocks with the highest "exposure" (most open adjacent faces).
  * 2. Find valid standing locations for the most exposed blocks.
@@ -38,9 +39,10 @@ import java.util.stream.Collectors;
 public class FindCollectableTargetSkill implements Skill<FindCollectableTargetResult> {
     public static final boolean VISUALIZE_SEARCH = true;
     private static final double WARN_THRESHOLD_MS = 250.0;
+    private static final double EXPOSURE_WEIGHT = 40.0;
     private static final int VERTICAL_SEARCH_RADIUS = 8;
+    private static final int MAX_PATHFINDING_ATTEMPTS = 10;
     private static final int MAX_EXPOSED_BLOCKS_TO_CONSIDER = 30;
-    private static final int MAX_CANDIDATES_TO_PATHFIND = 5;
     private static final double REACH_RADIUS_SQUARED = 5.0 * 5.0;
 
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
@@ -66,7 +68,7 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
         if (VISUALIZE_SEARCH) {
             Location corner1 = start.clone().add(searchRadius, VERTICAL_SEARCH_RADIUS, searchRadius);
             Location corner2 = start.clone().subtract(searchRadius, VERTICAL_SEARCH_RADIUS, searchRadius);
-            DebugVisualizer.visualizeBoundingBox(corner1, corner2, 60, NamedTextColor.AQUA); // 3 seconds
+            DebugVisualizer.visualizeBoundingBox(corner1, corner2, 10, NamedTextColor.AQUA);
         }
         return CompletableFuture.supplyAsync(() -> {
             long startTime = System.nanoTime();
@@ -97,7 +99,8 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
     }
 
     /**
-     * Scans in a spiral to find blocks of the target materials, scoring them by how many adjacent faces are exposed to air.
+     * Scans in a spiral to find blocks of the target materials, scoring them by how many adjacent faces
+     * are exposed to air.
      */
     private List<ExposedBlock> findExposedBlocks(Location center) {
         List<ExposedBlock> foundBlocks = new ArrayList<>();
@@ -125,12 +128,22 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
                 }
             }
         }
-
-        // Sort by the highest score and take the top candidates for the next phase.
-        return foundBlocks.stream()
-                .sorted()
-                .limit(MAX_EXPOSED_BLOCKS_TO_CONSIDER)
-                .collect(Collectors.toList());
+        // Instead of sorting only by score, we now sort by a combined score that heavily penalizes
+        // distance.
+        foundBlocks.sort((a, b) -> {
+            double distSqA = center.distanceSquared(a.block().getLocation());
+            double distSqB = center.distanceSquared(b.block().getLocation());
+            double desirabilityA = (a.score() * EXPOSURE_WEIGHT) - distSqA;
+            double desirabilityB = (b.score() * EXPOSURE_WEIGHT) - distSqB;
+            // Sort descending by desirability
+            return Double.compare(desirabilityB, desirabilityA);
+        });
+        // Return the top candidates after our new, more intelligent sort.
+        if (foundBlocks.size() > MAX_EXPOSED_BLOCKS_TO_CONSIDER) {
+            return foundBlocks.subList(0, MAX_EXPOSED_BLOCKS_TO_CONSIDER);
+        } else {
+            return foundBlocks;
+        }
     }
 
     private int calculateExposureScore(Block block) {
@@ -170,28 +183,34 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
     }
 
     /**
-     * Takes the final list of candidates, sorts them by a cheap heuristic, and runs the expensive pathfinder on the best few to find the
-     * optimal one.
+     * Takes the final list of candidates, sorts them by a cheap heuristic, and runs the expensive
+     * pathfinder on the best few to find the optimal one.
      */
     private Optional<CollectableTarget> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates) {
-        // Sort by straight-line distance as a cheap heuristic to prioritize closer targets.
-        candidates.sort(Comparator.comparingDouble(c -> agentLocation.distanceSquared(c.standingSpot())));
-
-        // Pathfind for the top N candidates and find the one with the shortest path.
-        return candidates.stream()
-                .limit(MAX_CANDIDATES_TO_PATHFIND)
-                .map(candidate -> {
-                    // .join() is safe here because the entire skill executes on a background thread.
-                    Optional<Path> pathOpt = AStarPathfinder
-                            .findPath(agentLocation, candidate.standingSpot(), NavigationParameters.DEFAULT).join();
-                    return pathOpt.map(path -> new CollectableTarget(
-                            candidate.targetBlock().getLocation(),
-                            candidate.standingSpot(),
-                            path));
-                })
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .min(Comparator.comparingDouble(ct -> ct.pathToStand().getLength()));
+        // Sort by distance, then limit the number of expensive pathfinding checks
+        List<CollectionCandidate> sortedCandidates = candidates.stream()
+                .sorted(Comparator.comparingDouble(c -> agentLocation.distanceSquared(c.standingSpot())))
+                .limit(MAX_PATHFINDING_ATTEMPTS)
+                .collect(Collectors.toList());
+        for (CollectionCandidate candidate : sortedCandidates) {
+            if (VISUALIZE_SEARCH) {
+                IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
+                    DebugVisualizer.highlightBlock(candidate.standingSpot(), 100, NamedTextColor.LIGHT_PURPLE); // 5 seconds
+                });
+            }
+            Optional<Path> pathOpt = AStarPathfinder.findPath(agentLocation, candidate.standingSpot(), NavigationParameters.DEFAULT)
+                    .join();
+            if (pathOpt.isPresent()) {
+                return Optional.of(new CollectableTarget(
+                        candidate.targetBlock().getLocation(),
+                        candidate.standingSpot(),
+                        pathOpt.get()));
+            } else {
+                // If pathfinding fails for this candidate, add its target block's location to the exclusion list.
+                this.excludedLocations.add(candidate.targetBlock().getLocation());
+            }
+        }
+        return Optional.empty();
     }
 
     /**

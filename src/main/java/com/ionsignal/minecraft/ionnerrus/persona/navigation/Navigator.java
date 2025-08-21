@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.persona.MetadataKeys;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaMoveControl;
@@ -9,16 +10,43 @@ import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.Pers
 import net.minecraft.world.entity.ai.control.MoveControl;
 
 import org.bukkit.Location;
+import org.bukkit.entity.Item;
 
 import java.util.concurrent.CompletableFuture;
 
 public class Navigator {
+    // Movement constants
     private static final float DEFAULT_MOVEMENT_SPEED = 1.0f;
+    private static final float JUMP_MOVEMENT_BOOST = 1.0f;
+
+    // Stuck check constants
+    private static final int STUCK_TIME_THRESHOLD_TICKS = 40;
+    private static final int STUCK_CHECK_INTERVAL_TICKS = 10;
+    private static final double STUCK_DISTANCE_THRESHOLD_SQUARED = 0.25; // 0.1 * 0.1 blocks
+
+    // Deceleration constants
+    private static final double DECELERATION_DISTANCE_SQUARED = 1.5 * 1.5; // Start slowing down 2 blocks away
+    private static final float MIN_DECELERATION_SPEED = 0.4f; // Don't slow down to a crawl
+
     private final Persona persona;
 
+    private State state = State.IDLE;
+
+    private enum State {
+        IDLE, PATH_FOLLOWING, ENGAGING
+    }
+
+    // Path Following State
     private CompletableFuture<NavigationResult> navigationFuture;
     private Path currentPath;
     private PathFollower pathFollower;
+
+    // Engaging State
+    private Item engageTarget;
+    private CompletableFuture<EngageResult> engageFuture;
+    private Location stuckCheckLocation;
+    private int ticksSinceStuckCheck;
+    private int totalTicksStuck;
 
     private enum JumpState {
         NONE, PREPARING, JUMPING, ASCENDING
@@ -40,51 +68,94 @@ public class Navigator {
 
     // The new primary navigation method
     public CompletableFuture<NavigationResult> navigateTo(Location target, NavigationParameters params) {
-        if (isNavigating()) {
-            cancelNavigation(NavigationResult.CANCELLED);
+        if (isBusy()) {
+            cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
         }
-        this.navigationFuture = new CompletableFuture<>();
+        state = State.PATH_FOLLOWING;
+        navigationFuture = new CompletableFuture<>();
+        resetStuckDetection();
+        // Initiate pathfinding
         AStarPathfinder.findPath(persona.getLocation(), target, params).thenAcceptAsync(pathOptional -> {
-            if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) { // CHANGE: Check isEmpty() instead of waypoints
-                this.currentPath = pathOptional.get();
-                this.pathFollower = new PathFollower(this.currentPath);
+            if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
+                currentPath = pathOptional.get();
+                pathFollower = new PathFollower(currentPath);
             } else {
-                finish(NavigationResult.UNREACHABLE);
+                // Call new finishPathing method
+                finishPathing(NavigationResult.UNREACHABLE);
             }
         }, persona.getManager().getPlugin().getMainThreadExecutor());
-        return this.navigationFuture;
+        return navigationFuture;
     }
 
     public CompletableFuture<NavigationResult> navigateTo(Path path) {
-        if (isNavigating()) {
-            cancelNavigation(NavigationResult.CANCELLED);
+        if (isBusy()) {
+            cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
         }
-        this.navigationFuture = new CompletableFuture<>();
+        state = State.PATH_FOLLOWING;
+        navigationFuture = new CompletableFuture<>();
+        resetStuckDetection();
         // Directly use the provided path, skipping the pathfinding step.
         if (path != null && !path.isEmpty()) {
             // This needs to run on the main thread to safely set the path follower.
             persona.getManager().getPlugin().getMainThreadExecutor().execute(() -> {
-                this.currentPath = path;
-                this.pathFollower = new PathFollower(this.currentPath);
+                currentPath = path;
+                pathFollower = new PathFollower(currentPath);
             });
         } else {
             // Complete immediately if path is invalid
-            finish(NavigationResult.UNREACHABLE);
+            finishPathing(NavigationResult.UNREACHABLE);
         }
-        return this.navigationFuture;
+        return navigationFuture;
+    }
+
+    public CompletableFuture<EngageResult> engageOn(Item target) {
+        if (isBusy()) {
+            cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
+        }
+        resetStuckDetection();
+        state = State.ENGAGING;
+        engageTarget = target;
+        engageFuture = new CompletableFuture<>();
+        return engageFuture;
     }
 
     public void tick() {
-        if (!isNavigating() || pathFollower == null || !persona.isSpawned()) {
+        if (!persona.isSpawned() || persona.isInventoryLocked()) {
+            if (isBusy()) {
+                cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
+            }
             return;
         }
-        if (persona.isInventoryLocked()) {
-            cancelNavigation(NavigationResult.CANCELLED);
+        // Stuck detection runs for any active state.
+        if (isBusy() && checkIfStuck()) {
+            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " is stuck! Failing current task.");
+            if (state == State.PATH_FOLLOWING) {
+                finishPathing(NavigationResult.STUCK);
+            } else if (state == State.ENGAGING) {
+                finishEngaging(EngageResult.STUCK);
+            }
+            return; // Stop further processing this tick.
+        }
+        switch (state) {
+            case IDLE:
+                // Do nothing
+                break;
+            case PATH_FOLLOWING:
+                tickPathFollowing();
+                break;
+            case ENGAGING:
+                tickEngaging();
+                break;
+        }
+    }
+
+    private void tickPathFollowing() {
+        if (pathFollower == null) {
             return;
         }
         Location currentLocation = persona.getLocation();
         if (pathFollower.isFinished(currentLocation)) {
-            finish(NavigationResult.SUCCESS);
+            finishPathing(NavigationResult.SUCCESS);
             return;
         }
         // Handle jump state machine first
@@ -105,30 +176,126 @@ public class Navigator {
                 break;
             case WALK:
                 // Apply normal steering towards the distant target.
-                applyNormalMovement(result.target());
+                float currentSpeed = getSpeed();
+                Location finalDestination = currentPath.getPoint(currentPath.size() - 1);
+                double distanceToFinalSq = currentLocation.distanceSquared(finalDestination);
+                if (distanceToFinalSq < DECELERATION_DISTANCE_SQUARED) {
+                    // Apply the scaling (0..1) to the base speed, but don't go below the minimum.
+                    double speedScale = Math.sqrt(distanceToFinalSq) / Math.sqrt(DECELERATION_DISTANCE_SQUARED);
+                    currentSpeed = (float) Math.max(MIN_DECELERATION_SPEED, currentSpeed * speedScale);
+                }
+                // Apply normal steering towards the distant target with the calculated speed.
+                applyNormalMovement(result.target(), currentSpeed);
                 break;
         }
     }
 
-    public void cancelNavigation(NavigationResult reason) {
-        finish(reason);
+    private void tickEngaging() {
+        // Check if target is still valid
+        if (engageTarget == null || engageTarget.isDead()) {
+            finishEngaging(EngageResult.TARGET_GONE);
+            return;
+        }
+        // Movement Logic
+        Location itemLocation = engageTarget.getLocation();
+        Location agentLocation = persona.getLocation();
+        // Target X and Z of the item, but the agent's current Y to prevent flying/digging
+        Location moveTarget = new Location(itemLocation.getWorld(), itemLocation.getX(), agentLocation.getY(), itemLocation.getZ());
+        // Dampen speed as we get closer for a smoother stop
+        double distance = agentLocation.distance(itemLocation);
+        float speed = getSpeed();
+        if (distance < 2.0) {
+            speed *= (distance / 2.0);
+        }
+        MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
+        moveControl.setWantedPosition(moveTarget.getX(), moveTarget.getY(), moveTarget.getZ(), Math.max(speed, 0.1f));
     }
 
-    private void finish(NavigationResult result) {
-        PersonaEntity personaEntity = persona.getPersonaEntity();
-        if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
-            personaMoveControl.stop();
+    /**
+     * Checks if the persona is stuck by monitoring its movement over time.
+     * This method is called by the main tick loop for any active state.
+     * 
+     * @return true if the persona is considered stuck, false otherwise.
+     */
+    private boolean checkIfStuck() {
+        ticksSinceStuckCheck++;
+        if (ticksSinceStuckCheck >= STUCK_CHECK_INTERVAL_TICKS) {
+            // CHANGE: Replaced the 3D distance check with a 2D (XZ plane) check.
+            // This prevents vertical movement (like a jump loop) from being counted as progress.
+            Location currentPos = persona.getLocation();
+            double dx = currentPos.getX() - stuckCheckLocation.getX();
+            double dz = currentPos.getZ() - stuckCheckLocation.getZ();
+            if ((dx * dx + dz * dz) < STUCK_DISTANCE_THRESHOLD_SQUARED) {
+                totalTicksStuck += ticksSinceStuckCheck;
+            } else {
+                // We made horizontal progress, reset stuck counter
+                totalTicksStuck = 0;
+            }
+            stuckCheckLocation = currentPos;
+            ticksSinceStuckCheck = 0;
+            if (totalTicksStuck >= STUCK_TIME_THRESHOLD_TICKS) {
+                return true;
+            }
         }
+        return false;
+    }
+
+    /**
+     * Resets all variables related to stuck detection.
+     * Called whenever a new navigation or engage operation begins.
+     */
+    private void resetStuckDetection() {
+        this.stuckCheckLocation = persona.getLocation();
+        this.ticksSinceStuckCheck = 0;
+        this.totalTicksStuck = 0;
+    }
+
+    public void cancelCurrentOperation(NavigationResult pathingReason, EngageResult engagingReason) {
+        switch (state) {
+            case PATH_FOLLOWING:
+                finishPathing(pathingReason);
+                break;
+            case ENGAGING:
+                finishEngaging(engagingReason);
+                break;
+            case IDLE:
+                // Nothing to do
+                break;
+        }
+    }
+
+    private void finishPathing(NavigationResult result) {
         if (navigationFuture != null && !navigationFuture.isDone()) {
             navigationFuture.complete(result);
         }
+        reset();
+    }
+
+    public void finishEngaging(EngageResult result) {
+        if (engageFuture != null && !engageFuture.isDone()) {
+            engageFuture.complete(result);
+        }
+        reset();
+    }
+
+    private void reset() {
+        if (persona.isSpawned()) {
+            PersonaEntity personaEntity = persona.getPersonaEntity();
+            if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
+                personaMoveControl.stop();
+            }
+        }
+        this.navigationFuture = null;
         this.currentPath = null;
         this.pathFollower = null;
+        this.engageFuture = null;
+        this.engageTarget = null;
+        this.state = State.IDLE;
         resetJumpState();
     }
 
-    public boolean isNavigating() {
-        return navigationFuture != null && !navigationFuture.isDone();
+    public boolean isBusy() {
+        return state != State.IDLE;
     }
 
     public Path getCurrentPath() {
@@ -217,28 +384,28 @@ public class Navigator {
     }
 
     /**
-     * Applies standard forward movement towards a target.
+     * Applies forward movement towards a target with a given speed.
      */
-    private void applyNormalMovement(Location target) {
+    private void applyNormalMovement(Location target, float speed) {
         MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(
                 target.getX(),
                 target.getY(),
                 target.getZ(),
-                getSpeed());
+                speed);
     }
 
     /**
      * Applies boosted forward movement for clearing gaps during a jump.
      */
     private void applyJumpMovement(Location target) {
-        MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         // Apply a speed boost for better distance coverage during a jump.
+        MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(
                 target.getX(),
                 target.getY(),
                 target.getZ(),
-                getSpeed() * 1.2f);
+                getSpeed() * JUMP_MOVEMENT_BOOST);
     }
 
     /**

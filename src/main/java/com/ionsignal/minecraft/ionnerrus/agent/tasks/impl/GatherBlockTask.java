@@ -9,37 +9,45 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CollectItemSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EquipBestToolSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableTargetSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.CollectItemResult;
-// import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableTargetResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask.GatherResult;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
+import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 public class GatherBlockTask implements Task {
+    public static final boolean VISUALIZE_PATH = true;
+
     private NerrusAgent agent;
     private Executor mainThreadExecutor;
     private final Set<Location> attemptedLocations;
+    private final Set<UUID> unreachableItems = new HashSet<>();
     private final Set<Material> materials;
     private final int searchRadius;
     private final Logger logger;
     private volatile boolean cancelled = false;
 
     public enum GatherResult {
-        SUCCESS, NO_BLOCKS_FOUND, FAILED_TO_COLLECT
+        SUCCESS, NO_BLOCKS_IN_RANGE, NO_REACHABLE_BLOCKS_IN_RANGE, FAILED_TO_COLLECT
     }
 
     public GatherBlockTask(Set<Material> materials, int searchRadius, Set<Location> attemptedLocations) {
@@ -54,7 +62,7 @@ public class GatherBlockTask implements Task {
     public void cancel() {
         this.cancelled = true;
         if (agent != null && agent.getPersona().isSpawned()) {
-            agent.getPersona().getNavigator().cancelNavigation(NavigationResult.CANCELLED);
+            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
         }
     }
 
@@ -62,43 +70,42 @@ public class GatherBlockTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         this.agent = agent;
         this.cancelled = false;
-        return gatherSingleBlock();
+        CompletableFuture<Void> taskFuture = gatherSingleBlock();
+        taskFuture.whenComplete((result, throwable) -> {
+            clearLookTarget();
+        });
+        return taskFuture;
     }
 
     private CompletableFuture<Void> gatherSingleBlock() {
         if (cancelled) {
             return CompletableFuture.completedFuture(null);
         }
-        // CHANGE: The logic is now updated to handle the new FindCollectableTargetResult.
         return new FindCollectableTargetSkill(materials, searchRadius, attemptedLocations)
                 .execute(agent)
                 .thenComposeAsync(result -> {
                     if (cancelled) {
                         return CompletableFuture.completedFuture(null);
                     }
-
                     // Use a switch on the new rich result status.
                     switch (result.status()) {
                         case SUCCESS:
-                            CollectableTarget target = result.target().get(); // Safe to get() on SUCCESS
+                            CollectableTarget target = result.target().get();
                             attemptedLocations.add(target.blockLocation());
-                            return navigateToAndBreak(target)
-                                    .thenAccept(success -> {
-                                        if (!success) {
-                                            logger.info("Gather cycle failed for block at " + target.blockLocation());
-                                        }
-                                    });
-
+                            return navigateToAndBreak(target).thenAccept(success -> {
+                                if (!success) {
+                                    logger.info("Gather cycle failed for block at " + target.blockLocation());
+                                }
+                            });
                         case NO_TARGETS_FOUND:
-                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.NO_BLOCKS_FOUND);
+                            // This attempt failed, but others might succeed. The Goal will decide whether to retry.
+                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.NO_BLOCKS_IN_RANGE);
                             return CompletableFuture.completedFuture(null);
-
                         case NO_STANDPOINTS_FOUND:
                         case NO_PATH_FOUND:
                             // This attempt failed, but others might succeed. The Goal will decide whether to retry.
-                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
+                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.NO_REACHABLE_BLOCKS_IN_RANGE);
                             return CompletableFuture.completedFuture(null);
-
                         default:
                             // Should be unreachable.
                             return CompletableFuture.completedFuture(null);
@@ -108,13 +115,13 @@ public class GatherBlockTask implements Task {
 
     private CompletableFuture<Boolean> navigateToAndBreak(CollectableTarget target) {
         // Use the new skill to navigate while looking at the target block.
+        if (VISUALIZE_PATH) {
+            DebugVisualizer.displayPath(target.pathToStand(), 40);
+        }
         NavigateToLocationSkill navSkill = new NavigateToLocationSkill(target.pathToStand(), target.blockLocation());
         return navSkill.execute(agent)
-                // CHANGE: The result is now a NavigateToLocationResult enum.
                 .thenCompose(navResult -> {
-                    // CHANGE: Check for specific success case instead of a boolean.
                     if (cancelled || navResult != NavigateToLocationResult.SUCCESS) {
-                        clearLookTarget();
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false);
                     }
@@ -122,21 +129,28 @@ public class GatherBlockTask implements Task {
                 })
                 .thenCompose(equipSuccess -> {
                     if (cancelled || !equipSuccess) {
-                        clearLookTarget();
                         agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                         return CompletableFuture.completedFuture(false);
                     }
-                    // The agent is still looking at the block because the skill didn't clear it.
-                    return new BreakBlockSkill(target.blockLocation()).execute(agent);
-                })
-                .thenCompose(breakSuccess -> {
-                    if (cancelled || !breakSuccess) {
-                        clearLookTarget();
-                        agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
-                        return CompletableFuture.completedFuture(false);
-                    }
-                    clearLookTarget();
-                    return collectNearbyItem(target.blockLocation());
+                    return new BreakBlockSkill(target.blockLocation()).execute(agent)
+                            .thenCompose(breakResult -> {
+                                boolean wasSuccessful = breakResult == BreakBlockResult.SUCCESS
+                                        || breakResult == BreakBlockResult.ALREADY_BROKEN;
+                                if (cancelled || !wasSuccessful) {
+                                    if (!cancelled) {
+                                        logger.warning("Failed to break block at " + target.blockLocation().toVector() + " for reason: "
+                                                + breakResult.name());
+                                    }
+                                    agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
+                                    return CompletableFuture.completedFuture(false);
+                                }
+                                // // DEBUG: Mock successful collection to test find-and-break logic
+                                // logger.info("DEBUG: Mocking successful collection for block at " +
+                                // target.blockLocation().toVector());
+                                // agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
+                                // return CompletableFuture.completedFuture(true);
+                                return collectNearbyItem(target.blockLocation());
+                            });
                 });
     }
 
@@ -146,53 +160,66 @@ public class GatherBlockTask implements Task {
         }
     }
 
+    // @SuppressWarnings("unused")
     private CompletableFuture<Boolean> collectNearbyItem(Location brokenBlockLocation) {
-        return CompletableFuture.runAsync(() -> {
-            //
-            // waiting for drop...
-            //
-            // we need to add logic to track entities that we tried to pickup but couldn't because they fell somewhere un-pathable
-            // findDroppedItem will keep returning out of reach dropped items (this isn't a problem for airborne items which are only
-            // temporarily un-pathable)
-            //
-        }, CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS))
-                .thenComposeAsync(v -> {
-                    // CHANGE: All return paths now produce a CompletableFuture<CollectItemResult>, fixing the error.
-                    if (cancelled) {
-                        return CompletableFuture.completedFuture(CollectItemResult.CANCELLED);
-                    }
-                    Item targetItem = findDroppedItem(brokenBlockLocation);
-                    if (targetItem == null || targetItem.isDead()) {
-                        logger.warning("Could not find dropped item. Assuming it was collected or despawned. Moving on.");
-                        return CompletableFuture.completedFuture(CollectItemResult.ITEM_GONE);
-                    }
-                    return new CollectItemSkill(targetItem).execute(agent);
-                }, mainThreadExecutor)
-                .thenApply(collectResult -> {
-                    // CHANGE: The `if (cancelled)` check is no longer needed here as it's handled by the switch.
-                    boolean wasSuccessful = false;
-                    switch (collectResult) {
-                        case SUCCESS:
-                        case ITEM_GONE:
-                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
-                            wasSuccessful = true;
-                            break;
-                        case PICKUP_TIMEOUT:
-                        case NAVIGATION_FAILED:
-                            logger.warning("Failed to collect item due to timeout or navigation failure.");
-                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
-                            break;
-                        case NO_PATH_FOUND:
-                        case NO_CANDIDATE_SPOTS:
-                            logger.warning("Could not collect item because it is unreachable.");
-                            agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
-                            break;
-                        case CANCELLED:
-                            // Do nothing, wasSuccessful remains false.
-                            break;
-                    }
-                    return wasSuccessful;
-                });
+        final CompletableFuture<Item> itemFuture = new CompletableFuture<>();
+        // Wait for the item to drop.
+        new BukkitRunnable() {
+            int ticks = 0;
+
+            @Override
+            public void run() {
+                if (cancelled) {
+                    itemFuture.complete(null);
+                    this.cancel();
+                    return;
+                }
+                logger.warning("[GatherBlockTask] Looking for dropped item.");
+                Item foundItem = findDroppedItem(brokenBlockLocation);
+                if (foundItem != null) {
+                    itemFuture.complete(foundItem);
+                    this.cancel();
+                } else if (ticks++ > 20) { // 1 second timeout
+                    logger.warning("[GatherBlockTask] Failed to find dropped item in 1 second timeout.");
+                    itemFuture.complete(null);
+                    this.cancel();
+                }
+            }
+        }.runTaskTimer(IonNerrus.getInstance(), 2L, 2L); // Start after 2 ticks, check every 2 ticks.
+        return itemFuture.thenComposeAsync(targetItem -> {
+            if (cancelled || targetItem == null || targetItem.isDead()) {
+                logger.warning("Could not find dropped item. Assuming it was collected or despawned. Moving on.");
+                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
+                return CompletableFuture.completedFuture(true); // Treat as success for the goal's perspective
+            }
+            return new CollectItemSkill(targetItem).execute(agent)
+                    .thenApply(collectResult -> {
+                        boolean wasSuccessful = false;
+                        switch (collectResult) {
+                            case SUCCESS:
+                            case ITEM_GONE: // If it's gone by the time we collect, that's also a success.
+                                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
+                                wasSuccessful = true;
+                                break;
+                            case NAVIGATION_FAILED:
+                            case NO_PATH_FOUND:
+                            case NO_STANDPOINTS_FOUND:
+                                logger.warning("Could not collect item because it is unreachable due to " + collectResult
+                                        + ". Blacklisting for this task.");
+                                unreachableItems.add(targetItem.getUniqueId());
+                                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
+                                break;
+                            case PICKUP_TIMEOUT:
+                                logger.warning("Failed to collect item due to timeout.");
+                                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
+                                break;
+                            case CANCELLED:
+                                // Do nothing, wasSuccessful remains false.
+                                break;
+                        }
+                        return wasSuccessful;
+                    });
+        }, mainThreadExecutor);
     }
 
     private Item findDroppedItem(Location blockLocation) {
@@ -203,6 +230,7 @@ public class GatherBlockTask implements Task {
         return nearby.stream()
                 .filter(e -> e instanceof Item && !e.isDead())
                 .map(e -> (Item) e)
+                .filter(item -> !unreachableItems.contains(item.getUniqueId())) // Filter out blacklisted items
                 .filter(item -> materials.contains(item.getItemStack().getType()))
                 .min(Comparator.comparingDouble(i -> i.getLocation().distanceSquared(blockLocation)))
                 .orElse(null);

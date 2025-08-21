@@ -3,6 +3,7 @@ package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.core.BlockPos;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -26,13 +27,12 @@ public final class NavigationHelper {
      * @return true if the location is a valid standing spot.
      */
     public static boolean isValidStandingSpot(Block block) {
+        // Check for a walkable surface below using NMS
         Block groundBlock = block.getRelative(BlockFace.DOWN);
         Block headBlock = block.getRelative(BlockFace.UP);
-        // Check for a walkable surface below using NMS for accuracy.
-        // This logic should mirror AStarPathfinder's check for consistency.
         BlockState groundState = ((CraftBlock) groundBlock).getNMS();
-        boolean canStandOn = groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, ((CraftBlock) groundBlock).getPosition(), Direction.UP)
-                || Tag.LEAVES.isTagged(groundBlock.getType());
+        boolean canStandOn = groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, ((CraftBlock) groundBlock).getPosition(), Direction.UP);
+        // || Tag.LEAVES.isTagged(groundBlock.getType());
         if (!canStandOn) {
             return false;
         }
@@ -48,17 +48,15 @@ public final class NavigationHelper {
      * @return true if the block is passable.
      */
     public static boolean isPassable(Block block) {
-        // This logic should mirror AStarPathfinder's isAirOrPassable check.
         Material mat = block.getType();
         if (Tag.LEAVES.isTagged(mat)) {
-            return false; // Personas cannot pass through leaves.
+            return false;
         }
         if (mat.isAir() || mat == Material.WATER) {
             return true;
         }
-        // Use NMS collision shape as the definitive check for passability.
         BlockState state = ((CraftBlock) block).getNMS();
-        return state.getCollisionShape(EmptyBlockGetter.INSTANCE, net.minecraft.core.BlockPos.ZERO).isEmpty();
+        return state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
     }
 
     /**
@@ -72,8 +70,8 @@ public final class NavigationHelper {
      * @return An Optional containing the ground Location if found, otherwise an empty Optional.
      */
     public static Optional<Location> findGround(Location start, int searchRange) {
-        Block currentBlock = start.getBlock();
         // Search down first to find the landing spot.
+        Block currentBlock = start.getBlock();
         for (int i = 0; i < searchRange; i++) {
             if (isValidStandingSpot(currentBlock)) {
                 // Return the center of the block.

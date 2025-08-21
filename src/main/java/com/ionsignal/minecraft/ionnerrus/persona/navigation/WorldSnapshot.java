@@ -22,7 +22,6 @@ public class WorldSnapshot {
         int maxY = Math.max(corner1.getY(), corner2.getY());
         int maxZ = Math.max(corner1.getZ(), corner2.getZ());
         this.blocks = new HashMap<>();
-
         // This is a synchronous, main-thread operation to gather all data upfront.
         for (int x = minX; x <= maxX; x++) {
             for (int y = minY; y <= maxY; y++) {

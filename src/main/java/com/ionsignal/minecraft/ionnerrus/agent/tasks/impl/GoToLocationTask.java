@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import org.bukkit.Location;
 
@@ -30,7 +31,7 @@ public class GoToLocationTask implements Task {
     public void cancel() {
         this.cancelled = true;
         if (agent != null && agent.getPersona().isSpawned()) {
-            agent.getPersona().getNavigator().cancelNavigation(NavigationResult.CANCELLED);
+            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
         }
     }
 

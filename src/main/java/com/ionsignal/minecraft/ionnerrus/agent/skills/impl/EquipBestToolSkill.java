@@ -34,8 +34,7 @@ public class EquipBestToolSkill implements Skill<Boolean> {
         if (inventory == null) {
             return CompletableFuture.completedFuture(false);
         }
-
-        // 1. Find the best tool currently in the inventory
+        // Find the best tool currently in the inventory
         BlockState nmsBlockState = ((CraftWorld) targetBlock.getWorld()).getHandle()
                 .getBlockState(new BlockPos(targetBlock.getX(), targetBlock.getY(), targetBlock.getZ()));
         int bestToolSlot = -1;
@@ -52,8 +51,7 @@ public class EquipBestToolSkill implements Skill<Boolean> {
                 bestToolSlot = i;
             }
         }
-
-        // 2. If no tool is better than hands, determine if we should provide a default one.
+        // If no tool is better than hands, determine if we should provide a default one.
         if (bestToolSlot == -1) {
             Material defaultToolType = getDefaultTool(targetBlock.getType());
             if (defaultToolType != null) {
@@ -74,8 +72,7 @@ public class EquipBestToolSkill implements Skill<Boolean> {
                 }
             }
         }
-
-        // 3. Equip the best tool if necessary
+        // Equip the best tool if necessary
         int mainHandSlot = inventory.getHeldItemSlot();
         if (bestToolSlot == -1) {
             return CompletableFuture.completedFuture(true);
@@ -83,13 +80,11 @@ public class EquipBestToolSkill implements Skill<Boolean> {
         if (bestToolSlot == mainHandSlot) {
             return CompletableFuture.completedFuture(true);
         }
-
         // Swap the best tool into the main hand
         ItemStack bestTool = inventory.getItem(bestToolSlot);
         ItemStack mainHandItem = inventory.getItem(mainHandSlot);
         inventory.setItem(mainHandSlot, bestTool);
         inventory.setItem(bestToolSlot, mainHandItem);
-
         return CompletableFuture.completedFuture(true);
     }
 
