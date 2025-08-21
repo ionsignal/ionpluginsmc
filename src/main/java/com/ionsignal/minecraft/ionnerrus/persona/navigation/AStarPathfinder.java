@@ -28,13 +28,13 @@ import java.util.logging.Logger;
 
 public class AStarPathfinder {
     private static final double WARN_THRESHOLD_MS = 250.0;
-    private static final int MAX_ITERATIONS = 16500;
+    private static final int MAX_ITERATIONS = 8000;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     public static CompletableFuture<Optional<Path>> findPath(Location start, Location end, NavigationParameters params) {
         BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
         BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
-        int padding = 24; // Accounts for more complex pathing scenarios like falling around obstacles
+        int padding = 16; // Accounts for more complex pathing scenarios like falling around obstacles
         BlockPos min = new BlockPos(
                 Math.min(startPos.getX(), endPos.getX()) - padding,
                 Math.min(startPos.getY(), endPos.getY()) - padding,
@@ -64,7 +64,8 @@ public class AStarPathfinder {
     }
 
     private Optional<Path> calculatePath() {
-        // LOGGER.info(String.format("Starting A* pathfinding from %s to %s", startPos.toString(), endPos.toString()));
+        // LOGGER.info(String.format("Starting A* pathfinding from %s to %s", startPos.toString(),
+        // endPos.toString()));
         BlockPos actualStartPos = resolveStartPosition(startPos);
         BlockPos actualEndPos = endPos;
         if (actualStartPos == null || actualEndPos == null) {
@@ -252,12 +253,12 @@ public class AStarPathfinder {
         // return false;
         // }
         // }
+        // Check at destination Y-level
+        // Enhanced check for partial blocks using collision shapes
         BlockPos corner1Base = from.offset(dx, 0, 0);
         BlockPos corner2Base = from.offset(0, 0, dz);
-        // Check at destination Y-level
         BlockPos corner1AtDestY = corner1Base.atY(to.getY());
         BlockPos corner2AtDestY = corner2Base.atY(to.getY());
-        // Enhanced check for partial blocks using collision shapes
         if (!isPassableWithCollisionCheck(corner1AtDestY) || !isPassableWithCollisionCheck(corner1AtDestY.above())) {
             return false;
         }
@@ -370,18 +371,11 @@ public class AStarPathfinder {
         if (ground == null) {
             return false;
         }
-        // CHANGE: Allow standing on leaves, which are not considered "sturdy" but are walkable.
-        // PROBLEM: Causes issues because now we path incorrectly to get fallen blocks.
         boolean canStandOn = ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP)
                 || Tag.LEAVES.isTagged(ground.getBukkitMaterial());
         if (!canStandOn) {
             return false;
         }
-        // END CHANGE
-        // boolean canStandOn = ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP);
-        // if (!canStandOn) {
-        // return false;
-        // }
         BlockState feet = snapshot.getBlockState(pos);
         if (feet == null || !isAirOrPassable(feet)) {
             return false;
@@ -391,8 +385,7 @@ public class AStarPathfinder {
     }
 
     private boolean hasHeadroomForJump(BlockPos pos) {
-        // A persona at `pos` occupies `pos` and `pos.above(1)`. To jump, the block at `pos.above(2)`
-        // must be clear to avoid hitting their head. The original check was redundant.
+        // To jump, the block at `pos.above(2)` must be clear
         BlockState twoAbove = snapshot.getBlockState(pos.above(2));
         return twoAbove != null && isAirOrPassable(twoAbove);
     }
@@ -409,7 +402,6 @@ public class AStarPathfinder {
         if (state == null)
             return false;
         Material mat = state.getBukkitMaterial();
-        // Can swim into water or air (for surfacing).
         return mat == Material.WATER || mat.isAir();
     }
 

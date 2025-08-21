@@ -7,8 +7,8 @@ import org.bukkit.util.Vector;
 public class PathFollower {
     private static final double JUMP_DETECTION_THRESHOLD = 0.8;
     private static final int JUMP_SCAN_AHEAD = 3;
-    private static final int LOOKAHEAD_POINTS = 15;
-    private static final double WAYPOINT_REACHED_DISTANCE_SQUARED = 1.0;
+    private static final int SMOOTHING_LOOKAHEAD = 5;
+    private static final double WAYPOINT_REACHED_DISTANCE_SQUARED = 0.5 * 0.5; // 1 block radius
 
     private final Path path;
     private int currentIndex;
@@ -19,12 +19,13 @@ public class PathFollower {
     }
 
     public SteeringResult calculateSteering(Location currentPos) {
-        updateCurrentIndex(currentPos);
         if (isFinished(currentPos)) {
             // If finished, just steer towards the final point to ensure arrival.
             return new SteeringResult(path.getPoint(path.size() - 1), SteeringResult.MovementType.WALK);
         }
-        // Scan ahead for immediate jumps
+        // Index is now updated sequentially at the start of the calculation.
+        updateCurrentIndex(currentPos);
+        // Scan ahead for immediate jumps. This is a high-priority check.
         for (int i = currentIndex; i < Math.min(currentIndex + JUMP_SCAN_AHEAD, path.size() - 1); i++) {
             Location currentPoint = path.getPoint(i);
             Location nextPoint = path.getPoint(i + 1);
@@ -39,7 +40,7 @@ public class PathFollower {
             // If world is somehow null, can't do line-of-sight; return the very next point.
             return new SteeringResult(steeringTarget, SteeringResult.MovementType.WALK);
         }
-        for (int i = currentIndex + 1; i < Math.min(currentIndex + LOOKAHEAD_POINTS, path.size()); i++) {
+        for (int i = currentIndex + 2; i < Math.min(currentIndex + SMOOTHING_LOOKAHEAD, path.size()); i++) {
             Location candidatePoint = path.getPoint(i);
             if (hasLineOfSight(currentPos, candidatePoint, world)) {
                 steeringTarget = candidatePoint;
@@ -51,24 +52,39 @@ public class PathFollower {
         return new SteeringResult(steeringTarget, SteeringResult.MovementType.WALK);
     }
 
+    /**
+     * Advances the current path index using a lenient, progression-based check. The index is moved
+     * forward if the agent is either very close to the next waypoint or has clearly moved past it along
+     * the path's direction. This method uses a loop to allow the agent to "catch up" if it moves fast
+     * enough to pass multiple waypoints in a single tick.
+     */
     private void updateCurrentIndex(Location currentPos) {
-        // Find the closest point on the path from the current index onwards.
-        // This prevents the follower from backtracking on the path.
-        // Search a limited window ahead of the current index to find the closest point
-        double closestDistSq = Double.MAX_VALUE;
-        int bestIndex = this.currentIndex;
-        for (int i = this.currentIndex; i < Math.min(this.currentIndex + 10, path.size()); i++) {
-            double distSq = path.getPoint(i).distanceSquared(currentPos);
-            if (distSq < closestDistSq) {
-                closestDistSq = distSq;
-                bestIndex = i;
+        // Loop to handle skipping multiple waypoints in a single tick
+        while (currentIndex < path.size() - 1) {
+            Location currentWaypoint = path.getPoint(currentIndex);
+            Location nextWaypoint = path.getPoint(currentIndex + 1);
+            // Proximity Check (strict check)
+            // Useful for when the agent stops precisely on a waypoint.
+            boolean isCloseEnough = currentPos.distanceSquared(nextWaypoint) < WAYPOINT_REACHED_DISTANCE_SQUARED;
+            // Progression Check (lenient check)
+            // Determines if the agent has "passed" the waypoint's perpendicular plane.
+            Vector pathSegmentDirection = nextWaypoint.toVector().subtract(currentWaypoint.toVector());
+            Vector agentToNextWaypoint = nextWaypoint.toVector().subtract(currentPos.toVector());
+            boolean hasPassedWaypoint = agentToNextWaypoint.dot(pathSegmentDirection) < 0;
+            if (isCloseEnough || hasPassedWaypoint) {
+                currentIndex++; // We've met a condition to advance, check the next waypoint.
+            } else {
+                break;
             }
         }
-        this.currentIndex = bestIndex;
     }
 
+    /**
+     * Checks for a clear line of sight between two points. This check is more robust, using
+     * NavigationHelper.isPassable to correctly identify obstacles like leaves and fences that are not
+     * technically "occluding".
+     */
     private boolean hasLineOfSight(Location from, Location to, World world) {
-        // Simple block-based raycast
         Location eyeLocation = from.clone().add(0, 1.6, 0); // Approx eye height
         Vector direction = to.toVector().subtract(eyeLocation.toVector());
         double distance = direction.length();
@@ -76,10 +92,17 @@ public class PathFollower {
             return true; // Too close to have an obstacle
         }
         direction.normalize();
-        for (double d = 1.0; d < distance; d += 0.5) {
+        // Raycast step; smaller step for more accuracy in dense environments
+        for (double d = 0.5; d < distance; d += 0.5) {
             Location checkLoc = eyeLocation.clone().add(direction.clone().multiply(d));
-            if (checkLoc.getBlock().getType().isOccluding()) {
+            // Check if a block is not passable, and it blocks line of sight.
+            if (!NavigationHelper.isPassable(checkLoc.getBlock())) {
                 return false;
+            }
+            // Check for a drop-off. If the block below our path is passable, it's a cliff
+            Location groundCheckLoc = checkLoc.clone().subtract(0, 2.2, 0);
+            if (NavigationHelper.isPassable(groundCheckLoc.getBlock())) {
+                return false; // Path goes over a ledge, break line of sight.
             }
         }
         return true;

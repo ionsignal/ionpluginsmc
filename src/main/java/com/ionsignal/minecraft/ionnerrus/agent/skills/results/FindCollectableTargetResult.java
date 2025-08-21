@@ -9,7 +9,6 @@ import java.util.Optional;
  * the optimal target that was found.
  */
 public record FindCollectableTargetResult(Status status, Optional<CollectableTarget> target) {
-
     /**
      * Describes the outcome of the search for a collectable target.
      */

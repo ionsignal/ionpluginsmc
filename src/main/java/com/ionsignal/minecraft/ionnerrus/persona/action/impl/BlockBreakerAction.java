@@ -44,7 +44,7 @@ public class BlockBreakerAction implements Action {
         }
 
         var bridge = persona.getManager().getPlatformBridge();
-        this.ticksToBreak = bridge.calculateBreakTicks(persona, this.block);
+        this.ticksToBreak = 20; // bridge.calculateBreakTicks(persona, this.block);
         if (this.ticksToBreak == Integer.MAX_VALUE) {
             IonNerrus.getInstance().getLogger()
                     .warning("Persona " + persona.getName() + " tried to break an unbreakable block: " + block.getType());

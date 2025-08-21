@@ -15,7 +15,7 @@ public enum CollectItemResult {
     /**
      * A valid standing spot near the item could not be found.
      */
-    NO_CANDIDATE_SPOTS,
+    NO_STANDPOINTS_FOUND,
     /**
      * A path to any of the valid standing spots could not be found.
      */

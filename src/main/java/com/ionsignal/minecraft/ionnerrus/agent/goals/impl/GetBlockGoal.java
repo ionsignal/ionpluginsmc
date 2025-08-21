@@ -74,7 +74,7 @@ public class GetBlockGoal implements Goal {
                 break;
             case GATHERING:
                 logger.info("GetBlockGoal: Attempting to gather one block.");
-                nextTask = createGatherOneBlockTask(50);
+                nextTask = createGatherOneBlockTask();
                 break;
 
             // NEEDS TO BE UPDATED TO SUPPORT LOOKAT BLOCK
@@ -119,9 +119,19 @@ public class GetBlockGoal implements Goal {
                 case SUCCESS:
                     // After a successful gather, we must re-check the inventory to confirm.
                     this.state = State.CHECKING_INVENTORY;
+                    // DEBUG: Instead of re-checking inventory, just increment our count.
+                    // this.gatheredCount++;
+                    // logger.info("DEBUG: Gathered one block, new count is " + this.gatheredCount);
+                    // if (this.gatheredCount >= params.quantity()) {
+                    // this.state = State.COMPLETED;
+                    // } else {
+                    // // If not done, go gather another one.
+                    // this.state = State.GATHERING;
+                    // }
                     break;
-                case NO_BLOCKS_FOUND:
-                    // If we can't find any blocks at all, then we have to fail.
+                case NO_BLOCKS_IN_RANGE:
+                case NO_REACHABLE_BLOCKS_IN_RANGE:
+                    // If we can't find any blocks at all, or reach them, then we have to fail.
                     this.state = State.FAILED;
                     break;
                 // It just means we should try gathering again from a different block.
@@ -133,10 +143,9 @@ public class GetBlockGoal implements Goal {
         });
     }
 
-    private Task createGatherOneBlockTask(int radius) {
+    private Task createGatherOneBlockTask() {
         Map<String, Object> params = new HashMap<>();
         params.put("materials", materials);
-        params.put("radius", radius);
         params.put("attemptedLocations", this.attemptedLocations);
         return taskFactory.createTask("GATHER_BLOCKS", params);
     }
