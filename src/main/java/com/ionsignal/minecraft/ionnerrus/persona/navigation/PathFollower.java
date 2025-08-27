@@ -6,9 +6,12 @@ import org.bukkit.util.Vector;
 
 public class PathFollower {
     private static final double JUMP_DETECTION_THRESHOLD = 0.8;
-    private static final int JUMP_SCAN_AHEAD = 3;
-    private static final int SMOOTHING_LOOKAHEAD = 5;
-    private static final double WAYPOINT_REACHED_DISTANCE_SQUARED = 0.5 * 0.5; // 1 block radius
+    private static final double DROP_DETECTION_THRESHOLD = -0.8;
+    private static final int JUMP_LOOKAHEAD_NODES = 1;
+    private static final int SMOOTHING_LOOKAHEAD = 6;
+    private static final double WAYPOINT_REACHED_DISTANCE_SQUARED = 0.95 * 0.95;
+    private static final double PERSONA_SHOULDER_WIDTH = 0.2;
+    private static final double TURN_DETECTION_THRESHOLD = 0.1;
 
     private final Path path;
     private int currentIndex;
@@ -25,12 +28,31 @@ public class PathFollower {
         }
         // Index is now updated sequentially at the start of the calculation.
         updateCurrentIndex(currentPos);
-        // Scan ahead for immediate jumps. This is a high-priority check.
-        for (int i = currentIndex; i < Math.min(currentIndex + JUMP_SCAN_AHEAD, path.size() - 1); i++) {
-            Location currentPoint = path.getPoint(i);
+        // Check for drops before checking for jumps to ensure we correctly walk off ledges.
+        if (currentIndex < path.size() - 1) {
+            Location currentPathPoint = path.getPoint(currentIndex);
+            Location nextPoint = path.getPoint(currentIndex + 1);
+            double heightDifference = nextPoint.getY() - currentPathPoint.getY();
+            // Check for a significant drop between the current path node and the next one.
+            if (heightDifference < DROP_DETECTION_THRESHOLD) {
+                // We need to perform a controlled drop. The target is the landing spot.
+                return new SteeringResult(nextPoint, SteeringResult.MovementType.DROP);
+            }
+        }
+        // Scan ahead for immediate jumps.
+        for (int i = currentIndex; i < Math.min(currentIndex + JUMP_LOOKAHEAD_NODES, path.size() - 1); i++) {
+            // Check persona's actual position vs target and only trigger jump if we need to go UP from current
+            // position, add an upper bound check to prevent jumping for unreachable heights
             Location nextPoint = path.getPoint(i + 1);
-            if (nextPoint.getY() - currentPoint.getY() > JUMP_DETECTION_THRESHOLD) {
-                return new SteeringResult(nextPoint, SteeringResult.MovementType.JUMP);
+            double heightDifferenceFromPersona = nextPoint.getY() - currentPos.getY();
+            if (heightDifferenceFromPersona > JUMP_DETECTION_THRESHOLD && heightDifferenceFromPersona < 2.0) {
+                // Additional validation - only jump if the next point is actually higher than us and we're
+                // relatively close horizontally (within 3 blocks)
+                double horizontalDistance = Math.sqrt(Math.pow(nextPoint.getX() - currentPos.getX(), 2) +
+                        Math.pow(nextPoint.getZ() - currentPos.getZ(), 2));
+                if (horizontalDistance < 3.0) {
+                    return new SteeringResult(nextPoint, SteeringResult.MovementType.JUMP);
+                }
             }
         }
         // Scan ahead for the furthest visible steering target
@@ -40,13 +62,52 @@ public class PathFollower {
             // If world is somehow null, can't do line-of-sight; return the very next point.
             return new SteeringResult(steeringTarget, SteeringResult.MovementType.WALK);
         }
-        for (int i = currentIndex + 2; i < Math.min(currentIndex + SMOOTHING_LOOKAHEAD, path.size()); i++) {
-            Location candidatePoint = path.getPoint(i);
-            if (hasLineOfSight(currentPos, candidatePoint, world)) {
-                steeringTarget = candidatePoint;
-            } else {
-                // As soon as we lose line of sight, we stop. The last visible point is our target.
-                break;
+        // Width-aware path smoothing loop requires at least two points ahead to define a turn.
+        if (currentIndex + 1 < path.size()) {
+            Location pivotPoint = path.getPoint(currentIndex + 1);
+            for (int i = currentIndex + 2; i < Math.min(currentIndex + SMOOTHING_LOOKAHEAD, path.size()); i++) {
+                Location candidatePoint = path.getPoint(i);
+                Vector offset = new Vector(0, 0, 0); // Default to no offset
+                if (Math.abs(candidatePoint.getY() - pivotPoint.getY()) > 0.1) {
+                    break;
+                }
+                // Define the vectors that form the turn we are trying to shortcut.
+                // v1 is from our current position to the pivot corner.
+                // v2 is from the pivot corner to the candidate destination.
+                Vector v1 = pivotPoint.toVector().subtract(currentPos.toVector());
+                Vector v2 = candidatePoint.toVector().subtract(pivotPoint.toVector());
+                if (v1.lengthSquared() < 0.001) {
+                    // Fall back to a simple, non-offset line-of-sight check for this candidate
+                    if (hasLineOfSight(currentPos, candidatePoint, world)) {
+                        steeringTarget = candidatePoint;
+                    } else {
+                        break;
+                    }
+                    continue; // Move to the next candidate point in the loop
+                }
+                // Use a 2D cross-product on the XZ plane to determine the turn direction.
+                // This is a highly efficient way to check geometry without expensive trig.
+                double turnValue = (v1.getX() * v2.getZ()) - (v1.getZ() * v2.getX());
+                if (Math.abs(turnValue) > TURN_DETECTION_THRESHOLD) {
+                    // Calculate the "right" vector perpendicular to our direction of travel (v1).
+                    Vector rightVec = new Vector(v1.getZ(), 0, -v1.getX()).normalize();
+                    if (turnValue > 0) { // Left turn
+                        // The inside shoulder is the left one. The offset is the *negative* right vector.
+                        offset = rightVec.multiply(-PERSONA_SHOULDER_WIDTH);
+                    } else { // Right turn
+                        // The inside shoulder is the right one. The offset is the positive right vector.
+                        offset = rightVec.multiply(PERSONA_SHOULDER_WIDTH);
+                    }
+                }
+                // The starting point for our raycast is offset to the inside shoulder.
+                Location raycastStart = currentPos.clone().add(offset);
+                if (hasLineOfSight(raycastStart, candidatePoint, world)) {
+                    steeringTarget = candidatePoint;
+                } else {
+                    // As soon as we lose line of sight from our shoulder, we stop.
+                    // The last visible point is our target.
+                    break;
+                }
             }
         }
         return new SteeringResult(steeringTarget, SteeringResult.MovementType.WALK);
@@ -119,5 +180,9 @@ public class PathFollower {
             return currentPos.distanceSquared(endPoint) < WAYPOINT_REACHED_DISTANCE_SQUARED;
         }
         return false;
+    }
+
+    public int getCurrentIndex() {
+        return currentIndex;
     }
 }

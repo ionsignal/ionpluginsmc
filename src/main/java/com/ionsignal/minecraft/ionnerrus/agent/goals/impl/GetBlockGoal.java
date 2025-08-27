@@ -78,7 +78,7 @@ public class GetBlockGoal implements Goal {
                 break;
 
             // NEEDS TO BE UPDATED TO SUPPORT LOOKAT BLOCK
-            // case MOVING_TO_DENSE_AREA:
+            // case MOVING_TO_DENSE_AREA:/
             // logger.info("GetBlockGoal: Moving to the new area.");
             // nextTask = taskFactory.createTask("GOTO_LOCATION", Map.of());
             // this.state = State.GATHERING_IN_DENSE_AREA; // Optimistically transition
@@ -117,6 +117,11 @@ public class GetBlockGoal implements Goal {
             agent.getBlackboard().remove(BlackboardKeys.GATHER_BLOCK_RESULT);
             switch (result) {
                 case SUCCESS:
+                    // CHANGE: Clear the attempted locations list after a successful gather.
+                    // This is critical. Since the agent has moved, the reasons for previous failures
+                    // (e.g., a block being unreachable) may no longer be valid from the new position.
+                    // This allows the agent to re-evaluate its surroundings with a clean slate.
+                    this.attemptedLocations.clear();
                     // After a successful gather, we must re-check the inventory to confirm.
                     this.state = State.CHECKING_INVENTORY;
                     // DEBUG: Instead of re-checking inventory, just increment our count.

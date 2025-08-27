@@ -31,24 +31,6 @@ public class AStarPathfinder {
     private static final int MAX_ITERATIONS = 8000;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
-    public static CompletableFuture<Optional<Path>> findPath(Location start, Location end, NavigationParameters params) {
-        BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
-        BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
-        int padding = 16; // Accounts for more complex pathing scenarios like falling around obstacles
-        BlockPos min = new BlockPos(
-                Math.min(startPos.getX(), endPos.getX()) - padding,
-                Math.min(startPos.getY(), endPos.getY()) - padding,
-                Math.min(startPos.getZ(), endPos.getZ()) - padding);
-        BlockPos max = new BlockPos(
-                Math.max(startPos.getX(), endPos.getX()) + padding,
-                Math.max(startPos.getY(), endPos.getY()) + padding,
-                Math.max(startPos.getZ(), endPos.getZ()) + padding);
-        WorldSnapshot snapshot = new WorldSnapshot(start.getWorld(), min, max);
-        return CompletableFuture.supplyAsync(
-                () -> new AStarPathfinder(startPos, endPos, start.getWorld(), params, snapshot).calculatePath(),
-                IonNerrus.getInstance().getOffloadThreadExecutor());
-    }
-
     private final BlockPos startPos;
     private final BlockPos endPos;
     private final World world;
@@ -61,6 +43,35 @@ public class AStarPathfinder {
         this.world = world;
         this.params = params;
         this.snapshot = snapshot;
+    }
+
+    // Create a snapshot and call the new overloaded method.
+    public static CompletableFuture<Optional<Path>> findPath(Location start, Location end, NavigationParameters params) {
+        BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
+        BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
+        int padding = 16; // Accounts for more complex pathing scenarios like falling around obstacles
+        BlockPos min = new BlockPos(
+                Math.min(startPos.getX(), endPos.getX()) - padding,
+                Math.min(startPos.getY(), endPos.getY()) - padding,
+                Math.min(startPos.getZ(), endPos.getZ()) - padding);
+        BlockPos max = new BlockPos(
+                Math.max(startPos.getX(), endPos.getX()) + padding,
+                Math.max(startPos.getY(), endPos.getY()) + padding,
+                Math.max(startPos.getZ(), endPos.getZ()) + padding);
+        // Asynchronously create the snapshot, then compose it with a call to the other findPath method.
+        // `thenCompose` is used to flatten the CompletableFuture<CompletableFuture<...>> result.
+        return WorldSnapshot.create(start.getWorld(), min, max)
+                .thenCompose(snapshot -> findPath(start, end, params, snapshot));
+    }
+
+    // Accepts a pre-existing WorldSnapshot for thread-safe, efficient pathfinding.
+    public static CompletableFuture<Optional<Path>> findPath(Location start, Location end, NavigationParameters params,
+            WorldSnapshot snapshot) {
+        BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
+        BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
+        return CompletableFuture.supplyAsync(
+                () -> new AStarPathfinder(startPos, endPos, start.getWorld(), params, snapshot).calculatePath(),
+                IonNerrus.getInstance().getOffloadThreadExecutor());
     }
 
     private Optional<Path> calculatePath() {

@@ -6,6 +6,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaMoveControl;
+import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
 import net.minecraft.world.entity.ai.control.MoveControl;
 
@@ -26,7 +27,7 @@ public class Navigator {
 
     // Deceleration constants
     private static final double DECELERATION_DISTANCE_SQUARED = 1.5 * 1.5; // Start slowing down 2 blocks away
-    private static final float MIN_DECELERATION_SPEED = 0.4f; // Don't slow down to a crawl
+    private static final float MIN_DECELERATION_SPEED = 0.2f; // Don't slow down to a crawl
 
     private final Persona persona;
 
@@ -49,7 +50,7 @@ public class Navigator {
     private int totalTicksStuck;
 
     private enum JumpState {
-        NONE, PREPARING, JUMPING, ASCENDING
+        NONE, PREPARING, JUMPING, ASCENDING, DESCENDING, DROPPING
     }
 
     private JumpState jumpState = JumpState.NONE;
@@ -128,6 +129,7 @@ public class Navigator {
         }
         // Stuck detection runs for any active state.
         if (isBusy() && checkIfStuck()) {
+            log();
             persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " is stuck! Failing current task.");
             if (state == State.PATH_FOLLOWING) {
                 finishPathing(NavigationResult.STUCK);
@@ -174,13 +176,22 @@ public class Navigator {
                 jumpTargetWaypoint = result.target(); // The target after the jump
                 handleJumpNavigation();
                 break;
+            case DROP:
+                // The PathFollower has detected a drop.
+                // Initiate a controlled descent by starting the state machine at the descending phase.
+                jumpTargetWaypoint = result.target(); // The landing spot.
+                jumpState = JumpState.DROPPING;
+                jumpStateTicks = 0;
+                // Immediately call handleJumpNavigation to apply forward momentum as we walk off the ledge.
+                handleJumpNavigation();
+                break;
             case WALK:
                 // Apply normal steering towards the distant target.
                 float currentSpeed = getSpeed();
                 Location finalDestination = currentPath.getPoint(currentPath.size() - 1);
                 double distanceToFinalSq = currentLocation.distanceSquared(finalDestination);
                 if (distanceToFinalSq < DECELERATION_DISTANCE_SQUARED) {
-                    // Apply the scaling (0..1) to the base speed, but don't go below the minimum.
+                    // Apply the scaling to the base speed, but don't go below the minimum.
                     double speedScale = Math.sqrt(distanceToFinalSq) / Math.sqrt(DECELERATION_DISTANCE_SQUARED);
                     currentSpeed = (float) Math.max(MIN_DECELERATION_SPEED, currentSpeed * speedScale);
                 }
@@ -323,13 +334,7 @@ public class Navigator {
                     jumpState = JumpState.JUMPING;
                     jumpStateTicks = 0;
                     // Apply slight forward movement to get closer to the ledge.
-                    MoveControl moveControl = personaEntity.getMoveControl();
-                    moveControl.setWantedPosition(
-                            nextWaypoint.getX(),
-                            nextWaypoint.getY(),
-                            nextWaypoint.getZ(),
-                            getSpeed() * 0.5f // Reduced speed for better jump control.
-                    );
+                    applyJumpMovement(nextWaypoint, 0.5f);
                 } else if (jumpStateTicks > 10) { // Timeout if we can't find ground.
                     persona.getManager().getPlugin().getLogger()
                             .warning("Persona " + persona.getName() + " failed jump prep (no ground).");
@@ -346,7 +351,7 @@ public class Navigator {
                 if (currentLocation.getY() > jumpStartY + 0.1) {
                     jumpState = JumpState.ASCENDING;
                     jumpStateTicks = 0;
-                    applyJumpMovement(nextWaypoint); // Apply full forward momentum now.
+                    applyJumpMovement(nextWaypoint, 1.0f); // Apply full forward momentum now.
                 } else if (jumpStateTicks > 5) { // Timeout if we fail to leave the ground.
                     persona.getManager().getPlugin().getLogger()
                             .warning("Persona " + persona.getName() + " failed to start jump ascent.");
@@ -355,14 +360,46 @@ public class Navigator {
                 break;
             case ASCENDING:
                 jumpStateTicks++;
-                applyJumpMovement(nextWaypoint); // Continue forward momentum.
-                // Check if the jump is complete (reached target height or started falling).
-                // The deltaMovement check detects the apex of the jump.
-                if (currentLocation.getY() >= nextWaypoint.getY() - 0.5 || personaEntity.getDeltaMovement().y < 0) {
-                    resetJumpState();
+                applyJumpMovement(nextWaypoint, 1.0f); // Continue forward momentum.
+                // Instead of resetting, transition to DESCENDING at the jump's apex, ensuring we maintain control
+                // over movement while falling.
+                if (personaEntity.getDeltaMovement().y < 0) {
+                    jumpState = JumpState.DESCENDING;
+                    jumpStateTicks = 0;
                 } else if (jumpStateTicks > 20) { // Timeout to prevent getting stuck mid-air.
                     persona.getManager().getPlugin().getLogger()
                             .warning("Persona " + persona.getName() + " timed out during jump ascent.");
+                    resetJumpState();
+                }
+                break;
+            case DESCENDING:
+                jumpStateTicks++;
+                applyJumpMovement(nextWaypoint, 1.0f); // Continue forward momentum to clear the gap.
+                // The jump is complete once we are back on the ground.
+                if (personaEntity.onGround()) {
+                    resetJumpState();
+                } else if (jumpStateTicks > 30) { // Timeout to prevent getting stuck in a fall loop.
+                    persona.getManager().getPlugin().getLogger()
+                            .warning("Persona " + persona.getName() + " timed out during jump descent.");
+                    resetJumpState();
+                }
+                break;
+            case DROPPING:
+                jumpStateTicks++;
+                if (jumpStateTicks == 1) {
+                    // This provides the necessary horizontal momentum to clear any small gap.
+                    applyJumpMovement(nextWaypoint, 0.3f);
+                } else {
+                    // Stop all forward movement.
+                    if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
+                        personaMoveControl.stop();
+                    }
+                }
+                if (personaEntity.onGround()) {
+                    resetJumpState();
+                } else if (jumpStateTicks > 30) { // Timeout to prevent getting stuck in a fall loop.
+                    persona.getManager().getPlugin().getLogger()
+                            .warning("Persona " + persona.getName() + " timed out during jump descent.");
                     resetJumpState();
                 }
                 break;
@@ -398,14 +435,41 @@ public class Navigator {
     /**
      * Applies boosted forward movement for clearing gaps during a jump.
      */
-    private void applyJumpMovement(Location target) {
+    private void applyJumpMovement(Location target, float amount) {
         // Apply a speed boost for better distance coverage during a jump.
         MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(
                 target.getX(),
                 target.getY(),
                 target.getZ(),
-                getSpeed() * JUMP_MOVEMENT_BOOST);
+                getSpeed() * amount);
+    }
+
+    private void log() {
+        Location currentPos = persona.getLocation();
+        StringBuilder sb = new StringBuilder();
+        sb.append("Persona ").append(persona.getName()).append(" is stuck! Failing current task.\n");
+        sb.append(String.format("  - Current Location: (%s, %.2f, %.2f, %.2f)\n",
+                currentPos.getWorld().getName(), currentPos.getX(), currentPos.getY(), currentPos.getZ()));
+        if (state == State.PATH_FOLLOWING && currentPath != null && pathFollower != null && !currentPath.isEmpty()) {
+            sb.append("  - Following Path (").append(currentPath.size()).append(" points total):\n");
+            int currentIndex = pathFollower.getCurrentIndex();
+            // Show a few points before and after the current target for context.
+            int start = Math.max(0, currentIndex - 2);
+            int end = Math.min(currentPath.size(), currentIndex + 5);
+            for (int i = start; i < end; i++) {
+                Location point = currentPath.getPoint(i);
+                String prefix = (i == currentIndex) ? " -> " : "    ";
+                sb.append(prefix).append(String.format("[%d] (%.1f, %.1f, %.1f)\n", i, point.getX(), point.getY(), point.getZ()));
+            }
+        } else if (state == State.ENGAGING && engageTarget != null) {
+            Location targetPos = engageTarget.getLocation();
+            sb.append("  - Engaging Target: ").append(engageTarget.getItemStack().getType())
+                    .append(String.format(" at (%.2f, %.2f, %.2f)\n", targetPos.getX(), targetPos.getY(), targetPos.getZ()));
+        }
+        persona.getManager().getPlugin().getLogger().warning(sb.toString());
+        // Log a 5-block radius area scan to the console for visual debugging.
+        DebugPath.logAreaAround(currentPos, 5);
     }
 
     /**
