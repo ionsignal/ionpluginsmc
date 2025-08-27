@@ -4,6 +4,6 @@ import org.bukkit.Location;
 
 public record SteeringResult(Location target, MovementType movementType) {
     public enum MovementType {
-        WALK, JUMP
+        WALK, JUMP, DROP
     }
 }

@@ -144,7 +144,7 @@ public class GatherBlockTask implements Task {
                                     agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
                                     return CompletableFuture.completedFuture(false);
                                 }
-                                // // DEBUG: Mock successful collection to test find-and-break logic
+                                // DEBUG: Mock successful collection to test find-and-break logic
                                 // logger.info("DEBUG: Mocking successful collection for block at " +
                                 // target.blockLocation().toVector());
                                 // agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
