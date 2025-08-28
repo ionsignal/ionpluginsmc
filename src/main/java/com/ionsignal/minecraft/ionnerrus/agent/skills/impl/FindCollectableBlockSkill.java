@@ -4,7 +4,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableTargetResult;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlockResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.AStarPathfinder;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationParameters;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
@@ -35,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-public class FindCollectableBlockSkill implements Skill<FindCollectableTargetResult> {
+public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResult> {
     public static final boolean VISUALIZE_SEARCH = true;
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final int MAX_CANDIDATES_TO_FIND = 15;
@@ -55,12 +55,12 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableTargetRes
     }
 
     @Override
-    public CompletableFuture<FindCollectableTargetResult> execute(NerrusAgent agent) {
+    public CompletableFuture<FindCollectableBlockResult> execute(NerrusAgent agent) {
         Location start = agent.getPersona().getLocation();
         World world = start.getWorld();
         if (world == null) {
             return CompletableFuture
-                    .completedFuture(FindCollectableTargetResult.failure(FindCollectableTargetResult.Status.NO_TARGETS_FOUND));
+                    .completedFuture(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND));
         }
         int snapshotPadding = 16;
         BlockPos min = new BlockPos(start.getBlockX() - searchRadius - snapshotPadding, start.getBlockY() - searchRadius - snapshotPadding,
@@ -84,14 +84,14 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableTargetRes
                             start, searchRadius, MAX_CANDIDATES_TO_FIND,
                             movementStrategy, searchProcessor, snapshot);
                     if (candidates.isEmpty()) {
-                        log(startTime, FindCollectableTargetResult.Status.NO_TARGETS_FOUND);
-                        return FindCollectableTargetResult.failure(FindCollectableTargetResult.Status.NO_TARGETS_FOUND);
+                        log(startTime, FindCollectableBlockResult.Status.NO_TARGETS_FOUND);
+                        return FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND);
                     }
                     // CHANGE: The evaluation logic is now much more sophisticated.
                     Optional<CollectableBlock> finalTarget = evaluateCandidates(start, candidates, snapshot);
-                    FindCollectableTargetResult finalResult = finalTarget
-                            .map(FindCollectableTargetResult::success)
-                            .orElse(FindCollectableTargetResult.failure(FindCollectableTargetResult.Status.NO_PATH_FOUND));
+                    FindCollectableBlockResult finalResult = finalTarget
+                            .map(FindCollectableBlockResult::success)
+                            .orElse(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_PATH_FOUND));
                     log(startTime, finalResult.status());
                     return finalResult;
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
@@ -252,14 +252,14 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableTargetRes
         }
     }
 
-    private void log(long startTime, FindCollectableTargetResult.Status status) {
+    private void log(long startTime, FindCollectableBlockResult.Status status) {
         long endTime = System.nanoTime();
         double durationMillis = (endTime - startTime) / 1_000_000.0;
         String logMessage = String.format(
                 "FindCollectableTargetSkill finished in %.3f ms with result: %s",
                 durationMillis,
                 status);
-        if (durationMillis >= WARN_THRESHOLD_MS || status != FindCollectableTargetResult.Status.SUCCESS) {
+        if (durationMillis >= WARN_THRESHOLD_MS || status != FindCollectableBlockResult.Status.SUCCESS) {
             LOGGER.warning(logMessage);
         } else {
             LOGGER.info(logMessage);
