@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.skills.results;
 
-import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableTarget;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
 import java.util.Optional;
 
 /**
@@ -8,7 +8,7 @@ import java.util.Optional;
  * It provides a status indicating the outcome of the search and, on success,
  * the optimal target that was found.
  */
-public record FindCollectableTargetResult(Status status, Optional<CollectableTarget> target) {
+public record FindCollectableTargetResult(Status status, Optional<CollectableBlock> target) {
     /**
      * Describes the outcome of the search for a collectable target.
      */
@@ -39,7 +39,7 @@ public record FindCollectableTargetResult(Status status, Optional<CollectableTar
      *            The found collectable target.
      * @return A new FindCollectableTargetResult instance.
      */
-    public static FindCollectableTargetResult success(CollectableTarget target) {
+    public static FindCollectableTargetResult success(CollectableBlock target) {
         return new FindCollectableTargetResult(Status.SUCCESS, Optional.of(target));
     }
 

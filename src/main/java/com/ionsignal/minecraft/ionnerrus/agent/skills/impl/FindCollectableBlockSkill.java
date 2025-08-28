@@ -2,7 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableTarget;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableTargetResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.AStarPathfinder;
@@ -35,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-public class FindCollectableTargetSkill implements Skill<FindCollectableTargetResult> {
+public class FindCollectableBlockSkill implements Skill<FindCollectableTargetResult> {
     public static final boolean VISUALIZE_SEARCH = true;
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final int MAX_CANDIDATES_TO_FIND = 15;
@@ -48,7 +48,7 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
     private final int searchRadius;
     private final Set<Location> excludedLocations;
 
-    public FindCollectableTargetSkill(Set<Material> materials, int searchRadius, Set<Location> excludedLocations) {
+    public FindCollectableBlockSkill(Set<Material> materials, int searchRadius, Set<Location> excludedLocations) {
         this.materials = materials;
         this.searchRadius = searchRadius;
         this.excludedLocations = excludedLocations;
@@ -88,7 +88,7 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
                         return FindCollectableTargetResult.failure(FindCollectableTargetResult.Status.NO_TARGETS_FOUND);
                     }
                     // CHANGE: The evaluation logic is now much more sophisticated.
-                    Optional<CollectableTarget> finalTarget = evaluateCandidates(start, candidates, snapshot);
+                    Optional<CollectableBlock> finalTarget = evaluateCandidates(start, candidates, snapshot);
                     FindCollectableTargetResult finalResult = finalTarget
                             .map(FindCollectableTargetResult::success)
                             .orElse(FindCollectableTargetResult.failure(FindCollectableTargetResult.Status.NO_PATH_FOUND));
@@ -98,7 +98,7 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
     }
 
     // CHANGE: New private record for scoring
-    private record ScoredCandidate(CollectableTarget target, double score) implements Comparable<ScoredCandidate> {
+    private record ScoredCandidate(CollectableBlock target, double score) implements Comparable<ScoredCandidate> {
         @Override
         public int compareTo(ScoredCandidate other) {
             // Lower score is better
@@ -110,7 +110,7 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
      * CHANGE: This method is completely rewritten to implement a multi-factor scoring system.
      * It now considers path length and block exposure to find the truly optimal target.
      */
-    private Optional<CollectableTarget> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates,
+    private Optional<CollectableBlock> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates,
             WorldSnapshot snapshot) {
         // Step 1: De-duplicate targets, keeping only the best standing spot for each.
         // This ensures we don't pathfind to the same block multiple times from different spots.
@@ -148,7 +148,7 @@ public class FindCollectableTargetSkill implements Skill<FindCollectableTargetRe
                 double score = (pathLength * PATH_LENGTH_WEIGHT) - (exposureScore * EXPOSURE_SCORE_WEIGHT);
 
                 scoredAndPathable.add(new ScoredCandidate(
-                        new CollectableTarget(candidate.targetBlockLocation(), candidate.standingSpot(), path),
+                        new CollectableBlock(candidate.targetBlockLocation(), candidate.standingSpot(), path),
                         score));
             }
         }
