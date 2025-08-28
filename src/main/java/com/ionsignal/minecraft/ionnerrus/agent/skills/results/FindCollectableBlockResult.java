@@ -8,7 +8,7 @@ import java.util.Optional;
  * It provides a status indicating the outcome of the search and, on success,
  * the optimal target that was found.
  */
-public record FindCollectableTargetResult(Status status, Optional<CollectableBlock> target) {
+public record FindCollectableBlockResult(Status status, Optional<CollectableBlock> target) {
     /**
      * Describes the outcome of the search for a collectable target.
      */
@@ -39,8 +39,8 @@ public record FindCollectableTargetResult(Status status, Optional<CollectableBlo
      *            The found collectable target.
      * @return A new FindCollectableTargetResult instance.
      */
-    public static FindCollectableTargetResult success(CollectableBlock target) {
-        return new FindCollectableTargetResult(Status.SUCCESS, Optional.of(target));
+    public static FindCollectableBlockResult success(CollectableBlock target) {
+        return new FindCollectableBlockResult(Status.SUCCESS, Optional.of(target));
     }
 
     /**
@@ -50,10 +50,10 @@ public record FindCollectableTargetResult(Status status, Optional<CollectableBlo
      *            The reason for the failure.
      * @return A new FindCollectableTargetResult instance.
      */
-    public static FindCollectableTargetResult failure(Status reason) {
+    public static FindCollectableBlockResult failure(Status reason) {
         if (reason == Status.SUCCESS) {
             throw new IllegalArgumentException("Failure result cannot have SUCCESS status.");
         }
-        return new FindCollectableTargetResult(reason, Optional.empty());
+        return new FindCollectableBlockResult(reason, Optional.empty());
     }
 }
