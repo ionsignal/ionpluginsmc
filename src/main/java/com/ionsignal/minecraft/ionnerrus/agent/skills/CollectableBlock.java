@@ -15,5 +15,5 @@ import org.bukkit.Location;
  * @param pathToStand
  *            The pre-calculated path from the agent's current location to the standingLocation.
  */
-public record CollectableTarget(Location blockLocation, Location standingLocation, Path pathToStand) {
+public record CollectableBlock(Location blockLocation, Location standingLocation, Path pathToStand) {
 }

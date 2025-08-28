@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
  */
 public class CollectItemSkill implements Skill<CollectItemResult> {
     public static final boolean VISUALIZE_COLLECT = true;
-    private static final double WARN_THRESHOLD_MS = 250.0;
+    private static final double WARN_THRESHOLD_MS = 300;
     private static final double APPROACH_DISTANCE_SQUARED = 2.5 * 2.5;
     private static final int COLLECTION_TIMEOUT_SECONDS = 8;
     private static final int MAX_PATHFINDING_ATTEMPTS = 3;

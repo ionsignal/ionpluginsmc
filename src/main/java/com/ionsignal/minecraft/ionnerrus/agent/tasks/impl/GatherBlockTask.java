@@ -3,17 +3,15 @@ package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableTarget;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.BreakBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CollectItemSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EquipBestToolSkill;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableTargetSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.results.CollectItemResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask.GatherResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
@@ -81,7 +79,7 @@ public class GatherBlockTask implements Task {
         if (cancelled) {
             return CompletableFuture.completedFuture(null);
         }
-        return new FindCollectableTargetSkill(materials, searchRadius, attemptedLocations)
+        return new FindCollectableBlockSkill(materials, searchRadius, attemptedLocations)
                 .execute(agent)
                 .thenComposeAsync(result -> {
                     if (cancelled) {
@@ -90,7 +88,7 @@ public class GatherBlockTask implements Task {
                     // Use a switch on the new rich result status.
                     switch (result.status()) {
                         case SUCCESS:
-                            CollectableTarget target = result.target().get();
+                            CollectableBlock target = result.target().get();
                             attemptedLocations.add(target.blockLocation());
                             return navigateToAndBreak(target).thenAccept(success -> {
                                 if (!success) {
@@ -113,7 +111,7 @@ public class GatherBlockTask implements Task {
                 }, mainThreadExecutor);
     }
 
-    private CompletableFuture<Boolean> navigateToAndBreak(CollectableTarget target) {
+    private CompletableFuture<Boolean> navigateToAndBreak(CollectableBlock target) {
         // Use the new skill to navigate while looking at the target block.
         if (VISUALIZE_PATH) {
             DebugVisualizer.displayPath(target.pathToStand(), 40);
