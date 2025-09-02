@@ -1,11 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CannotCompleteParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
@@ -16,12 +18,16 @@ import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionLis
 
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class IonNerrus extends JavaPlugin {
     private static IonNerrus instance;
@@ -101,10 +107,12 @@ public class IonNerrus extends JavaPlugin {
      * This is where new agent capabilities are "announced" to the system.
      */
     private void registerGoals() {
+        // Register the new CANNOT_COMPLETE tool
         goalRegistry.register(new ToolDefinition(
                 "CANNOT_COMPLETE",
                 "Call this function if and only if the user's objective is impossible to achieve with the other available tools. Use it to explain why the task cannot be done.",
                 CannotCompleteParameters.class));
+        // Register the new GET_BLOCKS tool
         goalRegistry.register(new ToolDefinition(
                 "GET_BLOCKS",
                 "Navigates to and gathers a specified quantity of a block type from a predefined group.",
@@ -118,6 +126,33 @@ public class IonNerrus extends JavaPlugin {
                         if (groupNameProp != null) {
                             String currentDesc = groupNameProp.get("description").asText();
                             groupNameProp.put("description", currentDesc + " Available groups: " + validGroups);
+                        }
+                    }
+                    return schema;
+                }));
+        // Register the new GIVE_ITEM tool
+        goalRegistry.register(new ToolDefinition(
+                "GIVE_ITEM",
+                "Gives a specified quantity of an item to a target player or another agent.",
+                GiveItemParameters.class,
+                schema -> {
+                    // Dynamically list available targets (online players and spawned agents)
+                    // to help the LLM make a valid choice.
+                    List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+                    List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
+                    String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
+                            .distinct()
+                            .collect(Collectors.joining(", "));
+                    ObjectNode properties = (ObjectNode) schema.get("properties");
+                    if (properties != null) {
+                        ObjectNode targetNameProp = (ObjectNode) properties.get("targetName");
+                        if (targetNameProp != null) {
+                            String currentDesc = targetNameProp.get("description").asText();
+                            if (validTargets.isEmpty()) {
+                                targetNameProp.put("description", currentDesc + " No available targets found.");
+                            } else {
+                                targetNameProp.put("description", currentDesc + " Available targets: " + validTargets);
+                            }
                         }
                     }
                     return schema;
