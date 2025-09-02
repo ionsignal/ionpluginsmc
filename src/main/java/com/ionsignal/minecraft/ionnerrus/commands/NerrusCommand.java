@@ -8,6 +8,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
@@ -16,6 +17,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -28,6 +30,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class NerrusCommand implements CommandExecutor, TabCompleter {
     private final IonNerrus plugin;
@@ -50,7 +53,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             @NotNull String[] args) {
         if (args.length == 0) {
             sender.sendMessage(
-                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|do|list> ...", NamedTextColor.GOLD));
+                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|list> ...", NamedTextColor.GOLD));
             return true;
         }
         String subCommand = args[0].toLowerCase();
@@ -71,6 +74,9 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             case "getblock" -> {
                 return handleGetBlock(sender, args);
             }
+            case "give" -> {
+                return handleGive(sender, args);
+            }
             case "do" -> {
                 return handleDo(sender, args);
             }
@@ -79,7 +85,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             }
             default -> {
                 sender.sendMessage(
-                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|do|list> ...",
+                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|list> ...",
                                 NamedTextColor.RED));
                 return true;
             }
@@ -194,6 +200,42 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleGive(CommandSender sender, String[] args) {
+        if (args.length < 5) {
+            sender.sendMessage(Component.text("Usage: /nerrus give <agentName> <targetName> <material> <quantity>", NamedTextColor.RED));
+            return true;
+        }
+        String agentName = args[1];
+        NerrusAgent agent = agentService.findAgentByName(agentName);
+        if (agent == null) {
+            sender.sendMessage(Component.text("Agent not found: " + agentName, NamedTextColor.RED));
+            return true;
+        }
+        String targetName = args[2];
+        String materialName = args[3].toUpperCase();
+        int quantity;
+        try {
+            quantity = Integer.parseInt(args[4]);
+            if (quantity <= 0) {
+                sender.sendMessage(Component.text("Quantity must be a positive number.", NamedTextColor.RED));
+                return true;
+            }
+        } catch (NumberFormatException e) {
+            sender.sendMessage(Component.text("Invalid quantity. Must be a number.", NamedTextColor.RED));
+            return true;
+        }
+        try {
+            GiveItemParameters params = new GiveItemParameters(materialName, quantity, targetName);
+            Goal giveItemGoal = goalFactory.createGoal("GIVE_ITEM", params);
+            agent.assignGoal(giveItemGoal);
+            sender.sendMessage(Component.text("Instructing " + agentName + " to give items.", NamedTextColor.GREEN));
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
+            return true;
+        }
+        return true;
+    }
+
     private boolean handleDo(CommandSender sender, String[] args) {
         if (args.length < 3) {
             sender.sendMessage(Component.text("Usage: /nerrus do <name> <directive...>", NamedTextColor.RED));
@@ -235,11 +277,11 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "stop", "getblock", "do", "list");
+            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "list");
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "remove", "stop", "getblock", "do" -> {
+                case "remove", "stop", "getblock", "do", "give" -> {
                     return agentService.getAgents().stream()
                             .map(NerrusAgent::getName)
                             .collect(Collectors.toList());
@@ -259,13 +301,30 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 case "getblock" -> {
                     return blockTagManager.getRegisteredGroupNames().stream().sorted().collect(Collectors.toList());
                 }
+                case "give" -> {
+                    Stream<String> players = Bukkit.getOnlinePlayers().stream().map(Player::getName);
+                    Stream<String> agents = agentService.getAgents().stream().map(NerrusAgent::getName);
+                    return Stream.concat(players, agents).distinct().sorted().collect(Collectors.toList());
+                }
                 default -> {
                     return Collections.emptyList();
                 }
             }
         }
-        if (args.length == 4 && "getblock".equalsIgnoreCase(args[0])) {
-            return List.of("8", "16", "32", "64");
+        if (args.length == 4) {
+            if ("give".equalsIgnoreCase(args[0])) {
+                return Arrays.stream(Material.values())
+                        .filter(Material::isItem)
+                        .map(m -> m.name().toLowerCase())
+                        .sorted()
+                        .collect(Collectors.toList());
+            }
+            if ("getblock".equalsIgnoreCase(args[0])) {
+                return List.of("8", "16", "32", "64");
+            }
+        }
+        if (args.length == 5 && "give".equalsIgnoreCase(args[0])) {
+            return List.of("1", "8", "16", "32", "64");
         }
         return Collections.emptyList();
     }
