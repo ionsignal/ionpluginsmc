@@ -19,6 +19,10 @@ import com.ionsignal.minecraft.ionnerrus.util.search.strategy.StandardMovement;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -29,12 +33,15 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 import org.bukkit.Material;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
@@ -49,10 +56,10 @@ import java.util.stream.Collectors;
 public class CollectItemSkill implements Skill<CollectItemResult> {
     public static final boolean VISUALIZE_COLLECT = true;
     private static final double WARN_THRESHOLD_MS = 300;
-    private static final double APPROACH_DISTANCE_SQUARED = 2.5 * 2.5;
+    private static final double APPROACH_DISTANCE_SQUARED = 1.75 * 1.75;
     private static final int COLLECTION_TIMEOUT_SECONDS = 8;
-    private static final int MAX_PATHFINDING_ATTEMPTS = 3;
-    private static final int MAX_CANDIDATES_TO_FIND = 5;
+    private static final int MAX_PATHFINDING_ATTEMPTS = 2;
+    private static final int MAX_CANDIDATES_TO_FIND = 8;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final Item targetItem;
@@ -144,13 +151,12 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
             }
         }.runTaskTimer(IonNerrus.getInstance(), 0L, 5L);
         finalResultFuture.whenComplete((res, err) -> monitorTask.cancel());
-        CompletableFuture<EngageResult> engageFuture = navigator.engageOn(targetItem); // TODO: we need to fix this, needs to engageOn
-                                                                                       // location object, not an item object
-        if (VISUALIZE_COLLECT) {
-            IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                DebugVisualizer.highlightBlock(targetItem.getLocation(), 60, NamedTextColor.DARK_AQUA);
-            });
-        }
+        CompletableFuture<EngageResult> engageFuture = navigator.engageOn(targetItem, 1.0 * 1.0);
+        // if (VISUALIZE_COLLECT) {
+        // IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
+        // DebugVisualizer.highlightBlock(targetItem.getLocation(), 60, NamedTextColor.DARK_AQUA);
+        // });
+        // }
         engageFuture.whenComplete((engageResult, throwable) -> {
             if (finalResultFuture.isDone()) {
                 return;
@@ -240,12 +246,20 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
             if (candidates.isEmpty()) {
                 return Optional.empty();
             }
-            // Step 2: Limit pathfinding attempts for performance.
-            List<Location> finalCandidates = candidates.stream()
+            // Step 2: Filter the initial candidates to find only those with a clear line of sight to the item.
+            List<Location> verifiedCandidates = candidates.stream()
+                    .filter(candidate -> hasLineOfSightToItem(candidate, itemGroundLocation, snapshot))
+                    .collect(Collectors.toList());
+            if (verifiedCandidates.isEmpty()) {
+                // None of the nearby spots have a clear view. No valid path exists.
+                return Optional.empty();
+            }
+            // Step 3: Limit pathfinding attempts for performance, now using the verified list.
+            List<Location> finalCandidates = verifiedCandidates.stream()
                     .sorted(Comparator.comparingDouble(spot -> agentLocation.distanceSquared(spot)))
                     .limit(MAX_PATHFINDING_ATTEMPTS)
                     .collect(Collectors.toList());
-            // Step 3: Pathfind to each candidate and collect all valid paths.
+            // Step 4: Pathfind to each candidate and collect all valid paths.
             List<Path> validPaths = new ArrayList<>();
             for (Location candidate : finalCandidates) {
                 // Reuse the existing snapshot for every pathfinding call.
@@ -254,9 +268,62 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                         .join();
                 pathOpt.ifPresent(validPaths::add);
             }
-            // Step 4: Return the path with the shortest length.
+            // Step 5: Return the path with the shortest length.
             return validPaths.stream().min(Comparator.comparingDouble(Path::getLength));
         }, IonNerrus.getInstance().getOffloadThreadExecutor());
+    }
+
+    /**
+     * Performs a high-resolution, block-aware "raycast" using the WorldSnapshot to check for a clear
+     * line of sight. This is used to verify that an agent at a potential standing spot can actually
+     * "see"
+     * the item it needs to collect, preventing it from pathing to a spot blocked by an obstacle like a
+     * solid block or a vine.
+     *
+     * @param from
+     *            The potential standing spot for the agent.
+     * @param to
+     *            The location of the item on the ground.
+     * @param snapshot
+     *            The thread-safe world snapshot to check against.
+     * @return true if there is an unobstructed line of sight, false otherwise.
+     */
+    private boolean hasLineOfSightToItem(Location from, Location to, WorldSnapshot snapshot) {
+        Location eyeLocation = from.clone().add(0, 1.6, 0); // Agent's approximate eye height
+        Location targetLocation = to.clone().add(0, 0.25, 0); // Item's approximate center
+        Vector direction = targetLocation.toVector().subtract(eyeLocation.toVector());
+        double distance = direction.length();
+        if (distance < 0.5) { // Safety check for very close items
+            return true;
+        }
+        direction.normalize();
+        Set<BlockPos> visitedBlocks = new HashSet<>();
+        final double stepSize = 0.25; // High resolution to prevent missing diagonal obstacles like vines.
+        for (double d = 0; d < distance; d += stepSize) {
+            Location checkPoint = eyeLocation.clone().add(direction.clone().multiply(d));
+            BlockPos checkPos = new BlockPos(checkPoint.getBlockX(), checkPoint.getBlockY(), checkPoint.getBlockZ());
+            // The performance optimization: only check each unique block along the ray once.
+            if (!visitedBlocks.add(checkPos)) {
+                continue;
+            }
+            BlockState blockState = snapshot.getBlockState(checkPos);
+            if (blockState == null) {
+                // Ray went outside the snapshot, assume it's obstructed for safety.
+                return false;
+            }
+            // An obstacle is anything with a collision shape OR anything that is climbable (vines, ladders).
+            VoxelShape collisionShape = blockState.getCollisionShape(EmptyBlockGetter.INSTANCE, checkPos);
+            boolean isClimbable = blockState.is(BlockTags.CLIMBABLE);
+            if (!collisionShape.isEmpty() || isClimbable) {
+                return false; // Obstacle found
+            }
+        }
+        if (VISUALIZE_COLLECT) {
+            IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
+                DebugVisualizer.highlightBlock(from, 10, NamedTextColor.WHITE);
+            });
+        }
+        return true; // No obstacles found
     }
 
     private void log(long startTime, String status) {
@@ -288,11 +355,11 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
         public List<Location> process(BlockSearch.TraversalNode node, World world, WorldSnapshot snapshot) {
             Location standingSpot = new Location(world, node.pos().getX() + 0.5, node.pos().getY(), node.pos().getZ() + 0.5);
             if (standingSpot.distanceSquared(itemGroundLocation) <= APPROACH_DISTANCE_SQUARED) {
-                if (VISUALIZE_COLLECT) {
-                    IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                        DebugVisualizer.highlightBlock(standingSpot, 20, NamedTextColor.GOLD);
-                    });
-                }
+                // if (VISUALIZE_COLLECT) {
+                // IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
+                // DebugVisualizer.highlightBlock(standingSpot, 20, NamedTextColor.GOLD);
+                // });
+                // }
                 return List.of(standingSpot);
             }
             return List.of();
