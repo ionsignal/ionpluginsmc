@@ -24,3 +24,6 @@ user_jvm_args.txt
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Other
+diff.txt

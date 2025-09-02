@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.ionsignal.minecraft.ionnerrus"
-version = "0.0.1-alpha.1-SNAPSHOT"
+version = "0.0.2-alpha.1-SNAPSHOT"
 description = "An LLM powered NPC decision engine"
 
 java {
