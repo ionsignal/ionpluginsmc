@@ -177,6 +177,8 @@ The body is used to provide additional context and explain the *what* and *why* 
 
 ## Git Tagging
 
+Don't forget to bump version.
+
 ```bash
 git tag -n # show previous tags
 git checkout <commit_hash_for_the_version_bump> # checkout commit to tag
