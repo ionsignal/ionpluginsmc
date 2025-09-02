@@ -174,3 +174,29 @@ The subject is a concise, imperative-tense description of the change.
 ### Body (optional)
 
 The body is used to provide additional context and explain the *what* and *why* of the change, not the *how*. It should be used for any non-trivial commit.
+
+## Git Tagging
+
+```bash
+git tag -n # show previous tags
+git checkout <commit_hash_for_the_version_bump> # checkout commit to tag
+git tag -a v0.0.2-alpha.1 -m "Release version 0.0.2-alpha.1: Social Interaction & Item Transfer"
+```
+
+## Latest Release Notes
+
+Title: IonNerrus 0.0.2-alpha.1: Social Interaction & Item Transfer
+
+This alpha release builds upon the foundational engine by introducing the first set of social and interactive capabilities. Agents can now understand and execute requests to transfer items to players or other agents, making them more collaborative participants in the world.
+
+This is an early **alpha** build intended for developers and testers. Expect bugs, incomplete features, and rapid changes.
+
+## Key Features
+
+- - **Social Interaction & Item Transfer (`GIVE_ITEM` Goal):** The cornerstone of this update.
+
+## Known Issues
+
+- **Finding Blocks** The `FindCollectableBlockSkill` fails to start the search if we're on a ledge
+- **No Persistence:** Agents do not yet persist across server restarts. This is a top priority for the next development cycle.
+- **Limited Hazard Awareness:** The agent's ability to avoid environmental dangers is currently minimal.
