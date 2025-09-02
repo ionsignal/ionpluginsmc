@@ -11,7 +11,7 @@ import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 import net.minecraft.world.entity.ai.control.MoveControl;
 
 import org.bukkit.Location;
-import org.bukkit.entity.Item;
+import org.bukkit.entity.Entity;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -27,7 +27,7 @@ public class Navigator {
 
     // Deceleration constants
     private static final double DECELERATION_DISTANCE_SQUARED = 1.5 * 1.5; // Start slowing down 2 blocks away
-    private static final float MIN_DECELERATION_SPEED = 0.2f; // Don't slow down to a crawl
+    private static final float MIN_DECELERATION_SPEED = 0.1f; // Don't slow down to a crawl
 
     private final Persona persona;
 
@@ -43,8 +43,11 @@ public class Navigator {
     private PathFollower pathFollower;
 
     // Engaging State
-    private Item engageTarget;
+    // CHANGE: Changed engageTarget from Item to the more generic Entity
+    private Entity engageTarget;
     private CompletableFuture<EngageResult> engageFuture;
+    // CHANGE: Added a field to store the proximity distance for engagement success.
+    private double engageProximitySquared;
     private Location stuckCheckLocation;
     private int ticksSinceStuckCheck;
     private int totalTicksStuck;
@@ -109,13 +112,15 @@ public class Navigator {
         return navigationFuture;
     }
 
-    public CompletableFuture<EngageResult> engageOn(Item target) {
+    // CHANGE: Method signature changed to accept any Entity and a proximity distance.
+    public CompletableFuture<EngageResult> engageOn(Entity target, double proximityDistanceSquared) {
         if (isBusy()) {
             cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
         }
         resetStuckDetection();
         state = State.ENGAGING;
         engageTarget = target;
+        engageProximitySquared = proximityDistanceSquared;
         engageFuture = new CompletableFuture<>();
         return engageFuture;
     }
@@ -207,19 +212,29 @@ public class Navigator {
             finishEngaging(EngageResult.TARGET_GONE);
             return;
         }
-        // Movement Logic
-        Location itemLocation = engageTarget.getLocation();
         Location agentLocation = persona.getLocation();
+        // CHANGE: Added success condition based on proximity.
+        if (agentLocation.distanceSquared(engageTarget.getLocation()) < engageProximitySquared) {
+            finishEngaging(EngageResult.SUCCESS);
+            return;
+        }
+        // Movement Logic
+        Location targetLocation = engageTarget.getLocation();
         // Target X and Z of the item, but the agent's current Y to prevent flying/digging
-        Location moveTarget = new Location(itemLocation.getWorld(), itemLocation.getX(), agentLocation.getY(), itemLocation.getZ());
+        Location moveTarget = new Location(targetLocation.getWorld(), targetLocation.getX(), agentLocation.getY(), targetLocation.getZ());
         // Dampen speed as we get closer for a smoother stop
-        double distance = agentLocation.distance(itemLocation);
+        double distance = agentLocation.distance(targetLocation);
         float speed = getSpeed();
         if (distance < 2.0) {
             speed *= (distance / 2.0);
         }
         MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(moveTarget.getX(), moveTarget.getY(), moveTarget.getZ(), Math.max(speed, 0.1f));
+        // CHANGE: Added gaze tracking to look at the target.
+        if (persona.getPersonaEntity() != null) {
+            Location eyeLocation = engageTarget.getLocation().add(0, engageTarget.getHeight() * 0.85, 0);
+            persona.getPersonaEntity().getLookControl().setLookAt(eyeLocation.getX(), eyeLocation.getY(), eyeLocation.getZ());
+        }
     }
 
     /**
@@ -294,6 +309,10 @@ public class Navigator {
             PersonaEntity personaEntity = persona.getPersonaEntity();
             if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
                 personaMoveControl.stop();
+            }
+            // CHANGE: Stop looking when resetting navigator state to prevent the head from being stuck.
+            if (personaEntity.getLookControl() != null) {
+                personaEntity.getLookControl().stopLooking();
             }
         }
         this.navigationFuture = null;
@@ -464,7 +483,7 @@ public class Navigator {
             }
         } else if (state == State.ENGAGING && engageTarget != null) {
             Location targetPos = engageTarget.getLocation();
-            sb.append("  - Engaging Target: ").append(engageTarget.getItemStack().getType())
+            sb.append("  - Engaging Target: ").append(engageTarget.getType())
                     .append(String.format(" at (%.2f, %.2f, %.2f)\n", targetPos.getX(), targetPos.getY(), targetPos.getZ()));
         }
         persona.getManager().getPlugin().getLogger().warning(sb.toString());
