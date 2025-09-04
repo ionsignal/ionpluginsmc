@@ -8,9 +8,11 @@ import net.minecraft.core.BlockPos;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Tag;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.craftbukkit.block.CraftBlock;
+import org.bukkit.util.Vector;
 
 import java.util.Optional;
 
@@ -88,5 +90,42 @@ public final class NavigationHelper {
             currentBlock = currentBlock.getRelative(BlockFace.UP);
         }
         return Optional.empty(); // No valid ground found in range.
+    }
+
+    /**
+     * Checks for a clear line of sight between two points. This check is robust, using
+     * NavigationHelper.isPassable to correctly identify obstacles like leaves and fences, and also
+     * detects potential drop-offs.
+     *
+     * @param from
+     *            The starting location (e.g., agent's eyes).
+     * @param to
+     *            The target location.
+     * @param world
+     *            The world to perform the check in.
+     * @return true if there is a clear, safe line of sight.
+     */
+    public static boolean hasLineOfSight(Location from, Location to, World world) {
+        Location eyeLocation = from.clone().add(0, 1.6, 0); // Approx eye height
+        Vector direction = to.toVector().subtract(eyeLocation.toVector());
+        double distance = direction.length();
+        if (distance < 1.0) {
+            return true; // Too close to have an obstacle
+        }
+        direction.normalize();
+        // Raycast step; smaller step for more accuracy in dense environments
+        for (double d = 0.5; d < distance; d += 0.5) {
+            Location checkLoc = eyeLocation.clone().add(direction.clone().multiply(d));
+            // Check if a block is not passable, which blocks line of sight.
+            if (!NavigationHelper.isPassable(checkLoc.getBlock())) {
+                return false;
+            }
+            // Check for a drop-off. If the block below our path is passable, it's a cliff
+            Location groundCheckLoc = checkLoc.clone().subtract(0, 2.2, 0);
+            if (NavigationHelper.isPassable(groundCheckLoc.getBlock())) {
+                return false; // Path goes over a ledge, break line of sight.
+            }
+        }
+        return true;
     }
 }

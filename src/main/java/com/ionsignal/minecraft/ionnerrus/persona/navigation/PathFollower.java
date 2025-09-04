@@ -78,7 +78,7 @@ public class PathFollower {
                 Vector v2 = candidatePoint.toVector().subtract(pivotPoint.toVector());
                 if (v1.lengthSquared() < 0.001) {
                     // Fall back to a simple, non-offset line-of-sight check for this candidate
-                    if (hasLineOfSight(currentPos, candidatePoint, world)) {
+                    if (NavigationHelper.hasLineOfSight(currentPos, candidatePoint, world)) {
                         steeringTarget = candidatePoint;
                     } else {
                         break;
@@ -101,7 +101,7 @@ public class PathFollower {
                 }
                 // The starting point for our raycast is offset to the inside shoulder.
                 Location raycastStart = currentPos.clone().add(offset);
-                if (hasLineOfSight(raycastStart, candidatePoint, world)) {
+                if (NavigationHelper.hasLineOfSight(raycastStart, candidatePoint, world)) {
                     steeringTarget = candidatePoint;
                 } else {
                     // As soon as we lose line of sight from our shoulder, we stop.
@@ -138,35 +138,6 @@ public class PathFollower {
                 break;
             }
         }
-    }
-
-    /**
-     * Checks for a clear line of sight between two points. This check is more robust, using
-     * NavigationHelper.isPassable to correctly identify obstacles like leaves and fences that are not
-     * technically "occluding".
-     */
-    private boolean hasLineOfSight(Location from, Location to, World world) {
-        Location eyeLocation = from.clone().add(0, 1.6, 0); // Approx eye height
-        Vector direction = to.toVector().subtract(eyeLocation.toVector());
-        double distance = direction.length();
-        if (distance < 1.0) {
-            return true; // Too close to have an obstacle
-        }
-        direction.normalize();
-        // Raycast step; smaller step for more accuracy in dense environments
-        for (double d = 0.5; d < distance; d += 0.5) {
-            Location checkLoc = eyeLocation.clone().add(direction.clone().multiply(d));
-            // Check if a block is not passable, and it blocks line of sight.
-            if (!NavigationHelper.isPassable(checkLoc.getBlock())) {
-                return false;
-            }
-            // Check for a drop-off. If the block below our path is passable, it's a cliff
-            Location groundCheckLoc = checkLoc.clone().subtract(0, 2.2, 0);
-            if (NavigationHelper.isPassable(groundCheckLoc.getBlock())) {
-                return false; // Path goes over a ledge, break line of sight.
-            }
-        }
-        return true;
     }
 
     public boolean isFinished(Location currentPos) {
