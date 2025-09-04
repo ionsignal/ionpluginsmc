@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
@@ -53,7 +54,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             @NotNull String[] args) {
         if (args.length == 0) {
             sender.sendMessage(
-                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|list> ...", NamedTextColor.GOLD));
+                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|list|follow> ...", NamedTextColor.GOLD));
             return true;
         }
         String subCommand = args[0].toLowerCase();
@@ -83,9 +84,12 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             case "list" -> {
                 return handleList(sender);
             }
+            case "follow" -> {
+                return handleFollow(sender, args);
+            }
             default -> {
                 sender.sendMessage(
-                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|list> ...",
+                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|list|follow> ...",
                                 NamedTextColor.RED));
                 return true;
             }
@@ -258,6 +262,31 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleFollow(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(
+                    Component.text("Usage: /nerrus follow <agentName> <targetName> [followDistance] [stopDistance]", NamedTextColor.RED));
+            return true;
+        }
+        NerrusAgent agent = agentService.findAgentByName(args[1]);
+        if (agent == null) {
+            sender.sendMessage(Component.text("Agent not found: " + args[1], NamedTextColor.RED));
+            return true;
+        }
+        String targetName = args[2];
+        double followDist = args.length > 3 ? Double.parseDouble(args[3]) : 6.0;
+        double stopDist = args.length > 4 ? Double.parseDouble(args[4]) : 2.5;
+        try {
+            FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist);
+            Goal followGoal = goalFactory.createGoal("FOLLOW_PLAYER", params);
+            agent.assignGoal(followGoal);
+            sender.sendMessage(Component.text("Instructing " + agent.getName() + " to follow " + targetName, NamedTextColor.GREEN));
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
+        }
+        return true;
+    }
+
     private boolean handleList(CommandSender sender) {
         List<String> agentNames = agentService.getAgents().stream()
                 .map(NerrusAgent::getName)
@@ -277,11 +306,11 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "list");
+            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "list", "follow");
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "remove", "stop", "getblock", "do", "give" -> {
+                case "remove", "stop", "getblock", "do", "give", "follow" -> {
                     return agentService.getAgents().stream()
                             .map(NerrusAgent::getName)
                             .collect(Collectors.toList());
@@ -301,7 +330,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 case "getblock" -> {
                     return blockTagManager.getRegisteredGroupNames().stream().sorted().collect(Collectors.toList());
                 }
-                case "give" -> {
+                case "give", "follow" -> {
                     Stream<String> players = Bukkit.getOnlinePlayers().stream().map(Player::getName);
                     Stream<String> agents = agentService.getAgents().stream().map(NerrusAgent::getName);
                     return Stream.concat(players, agents).distinct().sorted().collect(Collectors.toList());
@@ -322,9 +351,17 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             if ("getblock".equalsIgnoreCase(args[0])) {
                 return List.of("8", "16", "32", "64");
             }
+            if ("follow".equalsIgnoreCase(args[0])) {
+                return List.of("5.0", "8.0", "10.0");
+            }
         }
-        if (args.length == 5 && "give".equalsIgnoreCase(args[0])) {
-            return List.of("1", "8", "16", "32", "64");
+        if (args.length == 5) {
+            if ("give".equalsIgnoreCase(args[0])) {
+                return List.of("1", "8", "16", "32", "64");
+            }
+            if ("follow".equalsIgnoreCase(args[0])) {
+                return List.of("2.0", "2.5", "3.0");
+            }
         }
         return Collections.emptyList();
     }

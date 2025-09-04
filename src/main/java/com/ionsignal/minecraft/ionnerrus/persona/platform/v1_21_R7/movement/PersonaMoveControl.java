@@ -56,4 +56,8 @@ public class PersonaMoveControl extends MoveControl {
         this.personaEntity.setSpeed(speed);
         this.personaEntity.zza = 1.0F;
     }
+
+    public Operation getOperation() {
+        return this.operation;
+    }
 }

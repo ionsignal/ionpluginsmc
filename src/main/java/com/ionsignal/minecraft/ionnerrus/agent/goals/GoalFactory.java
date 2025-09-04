@@ -3,8 +3,10 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GetBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal; // ADDED: Import for new goal
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters; // ADDED: Import for new parameters
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 
 import org.bukkit.Material;
@@ -42,6 +44,9 @@ public class GoalFactory {
                     throw new IllegalArgumentException("Unknown material name: " + giveItemParams.materialName());
                 }
                 return new GiveItemGoal(giveItemParams, materialToGive);
+            case "FOLLOW_PLAYER":
+                FollowPlayerParameters followParams = (FollowPlayerParameters) parameters;
+                return new FollowPlayerGoal(followParams);
             // Future goals like "CRAFT_ITEM" would go here
             // case "CRAFT_ITEM":
             // ...

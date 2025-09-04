@@ -8,6 +8,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CannotCompleteParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
@@ -138,6 +139,32 @@ public class IonNerrus extends JavaPlugin {
                 schema -> {
                     // Dynamically list available targets (online players and spawned agents)
                     // to help the LLM make a valid choice.
+                    List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+                    List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
+                    String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
+                            .distinct()
+                            .collect(Collectors.joining(", "));
+                    ObjectNode properties = (ObjectNode) schema.get("properties");
+                    if (properties != null) {
+                        ObjectNode targetNameProp = (ObjectNode) properties.get("targetName");
+                        if (targetNameProp != null) {
+                            String currentDesc = targetNameProp.get("description").asText();
+                            if (validTargets.isEmpty()) {
+                                targetNameProp.put("description", currentDesc + " No available targets found.");
+                            } else {
+                                targetNameProp.put("description", currentDesc + " Available targets: " + validTargets);
+                            }
+                        }
+                    }
+                    return schema;
+                }));
+        // ADDED: Register the new FOLLOW_PLAYER tool
+        goalRegistry.register(new ToolDefinition(
+                "FOLLOW_PLAYER",
+                "Follows a target player or agent until cancelled.",
+                FollowPlayerParameters.class,
+                schema -> {
+                    // Dynamically list available targets to help the LLM make a valid choice.
                     List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
                     List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
                     String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
