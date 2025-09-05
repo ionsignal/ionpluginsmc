@@ -22,6 +22,7 @@ import org.bukkit.Bukkit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
+import java.util.concurrent.CancellationException;
 
 public class ReActDirector {
     private final IonNerrus plugin;
@@ -120,14 +121,26 @@ public class ReActDirector {
             }
             Goal newGoal = goalFactory.createGoal(toolName, params);
             agent.assignGoal(newGoal).whenCompleteAsync((goalResult, throwable) -> {
-                String resultMessage;
+                // Add specific handling for CancellationException
                 if (throwable != null) {
+                    if (throwable instanceof CancellationException) {
+                        // The goal was cancelled by an external command, like '/nerrus stop'.
+                        // This is not a failure, but an intentional stop.
+                        plugin.getLogger().info("Directive for agent " + agent.getName() + " was cancelled by user.");
+                        agent.speak("Okay, I'll stop what I'm doing.");
+                        agent.setBusyWithDirective(false);
+                        return; // Terminate the ReAct loop.
+                    }
+                    // It's a different, unexpected exception. Log it and report failure to the LLM.
                     plugin.getLogger().log(Level.SEVERE, "Goal future completed exceptionally.", throwable);
-                    resultMessage = "FAILURE: An unexpected error occurred in the agent's goal execution.";
-                } else {
-                    // Use the rich information from the GoalResult object.
-                    resultMessage = goalResult.status() + ": " + goalResult.message();
+                    String resultMessage = "FAILURE: An unexpected error occurred in the agent's goal execution: " + throwable.getMessage();
+                    ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
+                    conversationHistory.add(toolMessage);
+                    cognitiveStep(agent); // Continue the loop, letting the LLM know about the failure.
+                    return;
                 }
+                // This block is now only for normal (non-exceptional) completions.
+                String resultMessage = goalResult.status() + ": " + goalResult.message();
                 plugin.getLogger().info("Goal '" + toolName + "' finished with result: " + resultMessage);
                 ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
                 conversationHistory.add(toolMessage);

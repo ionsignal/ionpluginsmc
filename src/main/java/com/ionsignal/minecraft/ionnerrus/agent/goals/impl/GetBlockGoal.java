@@ -1,11 +1,15 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
@@ -14,6 +18,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask.Gather
 import org.bukkit.Location;
 import org.bukkit.Material;
 // import org.bukkit.block.Biome;
+
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -210,6 +216,28 @@ public class GetBlockGoal implements Goal {
             String message = "Failed to gather the required " + params.quantity() + " " + params.groupName() + ". Only found "
                     + gatheredCount + ".";
             return new GoalResult(GoalResult.Status.FAILURE, message);
+        }
+    }
+
+    public static class Provider implements GoalProvider {
+        @Override
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+            return new ToolDefinition(
+                    "GET_BLOCKS",
+                    "Navigates to and gathers a specified quantity of a block type from a predefined group.",
+                    GetBlockParameters.class,
+                    schema -> {
+                        String validGroups = String.join(", ", blockTagManager.getRegisteredGroupNames());
+                        ObjectNode properties = (ObjectNode) schema.get("properties");
+                        if (properties != null) {
+                            ObjectNode groupNameProp = (ObjectNode) properties.get("groupName");
+                            if (groupNameProp != null) {
+                                String currentDesc = groupNameProp.get("description").asText();
+                                groupNameProp.put("description", currentDesc + " Available groups: " + validGroups);
+                            }
+                        }
+                        return schema;
+                    });
         }
     }
 }

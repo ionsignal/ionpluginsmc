@@ -1,15 +1,14 @@
-// import xyz.jpenilla.runpaper.task.RunServe
-
 plugins {
   `java-library`
   id("io.papermc.paperweight.userdev") version "2.0.0-beta.18"
-  id("xyz.jpenilla.run-paper") version "2.3.1" // runServer and runMojangMappedServer tasks for testing
-  id("com.gradleup.shadow") version "8.3.8"
+  id("xyz.jpenilla.run-paper") version "3.0.0-beta.1" // runServer and runMojangMappedServer tasks for testing
+  id("com.gradleup.shadow") version "9.1.0"
+  id("com.github.ben-manes.versions") version "0.52.0" 
   id("eclipse") 
 }
 
 group = "com.ionsignal.minecraft.ionnerrus"
-version = "0.0.3-alpha.1-SNAPSHOT"
+version = "0.0.4-alpha.1-SNAPSHOT" // Update in plugin.yml as well
 description = "An LLM powered NPC decision engine"
 
 java {
@@ -20,16 +19,12 @@ java {
 dependencies {
   compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
   paperweight.paperDevBundle("1.21.7-R0.1-SNAPSHOT")
-
   // Simple OpenAI API Layer
   implementation("io.github.sashirestela:simple-openai:3.22.1")
-
-
   // HTTP Client for future LLM integration
-  implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.14")
-
-  // // JSON Processor for LLM integration
-  // implementation("com.google.code.gson:gson:2.13.1")
+  implementation("com.squareup.okhttp3:okhttp:5.1.0")
+  // Reflections library for classpath scanning
+  implementation("org.reflections:reflections:0.10.2")
 }
 
 repositories {
@@ -71,11 +66,15 @@ tasks {
 
   // shadowJar task to relocate dependencies
   shadowJar {
-    relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3") // 
-    relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio") // okhttp's dependency
-    // relocate("com.google.gson", "com.ionsignal.minecraft.ionnerrus.lib.gson") // json parsing
-    
-    archiveClassifier.set("") // single, shaded JAR without a classifier
+    // Add relocation rules for dependencies
+    relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
+    relocate("org.reflections", "com.ionsignal.minecraft.ionnerrus.lib.reflections")
+    relocate("org.javassist", "com.ionsignal.minecraft.ionnerrus.lib.javassist")
+    relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3")
+    relocate("io.github.sashirestela.openai", "com.ionsignal.minecraft.ionnerrus.lib.openai")
+    relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ionnerrus.lib.jackson")
+    // single, shaded JAR without a classifier
+    archiveClassifier.set("")
   }
 
   build {

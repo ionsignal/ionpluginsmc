@@ -135,6 +135,18 @@ Interested in contributing? Here's how to get a development environment set up.
 
 3. The compiled, shaded JAR will be located in `build/libs/`.
 
+### Debug Server
+
+```bash
+./gradlew runServer --no-daemon --stacktrace
+```
+
+### Dependency Updates
+
+```bash
+./gradlew dependencyUpdates
+```
+
 ## Project Status & Roadmap
 
 This project is under active development.

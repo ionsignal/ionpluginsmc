@@ -63,10 +63,18 @@ public class NerrusAgent {
     private void handleAssignGoal(Goal goal, CompletableFuture<GoalResult> resultFuture) {
         if (this.currentGoal != null) {
             this.currentGoal.stop(this);
-            // If a previous goal was running, complete its future with a failure state.
+            // If a previous goal was running, handle its future.
             if (this.currentGoalFuture != null && !this.currentGoalFuture.isDone()) {
-                this.currentGoalFuture
-                        .complete(new GoalResult(GoalResult.Status.FAILURE, "Goal was cancelled by a new assignment."));
+                if (goal == null) {
+                    // This is a hard stop from a command like '/nerrus stop'.
+                    // Cancel the future to signal an external interruption.
+                    this.currentGoalFuture.cancel(true);
+                } else {
+                    // A new goal is replacing the old one. The old goal has failed.
+                    // Complete normally with a failure state for the ReActDirector to process.
+                    this.currentGoalFuture
+                            .complete(new GoalResult(GoalResult.Status.FAILURE, "Goal was cancelled by a new assignment."));
+                }
             }
         }
         if (this.currentTask != null) {
@@ -81,6 +89,7 @@ public class NerrusAgent {
             this.currentGoal.start(this);
             processNextStep();
         } else {
+            // This branch is now only for cases where a null goal is assigned when no goal was running.
             if (this.currentGoalFuture != null && !this.currentGoalFuture.isDone()) {
                 this.currentGoalFuture.complete(new GoalResult(GoalResult.Status.SUCCESS, "No goal assigned."));
             }

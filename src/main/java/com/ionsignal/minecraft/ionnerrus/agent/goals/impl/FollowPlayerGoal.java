@@ -1,6 +1,10 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
+import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
@@ -9,8 +13,15 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.entity.LivingEntity;
 
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.concurrent.CompletableFuture;
 
 public class FollowPlayerGoal implements Goal {
@@ -102,5 +113,35 @@ public class FollowPlayerGoal implements Goal {
             public void cancel() {
                 /* No-op */ }
         };
+    }
+
+    public static class Provider implements GoalProvider {
+        @Override
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+            return new ToolDefinition(
+                    "FOLLOW_PLAYER",
+                    "Follows a target player or agent until cancelled.",
+                    FollowPlayerParameters.class,
+                    schema -> {
+                        List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+                        List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
+                        String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
+                                .distinct()
+                                .collect(Collectors.joining(", "));
+                        ObjectNode properties = (ObjectNode) schema.get("properties");
+                        if (properties != null) {
+                            ObjectNode targetNameProp = (ObjectNode) properties.get("targetName");
+                            if (targetNameProp != null) {
+                                String currentDesc = targetNameProp.get("description").asText();
+                                if (validTargets.isEmpty()) {
+                                    targetNameProp.put("description", currentDesc + " No available targets found.");
+                                } else {
+                                    targetNameProp.put("description", currentDesc + " Available targets: " + validTargets);
+                                }
+                            }
+                        }
+                        return schema;
+                    });
+        }
     }
 }
