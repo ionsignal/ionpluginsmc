@@ -1,7 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
@@ -13,10 +17,17 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.Material;
 import org.bukkit.entity.LivingEntity;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import java.util.Set;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
@@ -182,5 +193,35 @@ public class GiveItemGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
+    }
+
+    public static class Provider implements GoalProvider {
+        @Override
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+            return new ToolDefinition(
+                    "GIVE_ITEM",
+                    "Gives a specified quantity of an item to a target player or another agent.",
+                    GiveItemParameters.class,
+                    schema -> {
+                        List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+                        List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
+                        String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
+                                .distinct()
+                                .collect(Collectors.joining(", "));
+                        ObjectNode properties = (ObjectNode) schema.get("properties");
+                        if (properties != null) {
+                            ObjectNode targetNameProp = (ObjectNode) properties.get("targetName");
+                            if (targetNameProp != null) {
+                                String currentDesc = targetNameProp.get("description").asText();
+                                if (validTargets.isEmpty()) {
+                                    targetNameProp.put("description", currentDesc + " No available targets found.");
+                                } else {
+                                    targetNameProp.put("description", currentDesc + " Available targets: " + validTargets);
+                                }
+                            }
+                        }
+                        return schema;
+                    });
+        }
     }
 }

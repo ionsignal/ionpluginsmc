@@ -6,6 +6,7 @@ import io.github.sashirestela.cleverclient.client.OkHttpClientAdapter;
 import io.github.sashirestela.openai.SimpleOpenAI;
 import io.github.sashirestela.openai.domain.chat.Chat;
 import io.github.sashirestela.openai.domain.chat.ChatRequest;
+
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.util.concurrent.CompletableFuture;
