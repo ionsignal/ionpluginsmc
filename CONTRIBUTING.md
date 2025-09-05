@@ -183,22 +183,25 @@ Don't forget to bump version.
 git tag -n # show previous tags
 git checkout <commit_hash_for_the_version_bump> # checkout commit to tag
 git tag -a v0.0.2-alpha.1 -m "Release version 0.0.2-alpha.1: Social Interaction & Item Transfer"
+git push origin v0.0.2-alpha.1
 ```
 
 ## Latest Release Notes
 
-Title: IonNerrus 0.0.2-alpha.1: Social Interaction & Item Transfer
+Title: IonNerrus 0.0.3-alpha.1: Enhanced Awareness & Following
 
-This alpha release builds upon the foundational engine by introducing the first set of social and interactive capabilities. Agents can now understand and execute requests to transfer items to players or other agents, making them more collaborative participants in the world.
+This alpha release dramatically enhances agent mobility and awareness. We've introduced a sophisticated 'follow' behavior that allows agents to dynamically track and move with players and other entities. This not only adds a new core capability but also makes existing social interactions feel significantly more natural and intelligent.
 
 This is an early **alpha** build intended for developers and testers. Expect bugs, incomplete features, and rapid changes.
 
 ## Key Features
 
-- - **Social Interaction & Item Transfer (`GIVE_ITEM` Goal):** The cornerstone of this update.
+- **Dynamic Following & Tracking (`FOLLOW_PLAYER` Goal):** The core of this update. Agents can now be instructed to follow a target using a new goal and the `/nerrus follow` command. The underlying `Navigator` uses a three-tiered system for intelligent tracking: it will stop and watch when close, steer directly if it has line-of-sight, and use A* pathfinding if the target is far or obstructed.
+- **Smarter Item Giving:** The `GiveItemGoal` has been completely overhauled. Instead of walking to a player's last known location and waiting, the agent now actively follows the target, approaches them, and waits for them to be ready for the handoff. This makes the interaction far more robust and lifelike.
 
 ## Known Issues
 
-- **Finding Blocks** The `FindCollectableBlockSkill` fails to start the search if we're on a ledge
+- **Water Pathing Broken:** Water pathing is broken and the Persona will get stuck when they enter water.
+- **Finding Blocks:** The `FindCollectableBlockSkill` fails to start the search if the agent is standing on a ledge or overhang.
 - **No Persistence:** Agents do not yet persist across server restarts. This is a top priority for the next development cycle.
-- **Limited Hazard Awareness:** The agent's ability to avoid environmental dangers is currently minimal.
+- **Limited Hazard Awareness:** The agent's ability to avoid environmental dangers (lava, falls, etc.) is currently minimal.
