@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FailObjectiveParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
@@ -111,11 +112,12 @@ public class ReActDirector {
         }
         try {
             Object params = objectMapper.readValue(argumentsJson, toolDef.parametersClass());
-            if ("CANNOT_COMPLETE".equalsIgnoreCase(toolName)) {
-                // Special handling for the termination tool
-                String reason = ((com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CannotCompleteParameters) params).reason();
-                agent.speak("I can't do that. " + reason);
-                plugin.getLogger().warning("ReActDirector terminated by CANNOT_COMPLETE tool. Reason: " + reason);
+            if ("FAIL_OBJECTIVE".equalsIgnoreCase(toolName)) {
+                FailObjectiveParameters failParams = (FailObjectiveParameters) params;
+                String explanation = failParams.explanation();
+                agent.speak("I can't do that. " + explanation);
+                plugin.getLogger().warning("ReActDirector terminated by FAIL_OBJECTIVE tool. Type: " + failParams.failureType()
+                        + ", Explanation: " + explanation);
                 agent.setBusyWithDirective(false);
                 return;
             }
