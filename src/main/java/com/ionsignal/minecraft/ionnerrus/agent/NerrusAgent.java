@@ -165,6 +165,17 @@ public class NerrusAgent {
         return currentGoal;
     }
 
+    public String getActivityDescription() {
+        if (!isBusyWithDirective) {
+            return "Idle.";
+        }
+        if (currentGoal != null) {
+            // e.g., "Working on goal: GetBlockGoal"
+            return "Working on goal: " + currentGoal.getClass().getSimpleName();
+        }
+        return "Thinking about the next step.";
+    }
+
     public void speak(String message) {
         persona.speak(message);
     }

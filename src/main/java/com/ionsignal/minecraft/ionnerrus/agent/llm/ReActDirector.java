@@ -47,8 +47,7 @@ public class ReActDirector {
 
     public void executeDirective(String directive, NerrusAgent agent) {
         agent.setBusyWithDirective(true);
-        // This is a placeholder. A more robust system would fetch this from a persona config.
-        String personaDescription = "You are a helpful and diligent assistant.";
+        String personaDescription = "You are a helpful, positive, and diligent assistant.";
         String systemPrompt = agentContext.buildSystemPrompt(personaDescription, directive);
         conversationHistory.add(ChatMessage.SystemMessage.of(systemPrompt));
         conversationHistory.add(ChatMessage.UserMessage.of(directive));
@@ -65,15 +64,14 @@ public class ReActDirector {
                 .toolChoice(ToolChoiceOption.AUTO)
                 .parallelToolCalls(false)
                 .build();
-        // TEMPORARY
         try {
-            plugin.getLogger().info("--- DRY RUN: Constructed ChatRequest (JSON) ---");
+            // Basic logging for development
+            plugin.getLogger().info("--- Constructed JSON ---");
             plugin.getLogger().info(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request));
         } catch (JsonProcessingException e) {
             plugin.getLogger().log(Level.SEVERE, "Dry run serialization failed", e);
             agent.setBusyWithDirective(false);
         }
-        // ..
         llmService.getNextToolCall(request).whenCompleteAsync((chat, throwable) -> {
             if (throwable != null) {
                 plugin.getLogger().log(Level.SEVERE, "LLM call failed in cognitive step.", throwable);

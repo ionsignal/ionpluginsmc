@@ -19,36 +19,55 @@ public class AgentContext {
 
     public String buildSystemPrompt(String personaDescription, String objective) {
         StringBuilder sb = new StringBuilder();
-
-        // Identity and Persona
+        // Identity and Personality
         sb.append("You are ").append(agent.getName()).append(", an AI agent in Minecraft.\n");
-        sb.append("Your persona: ").append(personaDescription).append("\n\n");
-
-        // Core Context - The get...() methods provide the pre-formatted, concise data.
+        sb.append("Your personality: ").append(personaDescription).append("\n\n");
+        // Core Context
         sb.append("## Context\n");
         sb.append(getEnvironmentContext());
         sb.append(getInventoryContext());
         sb.append("\n");
-
         // The Objective
         sb.append("## Objective\n");
-        sb.append("Your task is to achieve this objective: '").append(objective).append("'.\n\n");
-
-        // Instructions - Rewritten for conciseness and to include the failure condition.
+        sb.append("Your task is assigned to you by: '").append("Lobster_Luke").append("'.\n\n");
+        sb.append("Your task is to achieve this objective with your available tools: '").append(objective).append("'.\n\n");
+        // Instructions
         sb.append("## Instructions\n");
-        sb.append("You will operate in a loop: Analyze -> Decide -> Act.\n");
-        sb.append("Limitations: You cannot dig deeper than a few blocks down. You cannot craft items.\n");
-        sb.append("1. **Analyze:** Evaluate the objective against your limitations, current context, and available tools.\n");
+        sb.append("You will operate in a loop `Analyze -> Decide -> Act`:\n");
+        sb.append("1. **Analyze:** Evaluate your objective, current context, and available tools.\n");
         sb.append("2. **Decide:**\n");
-        sb.append("   - If the objective is achievable, select the single best tool to make progress.\n");
-        sb.append("   - If the objective is impossible with your tools, you MUST use the `CANNOT_COMPLETE` tool to explain why.\n");
-        sb.append("3. **Act:** After the tool result is returned, repeat the loop.\n");
-        sb.append("4. **Report:** Once the objective is fully achieved or you have used `CANNOT_COMPLETE`,");
-        sb.append(" respond with a brief message to the user instead of calling another tool.\n\n");
-
+        sb.append(" - If the objective is achievable, select the single best tool to make progress.\n");
+        sb.append(" - If the objective is impossible, you MUST use the `FAIL_OBJECTIVE` tool to explain why.\n");
         // Global Rule - A direct command to keep spoken responses short.
-        sb.append("IMPORTANT: Keep your responses (your `content` replies) brief and to the point.");
+        sb.append("IMPORTANT: Keep your responses brief and clearly reflect your unique personality.");
+        return sb.toString();
+    }
 
+    /**
+     * Builds a lightweight system prompt for conversational queries where no tools are used.
+     *
+     * @param personaDescription
+     *            A description of the agent's personality.
+     * @param question
+     *            The user's question.
+     * @return A formatted system prompt string.
+     */
+    public String buildQueryPrompt(String personaDescription, String question) {
+        StringBuilder sb = new StringBuilder();
+        // Identity and Personality
+        sb.append("You are ").append(agent.getName()).append(", an AI agent in Minecraft.\n");
+        sb.append("Your personality: ").append(personaDescription).append("\n\n");
+        // Core Context
+        sb.append("## Context\n");
+        sb.append(getEnvironmentContext());
+        sb.append(getInventoryContext());
+        sb.append("- Current Activity: ").append(agent.getActivityDescription()).append("\n");
+        sb.append("- History: You have not done anything yet.\n");
+        sb.append("\n");
+        // Instructions
+        sb.append("## Instructions\n");
+        sb.append("Based on your current context, provide a very brief, in-character response to the user's question.\n");
+        sb.append("User's Question: '").append(question).append("'.");
         return sb.toString();
     }
 
@@ -71,6 +90,8 @@ public class AgentContext {
     }
 
     private String getInventoryContext() {
+        // currently only lists the main storage inventory (the 36 slots including the hotbar)
+        // omits the armor slots and the off-hand slot
         if (!agent.getPersona().isSpawned()) {
             return "- Inventory: Unknown\n";
         }
