@@ -10,6 +10,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
@@ -54,7 +55,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             @NotNull String[] args) {
         if (args.length == 0) {
             sender.sendMessage(
-                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|list|follow> ...", NamedTextColor.GOLD));
+                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow> ...", NamedTextColor.GOLD));
             return true;
         }
         String subCommand = args[0].toLowerCase();
@@ -81,6 +82,9 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             case "do" -> {
                 return handleDo(sender, args);
             }
+            case "ask" -> {
+                return handleAsk(sender, args);
+            }
             case "list" -> {
                 return handleList(sender);
             }
@@ -89,7 +93,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             }
             default -> {
                 sender.sendMessage(
-                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|list|follow> ...",
+                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow> ...",
                                 NamedTextColor.RED));
                 return true;
             }
@@ -262,6 +266,24 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleAsk(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(Component.text("Usage: /nerrus ask <name> <question...>", NamedTextColor.RED));
+            return true;
+        }
+        String name = args[1];
+        NerrusAgent agent = agentService.findAgentByName(name);
+        if (agent == null) {
+            sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
+            return true;
+        }
+        String question = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+        sender.sendMessage(Component.text("Asking " + name + ": '" + question + "'", NamedTextColor.GRAY));
+        AskDirector askDirector = new AskDirector(plugin.getLlmService());
+        askDirector.executeQuery(agent, question, sender);
+        return true;
+    }
+
     private boolean handleFollow(CommandSender sender, String[] args) {
         if (args.length < 3) {
             sender.sendMessage(
@@ -306,11 +328,11 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "list", "follow");
+            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "ask", "list", "follow");
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "remove", "stop", "getblock", "do", "give", "follow" -> {
+                case "remove", "stop", "getblock", "do", "give", "follow", "ask" -> {
                     return agentService.getAgents().stream()
                             .map(NerrusAgent::getName)
                             .collect(Collectors.toList());
