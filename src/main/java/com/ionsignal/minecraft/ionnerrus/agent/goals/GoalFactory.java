@@ -3,6 +3,11 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GetBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.MineOreGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.BuildGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.DigGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FarmGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
@@ -24,6 +29,18 @@ public class GoalFactory {
 
     public Goal createGoal(String name, Object parameters) {
         switch (name.toUpperCase()) {
+            case "DIG":
+                // Guardrail `Goal`
+                return new DigGoal();
+            case "BUILD":
+                // Guardrail `Goal`
+                return new BuildGoal();
+            case "FARM":
+                // Guardrail `Goal`
+                return new FarmGoal();
+            case "MINE_ORE":
+                // Guardrail `Goal`
+                return new MineOreGoal();
             case "GET_BLOCKS":
                 // The cast is safe because the ReActDirector used the correct class from the ToolDefinition.
                 GetBlockParameters getBlockParams = (GetBlockParameters) parameters;
@@ -44,6 +61,9 @@ public class GoalFactory {
                     throw new IllegalArgumentException("Unknown material name: " + giveItemParams.materialName());
                 }
                 return new GiveItemGoal(giveItemParams, materialToGive);
+            case "CRAFT_ITEM":
+                // Guardrail `Goal`
+                return new CraftItemGoal();
             case "FOLLOW_PLAYER":
                 FollowPlayerParameters followParams = (FollowPlayerParameters) parameters;
                 return new FollowPlayerGoal(followParams);
