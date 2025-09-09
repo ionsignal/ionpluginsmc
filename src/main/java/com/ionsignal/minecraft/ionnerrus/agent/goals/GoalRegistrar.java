@@ -39,9 +39,7 @@ public class GoalRegistrar {
     public void registerAll() {
         logger.info("Discovering GoalProviders...");
         try {
-            // CHANGE: Get a direct URL to the plugin's JAR file. This is a more robust method
-            // than relying on ClasspathHelper within a shadowed plugin environment, as it
-            // avoids issues with relocated metadata indexes.
+            // Use direct URL to JAR file rather than relying on ClasspathHelper within a shadowed plugin.
             ClassLoader pluginClassLoader = IonNerrus.getInstance().getClass().getClassLoader();
             File pluginFile = new File(IonNerrus.getInstance().getClass().getProtectionDomain().getCodeSource().getLocation().toURI());
             ConfigurationBuilder config = new ConfigurationBuilder()
@@ -50,7 +48,6 @@ public class GoalRegistrar {
                     .addClassLoaders(pluginClassLoader);
             Reflections reflections = new Reflections(config);
             Set<Class<? extends GoalProvider>> providerClasses = reflections.getSubTypesOf(GoalProvider.class);
-            // END CHANGE
             for (Class<? extends GoalProvider> providerClass : providerClasses) {
                 if (providerClass.isMemberClass() && !java.lang.reflect.Modifier.isStatic(providerClass.getModifiers())) {
                     logger.warning(" -> Skipping non-static inner class: " + providerClass.getName());
