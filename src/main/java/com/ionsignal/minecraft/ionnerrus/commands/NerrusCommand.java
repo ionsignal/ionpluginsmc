@@ -80,10 +80,18 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 return handleGive(sender, args);
             }
             case "do" -> {
-                return handleDo(sender, args);
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
+                    return true;
+                }
+                return handleDo(player, args);
             }
             case "ask" -> {
-                return handleAsk(sender, args);
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
+                    return true;
+                }
+                return handleAsk(player, args);
             }
             case "list" -> {
                 return handleList(sender);
@@ -244,43 +252,43 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    private boolean handleDo(CommandSender sender, String[] args) {
+    private boolean handleDo(Player player, String[] args) {
         if (args.length < 3) {
-            sender.sendMessage(Component.text("Usage: /nerrus do <name> <directive...>", NamedTextColor.RED));
+            player.sendMessage(Component.text("Usage: /nerrus do <name> <directive...>", NamedTextColor.RED));
             return true;
         }
         String name = args[1];
         NerrusAgent agent = agentService.findAgentByName(name);
         if (agent == null) {
-            sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
+            player.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
             return true;
         }
         if (agent.isBusyWithDirective()) {
-            sender.sendMessage(Component.text(name + " is already working on a complex directive.", NamedTextColor.YELLOW));
+            player.sendMessage(Component.text(name + " is already working on a complex directive.", NamedTextColor.YELLOW));
             return true;
         }
         String directive = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
         ReActDirector director = new ReActDirector(agent, goalRegistry, goalFactory, plugin.getLlmService());
-        director.executeDirective(directive, agent);
-        sender.sendMessage(Component.text("Directive issued to " + name + ": '" + directive + "'", NamedTextColor.GREEN));
+        director.executeDirective(directive, agent, player);
+        player.sendMessage(Component.text("Directive issued to " + name + ": '" + directive + "'", NamedTextColor.GREEN));
         return true;
     }
 
-    private boolean handleAsk(CommandSender sender, String[] args) {
+    private boolean handleAsk(Player player, String[] args) {
         if (args.length < 3) {
-            sender.sendMessage(Component.text("Usage: /nerrus ask <name> <question...>", NamedTextColor.RED));
+            player.sendMessage(Component.text("Usage: /nerrus ask <name> <question...>", NamedTextColor.RED));
             return true;
         }
         String name = args[1];
         NerrusAgent agent = agentService.findAgentByName(name);
         if (agent == null) {
-            sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
+            player.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
             return true;
         }
         String question = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
-        sender.sendMessage(Component.text("Asking " + name + ": '" + question + "'", NamedTextColor.GRAY));
+        player.sendMessage(Component.text("Asking " + name + ": '" + question + "'", NamedTextColor.GRAY));
         AskDirector askDirector = new AskDirector(plugin.getLlmService());
-        askDirector.executeQuery(agent, question, sender);
+        askDirector.executeQuery(agent, question, player);
         return true;
     }
 
