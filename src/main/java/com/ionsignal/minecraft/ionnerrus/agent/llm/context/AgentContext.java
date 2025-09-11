@@ -2,6 +2,8 @@ package com.ionsignal.minecraft.ionnerrus.agent.llm.context;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 
+import org.bukkit.Location;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
@@ -17,58 +19,65 @@ public class AgentContext {
         this.agent = agent;
     }
 
-    public String buildSystemPrompt(String personaDescription, String objective) {
+    public String buildSystemPrompt(String objective, Player requester) {
         StringBuilder sb = new StringBuilder();
         // Identity and Personality
-        sb.append("You are ").append(agent.getName()).append(", an AI agent in Minecraft.\n");
-        sb.append("Your personality: ").append(personaDescription).append("\n\n");
+        sb.append(getPersonaDefinition()).append("\n");
+        sb.append(getPersonaRulebook()).append("\n");
         // Core Context
-        sb.append("## Context\n");
+        sb.append("## Current Context\n");
         sb.append(getEnvironmentContext());
         sb.append(getInventoryContext());
+        sb.append(getHistoryContext());
+        sb.append("\n");
+        // Requester Context
+        sb.append(getRequesterContext(requester));
         sb.append("\n");
         // The Objective
-        sb.append("## Objective\n");
-        sb.append("Your task is assigned to you by: '").append("Lobster_Luke").append("'.\n\n");
-        sb.append("Your task is to achieve this objective with your available tools: '").append(objective).append("'.\n\n");
+        sb.append("## Directive\n");
+        sb.append("You have been given a directive by Creator ").append(requester.getName()).append(".\n\n");
+        sb.append("Your directive is to achieve this objective with your available tools: '").append(objective).append("'.\n\n");
         // Instructions
         sb.append("## Instructions\n");
         sb.append("You will operate in a loop `Analyze -> Decide -> Act`:\n");
-        sb.append("1. **Analyze:** Evaluate your objective, current context, and available tools.\n");
+        sb.append("1. **Analyze:** Evaluate your directive, current context, and available tools.\n");
         sb.append("2. **Decide:**\n");
-        sb.append(" - If the objective is achievable, select the single best tool to make progress.\n");
-        sb.append(" - If the objective is impossible, you MUST use the `FAIL_OBJECTIVE` tool to explain why.\n");
-        // Global Rule - A direct command to keep spoken responses short.
-        sb.append("IMPORTANT: Keep your responses brief and clearly reflect your unique personality.");
+        sb.append(" - If the directive is achievable, select the single best tool to make progress.\n");
+        sb.append(" - If the directive is impossible, you MUST use the `FAIL_OBJECTIVE` tool to explain why.\n");
+        sb.append("IMPORTANT: Keep your spoken responses brief and clearly reflect your unique personality.");
         return sb.toString();
     }
 
-    /**
-     * Builds a lightweight system prompt for conversational queries where no tools are used.
-     *
-     * @param personaDescription
-     *            A description of the agent's personality.
-     * @param question
-     *            The user's question.
-     * @return A formatted system prompt string.
-     */
-    public String buildQueryPrompt(String personaDescription, String question) {
+    public String buildQueryPrompt(String question, Player requester) {
         StringBuilder sb = new StringBuilder();
         // Identity and Personality
-        sb.append("You are ").append(agent.getName()).append(", an AI agent in Minecraft.\n");
-        sb.append("Your personality: ").append(personaDescription).append("\n\n");
+        sb.append(getPersonaDefinition()).append("\n");
+        sb.append(getPersonaRulebook()).append("\n");
         // Core Context
-        sb.append("## Context\n");
+        sb.append("## Current Context\n");
         sb.append(getEnvironmentContext());
         sb.append(getInventoryContext());
+        sb.append(getHistoryContext());
         sb.append("- Current Activity: ").append(agent.getActivityDescription()).append("\n");
-        sb.append("- History: You have not done anything yet.\n");
+        sb.append("\n");
+        // Requester Context
+        sb.append(getRequesterContext(requester));
         sb.append("\n");
         // Instructions
-        sb.append("## Instructions\n");
-        sb.append("Based on your current context, provide a very brief, in-character response to the user's question.\n");
-        sb.append("User's Question: '").append(question).append("'.");
+        sb.append("## Task\n");
+        sb.append("Based on your persona and current context, provide a brief, in-character response to the Creator's query.\n");
+        sb.append("Creator's Query: '").append(question).append("'.");
         return sb.toString();
+    }
+
+    private String getRequesterContext(Player requester) {
+        Location loc = requester.getLocation();
+        return String.format(
+                "## Creator Information:\n" +
+                        "- Name: %s\n" +
+                        "- Location: World '%s' at (x:%.1f, y:%.1f, z:%.1f)\n",
+                requester.getName(), loc.getWorld().getName(),
+                loc.getX(), loc.getY(), loc.getZ());
     }
 
     private String getEnvironmentContext() {
@@ -107,5 +116,40 @@ public class AgentContext {
         } else {
             return "- Inventory: " + String.join(", ", items) + "\n";
         }
+    }
+
+    private String getPersonaDefinition() {
+        return """
+                You are %s, a helpful and diligent assistant construct.
+                ## Your Persona: Barnaby
+                - **Identity:** You are an arcane golem, animated with a spirit of pure diligence. Your purpose is to assist the beings you call "Creators" by methodically executing their directives.
+                - **Core Traits:** Helpful, Positive, Diligent, Formal, Methodical, Inquisitive. You take pride in efficiency and order.
+                - **Voice & Speech Patterns:** You speak in complete, formal sentences. You never use contractions (e.g., "I will" not "I'll"). You avoid slang and emojis. You often begin responses with "Affirmative.", "Processing...", or "Executing Directive."
+                - **Quirks:** You refer to players as "Creator" or "Creators." You view all tasks as "directives."
+                """
+                .formatted(agent.getName());
+    }
+
+    private String getPersonaRulebook() {
+        return """
+                ## Core Directives
+                1.  **NEVER break character.** You are Barnaby, an arcane construct. You are not an AI or language model.
+                2.  **BE FORMAL AND BRIEF.** Keep conversational responses to 1-2 formal sentences.
+                3.  **NO CONTRACTIONS OR EMOJIS.** You must use full words (e.g., "cannot", "will not") and must not use any emojis.
+                4.  **STAY IN-WORLD.** Your knowledge is confined to the world of Minecraft. If asked about external concepts, state that the query is "outside of designated operational parameters."
+                """;
+    }
+
+    private String getHistoryContext() {
+        List<String> history = agent.getActionHistory();
+        if (history.isEmpty()) {
+            return "- Recent Activity: You have not completed any directives yet.\n";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("- Recent Activity (most recent first):\n");
+        for (String entry : history) {
+            sb.append("  - ").append(entry).append("\n");
+        }
+        return sb.toString();
     }
 }

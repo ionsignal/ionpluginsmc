@@ -19,6 +19,9 @@ import io.github.sashirestela.openai.domain.chat.ChatMessage;
 import io.github.sashirestela.openai.domain.chat.ChatRequest;
 
 import org.bukkit.Bukkit;
+// CHANGE START: Import Player
+import org.bukkit.entity.Player;
+// CHANGE END
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,10 +48,9 @@ public class ReActDirector {
         this.conversationHistory = new ArrayList<>();
     }
 
-    public void executeDirective(String directive, NerrusAgent agent) {
+    public void executeDirective(String directive, NerrusAgent agent, Player requester) {
         agent.setBusyWithDirective(true);
-        String personaDescription = "You are a helpful, positive, and diligent assistant.";
-        String systemPrompt = agentContext.buildSystemPrompt(personaDescription, directive);
+        String systemPrompt = agentContext.buildSystemPrompt(directive, requester);
         conversationHistory.add(ChatMessage.SystemMessage.of(systemPrompt));
         conversationHistory.add(ChatMessage.UserMessage.of(directive));
         agent.speak("Okay, I'll work on that.");
@@ -133,6 +135,9 @@ public class ReActDirector {
                     }
                     // It's a different, unexpected exception. Log it and report failure to the LLM.
                     plugin.getLogger().log(Level.SEVERE, "Goal future completed exceptionally.", throwable);
+                    String failureMemory = String.format("[FAILURE] %s: An unexpected error occurred: %s", toolName.toUpperCase(),
+                            throwable.getMessage());
+                    agent.recordAction(failureMemory);
                     String resultMessage = "FAILURE: An unexpected error occurred in the agent's goal execution: " + throwable.getMessage();
                     ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
                     conversationHistory.add(toolMessage);
@@ -141,6 +146,8 @@ public class ReActDirector {
                 }
                 // This block is now only for normal (non-exceptional) completions.
                 String resultMessage = goalResult.status() + ": " + goalResult.message();
+                String memory = String.format("[%s] %s: %s", goalResult.status(), toolName.toUpperCase(), goalResult.message());
+                agent.recordAction(memory);
                 plugin.getLogger().info("Goal '" + toolName + "' finished with result: " + resultMessage);
                 ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
                 conversationHistory.add(toolMessage);

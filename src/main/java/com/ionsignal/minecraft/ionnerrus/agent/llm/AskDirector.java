@@ -7,7 +7,7 @@ import io.github.sashirestela.openai.domain.chat.ChatMessage;
 import io.github.sashirestela.openai.domain.chat.ChatRequest;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.logging.Level;
@@ -34,12 +34,11 @@ public class AskDirector {
      * @param question
      *            The question from the user.
      * @param requester
-     *            The CommandSender who initiated the query, for receiving error messages.
+     *            The Player who initiated the query, for receiving error messages.
      */
-    public void executeQuery(NerrusAgent agent, String question, CommandSender requester) {
+    public void executeQuery(NerrusAgent agent, String question, Player requester) {
         AgentContext agentContext = new AgentContext(agent);
-        String personaDescription = "You are a helpful, positive, and diligent assistant.";
-        String systemPrompt = agentContext.buildQueryPrompt(personaDescription, question);
+        String systemPrompt = agentContext.buildQueryPrompt(question, requester);
         ChatRequest request = ChatRequest.builder()
                 .model(llmService.getModelName())
                 .messages(List.of(

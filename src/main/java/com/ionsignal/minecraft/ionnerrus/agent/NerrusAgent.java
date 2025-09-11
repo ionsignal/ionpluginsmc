@@ -11,12 +11,18 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
 import org.bukkit.Bukkit;
 
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Level;
 
 public class NerrusAgent {
+    private static final int MAX_MEMORY_ENTRIES = 5;
+    private final LinkedList<String> actionHistory = new LinkedList<>();
+
     private final Persona persona;
     private final IonNerrus plugin;
     private final Blackboard blackboard;
@@ -178,5 +184,27 @@ public class NerrusAgent {
 
     public void speak(String message) {
         persona.speak(message);
+    }
+
+    /**
+     * Records a memory of a completed action, maintaining a fixed-size history.
+     * 
+     * @param memory
+     *            A string describing the action's outcome.
+     */
+    public void recordAction(String memory) {
+        actionHistory.addFirst(memory);
+        while (actionHistory.size() > MAX_MEMORY_ENTRIES) {
+            actionHistory.removeLast();
+        }
+    }
+
+    /**
+     * Retrieves the agent's recent action history.
+     * 
+     * @return An unmodifiable list of the last few action outcomes.
+     */
+    public List<String> getActionHistory() {
+        return Collections.unmodifiableList(actionHistory);
     }
 }
