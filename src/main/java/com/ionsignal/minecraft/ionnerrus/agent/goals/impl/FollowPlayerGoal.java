@@ -118,14 +118,11 @@ public class FollowPlayerGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        // CHANGE START: Method signature updated.
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
-            // CHANGE END
             return new ToolDefinition(
                     "FOLLOW_PLAYER",
                     "Follows a target player or agent until cancelled.",
                     FollowPlayerParameters.class,
-                    // CHANGE START: Enhancer lambda now accepts `agent` and gets AgentService at runtime.
                     (schema, agent) -> {
                         AgentService agentService = IonNerrus.getInstance().getAgentService();
                         List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
@@ -133,7 +130,6 @@ public class FollowPlayerGoal implements Goal {
                                 .filter(a -> !a.getPersona().getUniqueId().equals(agent.getPersona().getUniqueId())) // Exclude self
                                 .map(NerrusAgent::getName)
                                 .toList();
-                        // CHANGE END
                         String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
                                 .distinct()
                                 .collect(Collectors.joining(", "));
