@@ -6,6 +6,8 @@ import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
@@ -13,8 +15,7 @@ import java.util.concurrent.CompletableFuture;
  * A skill that counts the total number of items of specified materials
  * in the agent's inventory.
  */
-public class CountItemsSkill implements Skill<Integer> {
-
+public class CountItemsSkill implements Skill<Map<Material, Integer>> {
     private final Set<Material> materials;
 
     public CountItemsSkill(Set<Material> materials) {
@@ -22,18 +23,17 @@ public class CountItemsSkill implements Skill<Integer> {
     }
 
     @Override
-    public CompletableFuture<Integer> execute(NerrusAgent agent) {
+    public CompletableFuture<Map<Material, Integer>> execute(NerrusAgent agent) {
         PlayerInventory inventory = agent.getPersona().getInventory();
+        Map<Material, Integer> counts = new HashMap<>();
         if (inventory == null) {
-            return CompletableFuture.completedFuture(0);
+            return CompletableFuture.completedFuture(counts);
         }
-
-        int count = 0;
         for (ItemStack item : inventory.getContents()) {
             if (item != null && materials.contains(item.getType())) {
-                count += item.getAmount();
+                counts.merge(item.getType(), item.getAmount(), Integer::sum);
             }
         }
-        return CompletableFuture.completedFuture(count);
+        return CompletableFuture.completedFuture(counts);
     }
 }

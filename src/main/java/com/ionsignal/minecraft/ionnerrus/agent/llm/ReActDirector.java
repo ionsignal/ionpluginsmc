@@ -38,6 +38,11 @@ public class ReActDirector {
     private final NerrusAgent agent;
     private volatile boolean isCancelled = false;
 
+    // CHANGE START: Add fields to store the initial directive details for context refreshing.
+    private String directive;
+    private Player requester;
+    // CHANGE END
+
     public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.plugin = IonNerrus.getInstance();
         this.agent = agent;
@@ -57,6 +62,10 @@ public class ReActDirector {
     }
 
     public void executeDirective(String directive, Player requester) {
+        // CHANGE START: Store the directive and requester.
+        this.directive = directive;
+        this.requester = requester;
+        // CHANGE END
         agent.setBusyWithDirective(true);
         String systemPrompt = agentContext.buildSystemPrompt(directive, requester);
         conversationHistory.add(ChatMessage.SystemMessage.of(systemPrompt));
@@ -70,6 +79,10 @@ public class ReActDirector {
         if (isCancelled) {
             return;
         }
+        // CHANGE START: Refresh the system prompt with the latest agent context before every LLM call.
+        String systemPrompt = agentContext.buildSystemPrompt(this.directive, this.requester);
+        conversationHistory.set(0, ChatMessage.SystemMessage.of(systemPrompt));
+        // CHANGE END
         ChatRequest request = ChatRequest.builder()
                 .model(llmService.getModelName())
                 .messages(conversationHistory)

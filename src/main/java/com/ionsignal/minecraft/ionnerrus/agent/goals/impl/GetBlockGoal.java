@@ -165,8 +165,10 @@ public class GetBlockGoal implements Goal {
             @Override
             public CompletableFuture<Void> execute(NerrusAgent agent) {
                 return new CountItemsSkill(materials).execute(agent)
-                        .thenAccept(count -> agent.getBlackboard().put(BlackboardKeys.GATHER_CURRENT_COUNT, count))
-                        .thenApply(v -> null); // Convert CompletableFuture<Void> to CompletableFuture<Void>
+                        .thenAccept(counts -> {
+                            int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+                            agent.getBlackboard().put(BlackboardKeys.GATHER_CURRENT_COUNT, total);
+                        });
             }
 
             @Override

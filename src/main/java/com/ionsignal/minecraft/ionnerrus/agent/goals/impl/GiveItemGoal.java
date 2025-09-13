@@ -64,11 +64,12 @@ public class GiveItemGoal implements Goal {
             case CHECKING_INVENTORY:
                 logger.info("GiveItemGoal: Checking inventory for " + params.quantity() + " " + material.name());
                 agent.setCurrentTask(createSkillTask(new CountItemsSkill(Set.of(material)).execute(agent)
-                        .thenAccept(count -> {
-                            if (count >= params.quantity()) {
+                        .thenAccept(counts -> {
+                            int haveAmount = counts.getOrDefault(material, 0);
+                            if (haveAmount >= params.quantity()) {
                                 state = State.FINDING_TARGET;
                             } else {
-                                fail(agent, "I don't have enough " + params.materialName() + " to give.");
+                                fail(agent, "I don't have enough " + params.materialName() + " to give. I only have " + haveAmount + ".");
                             }
                         })));
                 break;
@@ -86,7 +87,7 @@ public class GiveItemGoal implements Goal {
                         })));
                 break;
 
-            // CHANGE: This state now initiates the parallel follow and check operations.
+            // Initiate the parallel follow and check operations
             case APPROACHING_AND_WAITING:
                 agent.getBlackboard().get(TARGET_ENTITY_KEY, LivingEntity.class).ifPresentOrElse(target -> {
                     logger.info("GiveItemGoal: Approaching and waiting for " + target.getName() + " to be ready.");

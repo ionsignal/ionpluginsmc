@@ -1,35 +1,63 @@
 package com.ionsignal.minecraft.ionnerrus.agent.skills.results;
 
+import org.bukkit.inventory.ItemStack;
+
+import java.util.Optional;
+
 /**
- * Describes the outcome of an item collection attempt.
+ * A rich result object for the CollectItemSkill.
+ * It provides a status indicating the outcome of the collection attempt and, on success,
+ * the specific item stack that was collected.
  */
-public enum CollectItemResult {
+public record CollectItemResult(Status status, Optional<ItemStack> collectedItem) {
     /**
-     * The agent successfully navigated to and collected the item.
+     * Describes the outcome of the item collection attempt.
      */
-    SUCCESS,
+    public enum Status {
+        /**
+         * The agent successfully navigated to and collected the item.
+         */
+        SUCCESS,
+        /**
+         * The target item was already gone. For the GatherBlockTask, this is often treated as a success.
+         */
+        ITEM_GONE,
+        /**
+         * A valid standing spot near the item could not be found.
+         */
+        NO_STANDPOINTS_FOUND,
+        /**
+         * A path to any of the valid standing spots could not be found.
+         */
+        NO_PATH_FOUND,
+        /**
+         * The agent failed to follow the path to the item.
+         */
+        NAVIGATION_FAILED,
+        /**
+         * The agent arrived at the location but failed to pick up the item within the timeout period.
+         */
+        PICKUP_TIMEOUT,
+        /**
+         * The owning task was cancelled during the skill's execution.
+         */
+        CANCELLED
+    }
+
     /**
-     * The target item was already gone (despawned or picked up by another entity) when the skill started.
+     * Creates a success result with the specified item stack.
      */
-    ITEM_GONE,
+    public static CollectItemResult success(ItemStack collectedItem) {
+        return new CollectItemResult(Status.SUCCESS, Optional.of(collectedItem));
+    }
+
     /**
-     * A valid standing spot near the item could not be found.
+     * Creates a failure or non-success result with the specified reason.
      */
-    NO_STANDPOINTS_FOUND,
-    /**
-     * A path to any of the valid standing spots could not be found.
-     */
-    NO_PATH_FOUND,
-    /**
-     * The agent failed to follow the path to the item.
-     */
-    NAVIGATION_FAILED,
-    /**
-     * The agent arrived at the location but failed to pick up the item within the timeout period.
-     */
-    PICKUP_TIMEOUT,
-    /**
-     * The owning task was cancelled during the skill's execution.
-     */
-    CANCELLED
+    public static CollectItemResult failure(Status reason) {
+        if (reason == Status.SUCCESS) {
+            throw new IllegalArgumentException("Failure result cannot have SUCCESS status.");
+        }
+        return new CollectItemResult(reason, Optional.empty());
+    }
 }
