@@ -71,18 +71,21 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
     @Override
     public CompletableFuture<CollectItemResult> execute(NerrusAgent agent) {
         if (targetItem == null || targetItem.isDead()) {
-            return CompletableFuture.completedFuture(CollectItemResult.ITEM_GONE);
+            // Return the new result record for failure.
+            return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.ITEM_GONE));
         }
         final long startTime = System.nanoTime();
         final Location agentLocation = agent.getPersona().getLocation();
         final World world = agentLocation.getWorld();
         if (world == null) {
-            return CompletableFuture.completedFuture(CollectItemResult.NAVIGATION_FAILED);
+            // Return the new result record for failure.
+            return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.NAVIGATION_FAILED));
         }
         // Find a stable ground location for the item first.
         Optional<Location> probableLandingZone = findItemLandingBlock(targetItem.getLocation(), 10);
         if (probableLandingZone.isEmpty()) {
-            return CompletableFuture.completedFuture(CollectItemResult.NO_STANDPOINTS_FOUND);
+            // Return the new result record for failure.
+            return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.NO_STANDPOINTS_FOUND));
         }
         final Location itemGroundLocation = probableLandingZone.get();
         Navigator navigator = agent.getPersona().getNavigator();
@@ -91,7 +94,8 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
         finalResultFuture.orTimeout(COLLECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS).whenComplete((result, ex) -> {
             if (ex != null) {
                 navigator.cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
-                finalResultFuture.complete(CollectItemResult.PICKUP_TIMEOUT);
+                // Return the new result record for failure.
+                finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.PICKUP_TIMEOUT));
             }
         });
         // Step 1: Create a single WorldSnapshot for the entire operation.
@@ -109,7 +113,8 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                 .thenComposeAsync(pathOptional -> {
                     if (pathOptional.isEmpty()) {
                         log(startTime, "NO_PATH_FOUND");
-                        finalResultFuture.complete(CollectItemResult.NO_PATH_FOUND);
+                        // Return the new result record for failure.
+                        finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.NO_PATH_FOUND));
                         return CompletableFuture.completedFuture(null);
                     }
                     log(startTime, "OPTIMAL_APPROACH_PATH_FOUND");
@@ -120,7 +125,8 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                         return;
                     }
                     if (navResult != NavigationResult.SUCCESS) {
-                        finalResultFuture.complete(CollectItemResult.NAVIGATION_FAILED);
+                        // Return the new result record for failure.
+                        finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.NAVIGATION_FAILED));
                     } else {
                         engageAndMonitor(agent, navigator, finalResultFuture);
                     }
@@ -144,7 +150,8 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                     return;
                 }
                 if (countItems(agent, targetItem.getItemStack().getType()) > initialCount) {
-                    finalResultFuture.complete(CollectItemResult.SUCCESS);
+                    // Complete with a success record containing the collected item stack.
+                    finalResultFuture.complete(CollectItemResult.success(targetItem.getItemStack()));
                     navigator.finishEngaging(EngageResult.SUCCESS);
                     this.cancel();
                 }
@@ -161,15 +168,16 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
             if (finalResultFuture.isDone()) {
                 return;
             }
-            CollectItemResult resultToReport = switch (engageResult) {
-                case SUCCESS -> null;
-                case TARGET_GONE -> CollectItemResult.ITEM_GONE;
-                case STUCK -> CollectItemResult.NAVIGATION_FAILED;
-                case TIMED_OUT -> CollectItemResult.PICKUP_TIMEOUT;
-                case CANCELLED -> CollectItemResult.CANCELLED;
+            // Map the EngageResult to the new CollectItemResult status.
+            CollectItemResult.Status statusToReport = switch (engageResult) {
+                case SUCCESS -> null; // Success is handled by the inventory monitor.
+                case TARGET_GONE -> CollectItemResult.Status.ITEM_GONE;
+                case STUCK -> CollectItemResult.Status.NAVIGATION_FAILED;
+                case TIMED_OUT -> CollectItemResult.Status.PICKUP_TIMEOUT;
+                case CANCELLED -> CollectItemResult.Status.CANCELLED;
             };
-            if (resultToReport != null) {
-                finalResultFuture.complete(resultToReport);
+            if (statusToReport != null) {
+                finalResultFuture.complete(CollectItemResult.failure(statusToReport));
             }
         });
     }

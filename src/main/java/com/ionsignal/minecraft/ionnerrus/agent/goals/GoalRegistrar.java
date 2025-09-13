@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 
 import org.reflections.Reflections;

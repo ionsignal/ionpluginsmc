@@ -48,6 +48,9 @@ public class GatherBlockTask implements Task {
         SUCCESS, NO_BLOCKS_IN_RANGE, NO_REACHABLE_BLOCKS_IN_RANGE, FAILED_TO_COLLECT
     }
 
+    public record GatherSuccessResult(Material material, int quantity) {
+    }
+
     public GatherBlockTask(Set<Material> materials, int searchRadius, Set<Location> attemptedLocations) {
         this.materials = materials;
         this.searchRadius = searchRadius;
@@ -158,7 +161,6 @@ public class GatherBlockTask implements Task {
         }
     }
 
-    // @SuppressWarnings("unused")
     private CompletableFuture<Boolean> collectNearbyItem(Location brokenBlockLocation) {
         final CompletableFuture<Item> itemFuture = new CompletableFuture<>();
         // Wait for the item to drop.
@@ -186,15 +188,18 @@ public class GatherBlockTask implements Task {
         }.runTaskTimer(IonNerrus.getInstance(), 2L, 2L); // Start after 2 ticks, check every 2 ticks.
         return itemFuture.thenComposeAsync(targetItem -> {
             if (cancelled || targetItem == null || targetItem.isDead()) {
-                logger.warning("Could not find dropped item. Assuming it was collected or despawned. Moving on.");
-                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
-                return CompletableFuture.completedFuture(true); // Treat as success for the goal's perspective
+                logger.warning("Could not find dropped item after breaking block. This attempt failed.");
+                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
+                return CompletableFuture.completedFuture(false); // This collection attempt was not successful.
             }
             return new CollectItemSkill(targetItem).execute(agent)
                     .thenApply(collectResult -> {
                         boolean wasSuccessful = false;
-                        switch (collectResult) {
+                        switch (collectResult.status()) {
                             case SUCCESS:
+                                agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
+                                wasSuccessful = true;
+                                break;
                             case ITEM_GONE: // If it's gone by the time we collect, that's also a success.
                                 agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.SUCCESS);
                                 wasSuccessful = true;
@@ -202,7 +207,7 @@ public class GatherBlockTask implements Task {
                             case NAVIGATION_FAILED:
                             case NO_PATH_FOUND:
                             case NO_STANDPOINTS_FOUND:
-                                logger.warning("Could not collect item because it is unreachable due to " + collectResult
+                                logger.warning("Could not collect item because it is unreachable due to " + collectResult.status()
                                         + ". Blacklisting for this task.");
                                 unreachableItems.add(targetItem.getUniqueId());
                                 agent.getBlackboard().put(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.FAILED_TO_COLLECT);
