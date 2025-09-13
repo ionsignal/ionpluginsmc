@@ -1,6 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -18,50 +21,56 @@ public class AgentService {
 
     private final IonNerrus plugin;
     private final NerrusRegistry personaRegistry;
+    private final GoalRegistry goalRegistry;
+    private final GoalFactory goalFactory;
+    private final LLMService llmService;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
 
-    public AgentService(IonNerrus plugin, NerrusManager nerrusManager) {
+    public AgentService(IonNerrus plugin, NerrusManager nerrusManager, GoalRegistry goalRegistry, GoalFactory goalFactory,
+            LLMService llmService) {
         this.plugin = plugin;
         this.personaRegistry = nerrusManager.getRegistry();
+        this.goalRegistry = goalRegistry;
+        this.goalFactory = goalFactory;
+        this.llmService = llmService;
     }
 
-    /* 
+    /*
      * TODO: implement agent persistence later, let's disable for now for speeding up development.
      * 
-    public void loadAgents() {
-        plugin.getLogger().info("Loading Nerrus agents from registry...");
-        int count = 0;
-        for (Persona persona : IonNerrus.getNerrusRegistry()) {
-            if (npc.data().has(NERRUS_AGENT_METADATA)) {
-                Persona persona = personaRegistry.createPersona(EntityType.PLAYER, persona.getName());
-                persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
-                SkinTrait skinTrait = persona.getTraitNullable(SkinTrait.class);
-                if (skinTrait != null && skinTrait.getSkinName() != null) {
-                    NerrusManager.getInstance().getSkinCache().fetchSkin(skinTrait.getSkinName()).thenAccept(skinData -> {
-                        if (skinData != null) {
-                            plugin.getMainThreadExecutor().execute(() -> persona.setSkin(skinData));
-                        }
-                    });
-                }
-                if (npc.isSpawned()) {
-                    persona.spawn(npc.getStoredLocation());
-                }
-                NerrusAgent agent = new NerrusAgent(npc, persona, plugin);
-                agents.put(npc.getUniqueId(), agent);
-                count++;
-            }
-        }
-        plugin.getLogger().info("Loaded " + count + " Nerrus agents.");
-    }
-    */
+     * public void loadAgents() {
+     * plugin.getLogger().info("Loading Nerrus agents from registry...");
+     * int count = 0;
+     * for (Persona persona : IonNerrus.getNerrusRegistry()) {
+     * if (npc.data().has(NERRUS_AGENT_METADATA)) {
+     * Persona persona = personaRegistry.createPersona(EntityType.PLAYER, persona.getName());
+     * persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
+     * SkinTrait skinTrait = persona.getTraitNullable(SkinTrait.class);
+     * if (skinTrait != null && skinTrait.getSkinName() != null) {
+     * NerrusManager.getInstance().getSkinCache().fetchSkin(skinTrait.getSkinName()).thenAccept(skinData
+     * -> {
+     * if (skinData != null) {
+     * plugin.getMainThreadExecutor().execute(() -> persona.setSkin(skinData));
+     * }
+     * });
+     * }
+     * if (npc.isSpawned()) {
+     * persona.spawn(npc.getStoredLocation());
+     * }
+     * NerrusAgent agent = new NerrusAgent(npc, persona, plugin);
+     * agents.put(npc.getUniqueId(), agent);
+     * count++;
+     * }
+     * }
+     * plugin.getLogger().info("Loaded " + count + " Nerrus agents.");
+     * }
+     */
 
     public NerrusAgent spawnAgent(String name, Location location, String skinNameToFetch) {
         Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name);
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
-
-        NerrusAgent agent = new NerrusAgent(persona, plugin);
+        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
-
         NerrusManager.getInstance().getSkinCache().fetchSkin(skinNameToFetch).thenAccept(skinData -> {
             if (skinData != null) {
                 persona.setSkin(skinData);

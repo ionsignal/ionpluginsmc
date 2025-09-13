@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
@@ -221,12 +220,12 @@ public class GetBlockGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
                     "GET_BLOCKS",
                     "Navigates to and gathers a specified quantity of a block type from a predefined group.",
                     GetBlockParameters.class,
-                    schema -> {
+                    (schema, agent) -> {
                         String validGroups = String.join(", ", blockTagManager.getRegisteredGroupNames());
                         ObjectNode properties = (ObjectNode) schema.get("properties");
                         if (properties != null) {

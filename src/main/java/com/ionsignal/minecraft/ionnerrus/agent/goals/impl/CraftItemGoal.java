@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -48,7 +47,7 @@ public class CraftItemGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
                     "CRAFT_ITEM",
                     "Crafts items from materials using a crafting table or the inventory crafting grid.",

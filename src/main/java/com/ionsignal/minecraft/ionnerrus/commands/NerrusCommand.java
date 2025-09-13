@@ -11,7 +11,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParamete
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
 import net.kyori.adventure.text.Component;
@@ -39,7 +38,6 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     private final AgentService agentService;
     private final BlockTagManager blockTagManager;
     private final GoalFactory goalFactory;
-    private final GoalRegistry goalRegistry;
 
     public NerrusCommand(IonNerrus plugin, AgentService agentService, BlockTagManager blockTagManager, GoalFactory goalFactory,
             GoalRegistry goalRegistry) {
@@ -47,7 +45,6 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         this.agentService = agentService;
         this.blockTagManager = blockTagManager;
         this.goalFactory = goalFactory;
-        this.goalRegistry = goalRegistry;
     }
 
     @Override
@@ -263,13 +260,8 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             player.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
             return true;
         }
-        if (agent.isBusyWithDirective()) {
-            player.sendMessage(Component.text(name + " is already working on a complex directive.", NamedTextColor.YELLOW));
-            return true;
-        }
         String directive = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
-        ReActDirector director = new ReActDirector(agent, goalRegistry, goalFactory, plugin.getLlmService());
-        director.executeDirective(directive, agent, player);
+        agent.assignDirective(directive, player);
         player.sendMessage(Component.text("Directive issued to " + name + ": '" + directive + "'", NamedTextColor.GREEN));
         return true;
     }

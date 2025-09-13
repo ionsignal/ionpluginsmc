@@ -19,9 +19,7 @@ import io.github.sashirestela.openai.domain.chat.ChatMessage;
 import io.github.sashirestela.openai.domain.chat.ChatRequest;
 
 import org.bukkit.Bukkit;
-// CHANGE START: Import Player
 import org.bukkit.entity.Player;
-// CHANGE END
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,28 +35,41 @@ public class ReActDirector {
     private final List<Tool> availableTools;
     private final AgentContext agentContext;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final NerrusAgent agent;
+    private volatile boolean isCancelled = false;
 
     public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.plugin = IonNerrus.getInstance();
+        this.agent = agent;
         this.agentContext = new AgentContext(agent);
-        this.availableTools = LLMToolBuilder.fromToolDefinitions(goalRegistry.getAll());
+        this.availableTools = LLMToolBuilder.fromToolDefinitions(goalRegistry.getAll(), agent);
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.conversationHistory = new ArrayList<>();
     }
 
-    public void executeDirective(String directive, NerrusAgent agent, Player requester) {
+    public void cancel() {
+        this.isCancelled = true;
+        // This is the key to interrupting the whenComplete block.
+        // It triggers the CancellationException handler.
+        this.agent.assignGoal(null);
+    }
+
+    public void executeDirective(String directive, Player requester) {
         agent.setBusyWithDirective(true);
         String systemPrompt = agentContext.buildSystemPrompt(directive, requester);
         conversationHistory.add(ChatMessage.SystemMessage.of(systemPrompt));
         conversationHistory.add(ChatMessage.UserMessage.of(directive));
         agent.speak("Okay, I'll work on that.");
         // Start the first cognitive step on the main thread.
-        Bukkit.getScheduler().runTask(plugin, () -> cognitiveStep(agent));
+        Bukkit.getScheduler().runTask(plugin, this::cognitiveStep);
     }
 
-    private void cognitiveStep(NerrusAgent agent) {
+    private void cognitiveStep() {
+        if (isCancelled) {
+            return;
+        }
         ChatRequest request = ChatRequest.builder()
                 .model(llmService.getModelName())
                 .messages(conversationHistory)
@@ -75,6 +86,9 @@ public class ReActDirector {
             agent.setBusyWithDirective(false);
         }
         llmService.getNextToolCall(request).whenCompleteAsync((chat, throwable) -> {
+            if (isCancelled) {
+                return;
+            }
             if (throwable != null) {
                 plugin.getLogger().log(Level.SEVERE, "LLM call failed in cognitive step.", throwable);
                 agent.speak("I'm having trouble thinking right now.");
@@ -96,18 +110,20 @@ public class ReActDirector {
                 agent.setBusyWithDirective(false);
                 return;
             }
-            // For now, we only handle the first tool call.
-            handleToolCall(toolCalls.get(0), agent);
+            handleToolCall(toolCalls.get(0));
         }, plugin.getMainThreadExecutor());
     }
 
-    private void handleToolCall(ToolCall toolCall, NerrusAgent agent) {
+    private void handleToolCall(ToolCall toolCall) {
+        if (isCancelled) {
+            return;
+        }
         String toolName = toolCall.getFunction().getName();
         String argumentsJson = toolCall.getFunction().getArguments();
         ToolDefinition toolDef = goalRegistry.get(toolName);
         plugin.getLogger().info("LLM requested tool: " + toolName + " with args: " + argumentsJson);
         if (toolDef == null) {
-            reportErrorToLLM("Error: Unknown tool '" + toolName + "'.", toolCall, agent);
+            reportErrorToLLM("Error: Unknown tool '" + toolName + "'.", toolCall);
             return;
         }
         try {
@@ -123,15 +139,19 @@ public class ReActDirector {
             }
             Goal newGoal = goalFactory.createGoal(toolName, params);
             agent.assignGoal(newGoal).whenCompleteAsync((goalResult, throwable) -> {
-                // Add specific handling for CancellationException
+                if (isCancelled) {
+                    return;
+                }
                 if (throwable != null) {
                     if (throwable instanceof CancellationException) {
-                        // The goal was cancelled by an external command, like '/nerrus stop'.
-                        // This is not a failure, but an intentional stop.
+                        if (isCancelled) {
+                            plugin.getLogger().info("Directive for agent " + agent.getName() + " was cancelled by a new directive.");
+                            return;
+                        }
                         plugin.getLogger().info("Directive for agent " + agent.getName() + " was cancelled by user.");
                         agent.speak("Okay, I'll stop what I'm doing.");
                         agent.setBusyWithDirective(false);
-                        return; // Terminate the ReAct loop.
+                        return;
                     }
                     // It's a different, unexpected exception. Log it and report failure to the LLM.
                     plugin.getLogger().log(Level.SEVERE, "Goal future completed exceptionally.", throwable);
@@ -141,7 +161,7 @@ public class ReActDirector {
                     String resultMessage = "FAILURE: An unexpected error occurred in the agent's goal execution: " + throwable.getMessage();
                     ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
                     conversationHistory.add(toolMessage);
-                    cognitiveStep(agent); // Continue the loop, letting the LLM know about the failure.
+                    cognitiveStep();
                     return;
                 }
                 // This block is now only for normal (non-exceptional) completions.
@@ -151,21 +171,23 @@ public class ReActDirector {
                 plugin.getLogger().info("Goal '" + toolName + "' finished with result: " + resultMessage);
                 ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
                 conversationHistory.add(toolMessage);
-                // Trigger the next cognitive step
-                cognitiveStep(agent);
+                cognitiveStep();
             }, plugin.getMainThreadExecutor());
         } catch (JsonProcessingException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to parse tool arguments from LLM.", e);
-            reportErrorToLLM("Error: Invalid arguments provided. " + e.getMessage(), toolCall, agent);
+            reportErrorToLLM("Error: Invalid arguments provided. " + e.getMessage(), toolCall);
         } catch (IllegalArgumentException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to create goal: " + e.getMessage());
-            reportErrorToLLM("Error: " + e.getMessage(), toolCall, agent);
+            reportErrorToLLM("Error: " + e.getMessage(), toolCall);
         }
     }
 
-    private void reportErrorToLLM(String errorMessage, ToolCall toolCall, NerrusAgent agent) {
+    private void reportErrorToLLM(String errorMessage, ToolCall toolCall) {
+        if (isCancelled) {
+            return;
+        }
         ChatMessage toolMessage = ChatMessage.ToolMessage.of(errorMessage, toolCall.getId());
         conversationHistory.add(toolMessage);
-        cognitiveStep(agent);
+        cognitiveStep();
     }
 }

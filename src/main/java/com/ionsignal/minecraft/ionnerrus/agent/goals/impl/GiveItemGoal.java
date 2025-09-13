@@ -197,14 +197,18 @@ public class GiveItemGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
                     "GIVE_ITEM",
                     "Gives a specified quantity of an item to a target player or another agent.",
                     GiveItemParameters.class,
-                    schema -> {
+                    (schema, agent) -> {
+                        AgentService agentService = IonNerrus.getInstance().getAgentService();
                         List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
-                        List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
+                        List<String> agentNames = agentService.getAgents().stream()
+                                .filter(a -> !a.getPersona().getUniqueId().equals(agent.getPersona().getUniqueId())) // Exclude self
+                                .map(NerrusAgent::getName)
+                                .toList();
                         String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
                                 .distinct()
                                 .collect(Collectors.joining(", "));

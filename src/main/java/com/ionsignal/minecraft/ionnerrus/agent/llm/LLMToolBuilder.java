@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.llm;
 
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -16,20 +17,20 @@ import java.util.List;
 public class LLMToolBuilder {
     private static final SchemaConverter schemaConverter = new DefaultSchemaConverter();
 
-    public static List<Tool> fromToolDefinitions(Collection<ToolDefinition> toolDefinitions) {
+    public static List<Tool> fromToolDefinitions(Collection<ToolDefinition> toolDefinitions, NerrusAgent agent) {
         List<Tool> tools = new ArrayList<>();
         for (ToolDefinition toolDef : toolDefinitions) {
-            tools.add(createToolFromDefinition(toolDef));
+            tools.add(createToolFromDefinition(toolDef, agent));
         }
         return tools;
     }
 
-    private static Tool createToolFromDefinition(ToolDefinition toolDef) {
+    private static Tool createToolFromDefinition(ToolDefinition toolDef, NerrusAgent agent) {
         // 1. Generate the base schema from the record using the library's converter.
         ObjectNode parametersSchema = (ObjectNode) schemaConverter.convert(toolDef.parametersClass());
 
         // 2. Apply the dynamic enhancer function to modify the schema.
-        ObjectNode enhancedSchema = toolDef.schemaEnhancer().apply(parametersSchema);
+        ObjectNode enhancedSchema = toolDef.schemaEnhancer().apply(parametersSchema, agent);
 
         // 3. Create the tool with the final, enhanced schema.
         return new Tool(ToolType.FUNCTION, new Tool.ToolFunctionDef(
