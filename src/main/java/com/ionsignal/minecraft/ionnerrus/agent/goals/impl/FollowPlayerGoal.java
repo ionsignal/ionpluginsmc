@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
@@ -117,14 +118,22 @@ public class FollowPlayerGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+        // CHANGE START: Method signature updated.
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
+            // CHANGE END
             return new ToolDefinition(
                     "FOLLOW_PLAYER",
                     "Follows a target player or agent until cancelled.",
                     FollowPlayerParameters.class,
-                    schema -> {
+                    // CHANGE START: Enhancer lambda now accepts `agent` and gets AgentService at runtime.
+                    (schema, agent) -> {
+                        AgentService agentService = IonNerrus.getInstance().getAgentService();
                         List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
-                        List<String> agentNames = agentService.getAgents().stream().map(NerrusAgent::getName).toList();
+                        List<String> agentNames = agentService.getAgents().stream()
+                                .filter(a -> !a.getPersona().getUniqueId().equals(agent.getPersona().getUniqueId())) // Exclude self
+                                .map(NerrusAgent::getName)
+                                .toList();
+                        // CHANGE END
                         String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
                                 .distinct()
                                 .collect(Collectors.joining(", "));

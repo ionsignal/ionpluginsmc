@@ -1,6 +1,10 @@
 package com.ionsignal.minecraft.ionnerrus.agent.llm.tool;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+// CHANGE START: Import BiFunction and NerrusAgent for the new enhancer signature.
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import java.util.function.BiFunction;
+// CHANGE END
 import java.util.function.Function;
 
 /**
@@ -16,15 +20,19 @@ import java.util.function.Function;
  * @param schemaEnhancer
  *            A function to modify the schema after it's been generated.
  */
+// CHANGE START: The schemaEnhancer is now a BiFunction that accepts a NerrusAgent.
 public record ToolDefinition(
         String name,
         String description,
         Class<?> parametersClass,
-        Function<ObjectNode, ObjectNode> schemaEnhancer) {
+        BiFunction<ObjectNode, NerrusAgent, ObjectNode> schemaEnhancer) {
+    // CHANGE END
     /**
      * Convenience constructor for tools that do not require dynamic schema enhancement.
      */
     public ToolDefinition(String name, String description, Class<?> parametersClass) {
-        this(name, description, parametersClass, Function.identity());
+        // CHANGE START: The identity function now needs to match the BiFunction signature.
+        this(name, description, parametersClass, (schema, agent) -> schema);
+        // CHANGE END
     }
 }

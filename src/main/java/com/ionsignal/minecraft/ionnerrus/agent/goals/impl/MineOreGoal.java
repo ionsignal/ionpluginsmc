@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -49,7 +48,7 @@ public class MineOreGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
                     "MINE_ORE",
                     "Searches for and mines a specific quantity of valuable ores like iron, coal, or diamonds underground.",

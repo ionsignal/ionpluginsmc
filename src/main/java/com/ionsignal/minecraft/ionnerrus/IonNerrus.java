@@ -71,26 +71,28 @@ public class IonNerrus extends JavaPlugin {
         saveDefaultConfig();
         reloadConfig();
 
+        // Platform-specific and Manager setup
         this.nerrusManager = new NerrusManager(this);
         if (!this.nerrusManager.initialize()) {
+            getLogger().severe("Failed to initialize NerrusManager. Disabling plugin.");
+            getServer().getPluginManager().disablePlugin(this);
             return;
         }
 
+        // Configuration and Content
         this.pluginConfig = new PluginConfig(getConfig());
-        this.taskFactory = new TaskFactory(getLogger());
         this.blockTagManager = new BlockTagManager();
-        this.agentService = new AgentService(this, this.nerrusManager);
 
-        // Initialize the goal and director services
+        // Core Factories and Services (in dependency order)
+        this.taskFactory = new TaskFactory(getLogger());
         this.goalRegistry = new GoalRegistry();
-
-        // CHANGE: Replace hardcoded registration with the new GoalRegistrar
-        GoalRegistrar registrar = new GoalRegistrar(this.goalRegistry, this.blockTagManager, this.agentService);
-        registrar.registerAll();
-        // END CHANGE
-
         this.goalFactory = new GoalFactory(this.taskFactory, this.blockTagManager);
         this.llmService = new LLMService(this);
+        this.agentService = new AgentService(this, this.nerrusManager, this.goalRegistry, this.goalFactory, this.llmService);
+
+        // Registration of static tool definitions (now happens only once)
+        GoalRegistrar registrar = new GoalRegistrar(this.goalRegistry, this.blockTagManager);
+        registrar.registerAll();
 
         // Load saved agents, future implementation
         // this.agentService.loadAgents();

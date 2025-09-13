@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.providers;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FailObjectiveParameters;
@@ -12,12 +11,12 @@ import java.util.stream.Collectors;
 
 public class FailObjectiveToolProvider implements GoalProvider {
     @Override
-    public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+    public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
         return new ToolDefinition(
                 "FAIL_OBJECTIVE",
                 "Call this function if and only if the user's objective cannot be achieved with the available tools for a specific, identifiable reason.",
                 FailObjectiveParameters.class,
-                schema -> {
+                (schema, agent) -> {
                     // Enhance the schema to include the enum values in the description,
                     // making it explicit to the LLM what its choices are.
                     String validTypes = Arrays.stream(FailObjectiveParameters.FailureType.values())

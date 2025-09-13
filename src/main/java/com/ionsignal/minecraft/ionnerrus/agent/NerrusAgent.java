@@ -2,7 +2,12 @@ package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
+import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignDirective;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.SetBusyWithDirective;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
@@ -10,6 +15,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 
 import java.util.Collections;
 import java.util.LinkedList;
@@ -26,17 +32,25 @@ public class NerrusAgent {
     private final Persona persona;
     private final IonNerrus plugin;
     private final Blackboard blackboard;
+    private final GoalRegistry goalRegistry;
+    private final GoalFactory goalFactory;
+    private final LLMService llmService;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
 
     private Task currentTask = null;
     private Goal currentGoal = null;
-    private volatile boolean isBusyWithDirective = false;
     private CompletableFuture<GoalResult> currentGoalFuture;
+    private ReActDirector currentDirector = null;
 
-    public NerrusAgent(Persona persona, IonNerrus plugin) {
+    private volatile boolean isBusyWithDirective = false;
+
+    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.persona = persona;
         this.plugin = plugin;
         this.blackboard = new Blackboard();
+        this.goalRegistry = goalRegistry;
+        this.goalFactory = goalFactory;
+        this.llmService = llmService;
     }
 
     // Process one message per tick - the ONLY place where agent state is mutated
@@ -47,6 +61,7 @@ public class NerrusAgent {
         }
         switch (message) {
             case AssignGoal cmd -> handleAssignGoal(cmd.goal(), cmd.resultFuture());
+            case AssignDirective cmd -> handleAssignDirective(cmd.directive(), cmd.requester());
             case SetBusyWithDirective cmd -> handleSetBusyWithDirective(cmd.isBusy());
             case TaskCompleted event -> handleTaskCompleted(event.error());
             default -> plugin.getLogger().warning("Unknown message type in agent " + getName() + ": " + message.getClass().getSimpleName());
@@ -60,7 +75,10 @@ public class NerrusAgent {
         return future;
     }
 
-    // Public method now non-blocking, sends message instead of direct state mutation
+    public void assignDirective(String directive, Player requester) {
+        messages.offer(new AssignDirective(directive, requester));
+    }
+
     public void setBusyWithDirective(boolean isBusy) {
         messages.offer(new SetBusyWithDirective(isBusy));
     }
@@ -102,9 +120,21 @@ public class NerrusAgent {
         }
     }
 
-    // Private handler for busy state command (original setBusyWithDirective logic moved here)
+    private void handleAssignDirective(String directive, Player requester) {
+        if (this.currentDirector != null) {
+            this.currentDirector.cancel();
+            this.currentDirector = null;
+        }
+
+        this.currentDirector = new ReActDirector(this, goalRegistry, goalFactory, llmService);
+        this.currentDirector.executeDirective(directive, requester);
+    }
+
     private void handleSetBusyWithDirective(boolean isBusy) {
         this.isBusyWithDirective = isBusy;
+        if (!isBusy) {
+            this.currentDirector = null;
+        }
     }
 
     // Private handler for task completion (replaces onTaskComplete method)

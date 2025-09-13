@@ -23,13 +23,11 @@ public class GoalRegistrar {
     private final Logger logger;
     private final GoalRegistry goalRegistry;
     private final BlockTagManager blockTagManager;
-    private final AgentService agentService;
 
-    public GoalRegistrar(GoalRegistry goalRegistry, BlockTagManager blockTagManager, AgentService agentService) {
+    public GoalRegistrar(GoalRegistry goalRegistry, BlockTagManager blockTagManager) {
         this.logger = IonNerrus.getInstance().getLogger();
         this.goalRegistry = goalRegistry;
         this.blockTagManager = blockTagManager;
-        this.agentService = agentService;
     }
 
     /**
@@ -55,7 +53,7 @@ public class GoalRegistrar {
                 }
                 try {
                     GoalProvider provider = providerClass.getDeclaredConstructor().newInstance();
-                    var toolDefinition = provider.getToolDefinition(blockTagManager, agentService);
+                    var toolDefinition = provider.getToolDefinition(blockTagManager);
                     goalRegistry.register(toolDefinition);
                     logger.info(" -> Registered goal tool: " + toolDefinition.name());
                 } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {

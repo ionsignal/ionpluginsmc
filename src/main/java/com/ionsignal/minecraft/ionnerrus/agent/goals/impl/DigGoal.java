@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -48,7 +47,7 @@ public class DigGoal implements Goal {
 
     public static class Provider implements GoalProvider {
         @Override
-        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService) {
+        public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
                     "DIG",
                     "Digs a hole straight down. Use this for requests involving digging or creating tunnels underground.",

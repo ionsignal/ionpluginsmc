@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
@@ -15,9 +14,7 @@ public interface GoalProvider {
      *
      * @param blockTagManager
      *            A manager for accessing block group information, useful for schema enhancement.
-     * @param agentService
-     *            The service for accessing agent information, useful for schema enhancement.
      * @return The ToolDefinition for a specific goal.
      */
-    ToolDefinition getToolDefinition(BlockTagManager blockTagManager, AgentService agentService);
+    ToolDefinition getToolDefinition(BlockTagManager blockTagManager);
 }
