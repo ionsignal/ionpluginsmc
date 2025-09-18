@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.ionsignal.minecraft.ionnerrus"
-version = "0.0.7-alpha.1-SNAPSHOT" // Update in plugin.yml as well
+version = "0.0.8-alpha.1-SNAPSHOT" // Update in plugin.yml as well
 description = "An LLM powered NPC decision engine"
 
 java {

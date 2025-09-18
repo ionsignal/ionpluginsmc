@@ -26,8 +26,6 @@ import net.minecraft.stats.ServerStatsCounter;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.HumanoidArm;
-import net.minecraft.world.entity.ai.control.JumpControl;
-import net.minecraft.world.entity.ai.control.MoveControl;
 import net.minecraft.world.entity.player.ChatVisiblity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -171,11 +169,11 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
         super.travel(travelVector);
     }
 
-    public MoveControl getMoveControl() {
+    public PersonaMoveControl getMoveControl() {
         return this.moveControl;
     }
 
-    public JumpControl getJumpControl() {
+    public PersonaJumpControl getJumpControl() {
         return this.jumpControl;
     }
 

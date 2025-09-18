@@ -11,5 +11,5 @@ package com.ionsignal.minecraft.ionnerrus.persona.navigation;
  *            Whether the Persona can traverse through water.
  */
 public record NavigationParameters(int maxFallDistance, int climbHeight, boolean canSwim) {
-    public static final NavigationParameters DEFAULT = new NavigationParameters(6, 1, false);
+    public static final NavigationParameters DEFAULT = new NavigationParameters(4, 1, true);
 }

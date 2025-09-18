@@ -128,4 +128,27 @@ public final class NavigationHelper {
         }
         return true;
     }
+
+    /**
+     * Performs a short-range "bumper check" to see if there is an impassable obstacle directly in the
+     * Persona's path. This is used to prevent direct steering from running into low obstacles like
+     * fences or 1-block-high ledges that the eye-level line-of-sight check might miss.
+     *
+     * @param from
+     *            The Persona's current location (feet).
+     * @param to
+     *            The target's location.
+     * @return true if there is an obstacle, false otherwise.
+     */
+    public static boolean isObstacleDirectlyInFront(Location from, Location to) {
+        Vector direction = to.toVector().subtract(from.toVector());
+        direction.setY(0);
+        if (direction.lengthSquared() < 1.0) {
+            return false;
+        }
+        direction.normalize();
+        Location checkLocation = from.clone().add(direction.multiply(0.6));
+        Block feetBlock = checkLocation.getBlock();
+        return !isPassable(feetBlock);
+    }
 }
