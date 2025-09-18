@@ -182,26 +182,29 @@ Don't forget to bump version.
 ```bash
 git tag -n # show previous tags
 git checkout <commit_hash_for_the_version_bump> # checkout commit to tag
-git tag -a v0.0.5-alpha.1 -m "Release version 0.0.5-alpha.1: Conversational AI & Self-Awareness"
-git push origin v0.0.5-alpha.1
+git tag -a v0.0.7-alpha.1 -m "Release version 0.0.7-alpha.1: Smarter Inventory, Dynamic AI, and Refined Skills"
+git push origin v0.0.7-alpha.1
 ```
 
 ## Latest Release Notes
 
-Title: IonNerrus 0.0.5-alpha.1: Conversational AI & Self-Awareness
+Title: IonNerrus 0.0.7-alpha.1: Smarter Inventory, Dynamic AI, and Refined Skills
 
-This alpha release significantly deepens the agent's intelligence and communication abilities. We're introducing a new conversational query system and a set of "guardrail" goals that give the agent an understanding of its own limitations. These features work together to make the agent more robust, less prone to getting stuck on impossible tasks, and more interactive.
+This alpha release brings significant improvements to the agent's internal workings, enhancing its ability to manage inventory, react to its environment, and process directives with greater precision. We've focused on making the agent's decision-making more robust and its skill execution more informative.
 
 This is an early **alpha** build intended for developers and testers. Expect bugs, incomplete features, and rapid changes.
 
 ## Key Features
 
-- **New Conversational `/ask` Command:** You can now have simple, direct conversations with an agent using the `/nerrus ask <agent> <question>` command. This is perfect for non-action queries like "What are you doing?" or "What's in your inventory?". Behind the scenes, a new `AskDirector` handles these tool-less requests to elicit a direct response from the LLM.
-- **Agent Self-Awareness via Guardrail Goals:** To prevent the LLM from attempting impossible tasks, we've introduced a set of goals that define the agent's limitations. When tasked with something it cannot do (e.g., building, crafting, farming), the agent will now use a goal that immediately fails and provides clear, immediate feedback. This makes the AI much more reliable. The new guardrails include: `BUILD`, `CRAFT_ITEM`, `DIG`, `FARM`, `MINE_ORE`. Eventually, these will be implemented such that the agent can actually do these activities. Next phase abilities include `SMELT`, `STORE`, `ENCHANT`, `GO_TO_DIMENSION`, `USE_VEHICLE`, `OPERATE_MECHANISM`, etc.
+- **Granular Inventory Tracking**: The agent's ability to count items (`CountItemsSkill`) has been upgraded to provide detailed counts for multiple materials, allowing for more precise resource management in tasks like building or crafting. Goals like `GetBlockGoal` and `GiveItemGoal` now leverage this enhanced capability.
+- **Rich Skill Execution Results**: Skills now return more comprehensive result objects. For example, `CollectItemSkill` now provides a `CollectItemResult` record, offering a clear status of the collection attempt (e.g., success, item gone, navigation failed) and, on success, the actual `ItemStack` collected. This improves the agent's understanding of its actions' outcomes.
+- **Dynamic LLM Context Awareness**: The agent's `ReActDirector` now ensures the Large Language Model (LLM) always receives the most up-to-date system prompt before each cognitive step. This means the LLM is constantly aware of the agent's current environment, inventory, and recent actions, leading to more contextually relevant decision-making.
+- **Improved Directive Handling**: Internal logic for processing directives has been refined. `NerrusAgent` now directly manages the lifecycle of its `ReActDirector`, centralizing control and enabling seamless cancellation of ongoing directives when a new one is issued.
+- **Decoupled Goal Registration**: The system for registering agent goals (`GoalRegistrar`) has been streamlined by removing its direct dependency on the `AgentService`, promoting a cleaner and more modular architecture.
 
 ## Known Issues
 
-- **Water Pathing Broken:** Water pathing is broken and the Persona will get stuck when they enter water.
+- **Line-of-sight Block Breaking** Agents do not break blocks in the line-of-sight when executing `GatherBlockGoal` casuing drops to sometimes get stuck in leaves.
 - **Finding Blocks:** The `FindCollectableBlockSkill` fails to start the search if the agent is standing on a ledge or overhang.
 - **No Persistence:** Agents do not yet persist across server restarts. This is a top priority for the next development cycle.
 - **Limited Hazard Awareness:** The agent's ability to avoid environmental dangers (lava, falls, etc.) is currently minimal.
