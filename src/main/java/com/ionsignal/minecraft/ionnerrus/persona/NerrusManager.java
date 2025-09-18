@@ -26,7 +26,7 @@ public class NerrusManager {
 
     public boolean initialize() {
         String minecraftVersion = ServerVersion.getMinecraftVersion();
-        if ("1.21.7".equals(minecraftVersion)) {
+        if ("1.21.7".equals(minecraftVersion) || "1.21.8".equals(minecraftVersion)) {
             this.platformBridge = new PersonaNMSBridge();
             getLogger().info("Initialized Persona platform bridge for Minecraft version " + minecraftVersion);
         } else {

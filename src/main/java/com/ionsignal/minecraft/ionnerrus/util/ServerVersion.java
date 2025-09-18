@@ -11,7 +11,6 @@ public final class ServerVersion {
 
     /**
      * Gets the Minecraft server version string.
-     * For example: "1.21.7"
      *
      * @return The Minecraft version string.
      */

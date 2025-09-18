@@ -1,7 +1,7 @@
 plugins {
   `java-library`
   id("io.papermc.paperweight.userdev") version "2.0.0-beta.18"
-  id("xyz.jpenilla.run-paper") version "3.0.0-beta.1" // runServer and runMojangMappedServer tasks for testing
+  id("xyz.jpenilla.run-paper") version "3.0.0" // runServer and runMojangMappedServer tasks for testing
   id("com.gradleup.shadow") version "9.1.0"
   id("com.github.ben-manes.versions") version "0.52.0" 
   id("eclipse") 
@@ -17,8 +17,8 @@ java {
 }
 
 dependencies {
-  compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
-  paperweight.paperDevBundle("1.21.7-R0.1-SNAPSHOT")
+  compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
+  paperweight.paperDevBundle("1.21.8-R0.1-SNAPSHOT")
   // Simple OpenAI API Layer
   implementation("io.github.sashirestela:simple-openai:3.22.1")
   // HTTP Client for future LLM integration
@@ -61,7 +61,7 @@ tasks {
       "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005",
       "-XX:+AllowEnhancedClassRedefinition"
     )
-    minecraftVersion("1.21.7")
+    minecraftVersion("1.21.8")
   }
 
   // shadowJar task to relocate dependencies
