@@ -8,8 +8,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity
 import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaMoveControl;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
-import net.minecraft.world.entity.ai.control.MoveControl;
-
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 
@@ -58,7 +56,7 @@ public class Navigator {
     private static final int REPATH_INTERVAL_TICKS = 20; // Repath every second if needed
 
     private enum JumpState {
-        NONE, PREPARING, JUMPING, ASCENDING, DESCENDING, DROPPING
+        NONE, PREPARING, JUMPING, ASCENDING, DESCENDING, DROPPING, EXITING_WATER
     }
 
     private JumpState jumpState = JumpState.NONE;
@@ -135,18 +133,15 @@ public class Navigator {
         }
         state = State.FOLLOWING;
         navigationFuture = new CompletableFuture<>();
-
-        // reset stuck
+        // Reset stuck
         resetStuckDetection();
-
-        // store instance vars
+        // Store instance vars
         this.followTarget = target;
         this.followDistanceSquared = followDistance * followDistance;
         this.stopDistanceSquared = stopDistance * stopDistance;
         this.currentFollowPath = null;
         this.pathFollower = null;
         this.ticksUntilNextRepath = 0;
-
         return navigationFuture;
     }
 
@@ -224,6 +219,9 @@ public class Navigator {
                 // Immediately call handleJumpNavigation to apply forward momentum as we walk off the ledge.
                 handleJumpNavigation();
                 break;
+            case SWIM:
+                applySwimMovement(result.target(), result.verticalDirection());
+                break;
             case WALK:
                 // Apply steering using the correct path object depending on the current navigation state
                 float currentSpeed = getSpeed();
@@ -254,6 +252,10 @@ public class Navigator {
             finishEngaging(EngageResult.SUCCESS);
             return;
         }
+        // Stop any jump
+        if (persona.getPersonaEntity() != null) {
+            persona.getPersonaEntity().getJumpControl().stop();
+        }
         // Dampen speed as we get closer for a smoother stop
         Location targetLocation = engageTarget.getLocation();
         double distance = agentLocation.distance(targetLocation);
@@ -279,14 +281,14 @@ public class Navigator {
         double distanceSq = agentLocation.distanceSquared(targetLocation);
         if (distanceSq < stopDistanceSquared) {
             // Comfort Zone: Stop and look.
-            if (persona.getPersonaEntity().getMoveControl() instanceof PersonaMoveControl pmc) {
-                pmc.stop();
-            }
+            persona.getPersonaEntity().getMoveControl().stop();
+            persona.getPersonaEntity().getJumpControl().stop();
             persona.getPersonaEntity().getLookControl().setLookAt(targetLocation.getX(),
                     targetLocation.getY() + followTarget.getHeight() * 0.85, targetLocation.getZ());
             currentFollowPath = null; // We are close, no path needed.
             pathFollower = null;
         } else if (distanceSq < followDistanceSquared
+                && !NavigationHelper.isObstacleDirectlyInFront(agentLocation, targetLocation)
                 && NavigationHelper.hasLineOfSight(agentLocation, targetLocation, agentLocation.getWorld())) {
             // Direct Steering Zone: Move directly towards target.
             // For direct steering, we still need a ground-based target.
@@ -294,6 +296,8 @@ public class Navigator {
             Location steerTarget = followTarget.isOnGround()
                     ? targetLocation
                     : NavigationHelper.findGround(targetLocation, 5).orElse(targetLocation);
+
+            persona.getPersonaEntity().getJumpControl().stop();
             steerDirectlyTowards(steerTarget, getSpeed());
             persona.getPersonaEntity().getLookControl().setLookAt(targetLocation.getX(),
                     targetLocation.getY() + followTarget.getHeight() * 0.85, targetLocation.getZ());
@@ -336,11 +340,9 @@ public class Navigator {
      */
     private boolean checkIfStuck() {
         PersonaEntity personaEntity = persona.getPersonaEntity();
-        if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
-            if (personaMoveControl.getOperation() == MoveControl.Operation.WAIT) {
-                totalTicksStuck = 0; // Reset counter to be safe
-                return false;
-            }
+        if (personaEntity.getMoveControl().getOperation() == PersonaMoveControl.Operation.WAIT) {
+            totalTicksStuck = 0; // Reset counter to be safe
+            return false;
         }
         ticksSinceStuckCheck++;
         if (ticksSinceStuckCheck >= STUCK_CHECK_INTERVAL_TICKS) {
@@ -413,12 +415,9 @@ public class Navigator {
     private void reset() {
         if (persona.isSpawned()) {
             PersonaEntity personaEntity = persona.getPersonaEntity();
-            if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
-                personaMoveControl.stop();
-            }
-            if (personaEntity.getLookControl() != null) {
-                personaEntity.getLookControl().stopLooking();
-            }
+            personaEntity.getMoveControl().stop();
+            personaEntity.getJumpControl().stop();
+            personaEntity.getLookControl().stopLooking();
         }
         // Reset future
         this.navigationFuture = null;
@@ -499,6 +498,8 @@ public class Navigator {
                     jumpState = JumpState.DESCENDING;
                     jumpStateTicks = 0;
                 } else if (jumpStateTicks > 20) { // Timeout to prevent getting stuck mid-air.
+                    // CHANGE: Added call to jumpControl.stop() on timeout to clean up state.
+                    persona.getPersonaEntity().getJumpControl().stop();
                     persona.getManager().getPlugin().getLogger()
                             .warning("Persona " + persona.getName() + " timed out during jump ascent.");
                     resetJumpState();
@@ -509,8 +510,12 @@ public class Navigator {
                 applyJumpMovement(nextWaypoint, 1.0f); // Continue forward momentum to clear the gap.
                 // The jump is complete once we are back on the ground.
                 if (personaEntity.onGround()) {
+                    // CHANGE: Added call to jumpControl.stop() on successful landing.
+                    persona.getPersonaEntity().getJumpControl().stop();
                     resetJumpState();
                 } else if (jumpStateTicks > 30) { // Timeout to prevent getting stuck in a fall loop.
+                    // CHANGE: Added call to jumpControl.stop() on timeout.
+                    persona.getPersonaEntity().getJumpControl().stop();
                     persona.getManager().getPlugin().getLogger()
                             .warning("Persona " + persona.getName() + " timed out during jump descent.");
                     resetJumpState();
@@ -523,9 +528,7 @@ public class Navigator {
                     applyJumpMovement(nextWaypoint, 0.3f);
                 } else {
                     // Stop all forward movement.
-                    if (personaEntity.getMoveControl() instanceof PersonaMoveControl personaMoveControl) {
-                        personaMoveControl.stop();
-                    }
+                    personaEntity.getMoveControl().stop();
                 }
                 if (personaEntity.onGround()) {
                     resetJumpState();
@@ -533,6 +536,39 @@ public class Navigator {
                     persona.getManager().getPlugin().getLogger()
                             .warning("Persona " + persona.getName() + " timed out during jump descent.");
                     resetJumpState();
+                }
+                break;
+            case EXITING_WATER:
+                jumpStateTicks++;
+                // If we've successfully landed, the maneuver is over.
+                if (personaEntity.onGround()) {
+                    persona.getPersonaEntity().getJumpControl().stop();
+                    resetJumpState();
+                    return;
+                }
+                // Timeout for the entire maneuver.
+                if (jumpStateTicks > 60) { // 3 seconds
+                    // CHANGE: Explicitly stop the jump control on timeout.
+                    persona.getPersonaEntity().getJumpControl().stop();
+                    persona.getManager().getPlugin().getLogger()
+                            .warning("Persona " + persona.getName() + " timed out trying to exit water.");
+                    resetJumpState();
+                    return;
+                }
+                // Phase 1: The Lunge. Get horizontally close to the ledge.
+                double horizontalDistSq = currentLocation.toVector().setY(0)
+                        .distanceSquared(nextWaypoint.toVector().setY(0));
+                if (horizontalDistSq > 0.5 * 0.5) {
+                    // We are not at the ledge yet, so swim towards it.
+                    // We don't want to swim UP, just forward.
+                    applyJumpMovement(nextWaypoint, 0.8f); // Use applyJumpMovement for strong forward momentum
+                } else {
+                    // Phase 2: The Jump. We are at the ledge.
+                    // Stop forward movement to prevent jittering against the block.
+                    personaEntity.getMoveControl().stop();
+                    // Repeatedly trigger the jump control, simulating a player spamming spacebar.
+                    // With the refactored JumpControl, this will now provide sustained upward thrust.
+                    personaEntity.getJumpControl().jump();
                 }
                 break;
             case NONE:
@@ -556,7 +592,14 @@ public class Navigator {
      * Applies forward movement towards a target with a given speed.
      */
     private void applyNormalMovement(Location target, float speed) {
-        MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
+        PersonaEntity personaEntity = persona.getPersonaEntity();
+        if (personaEntity != null) {
+            // CHANGE: Added a call to jumpControl.stop() to ensure vertical movement is
+            // cancelled when transitioning from water/jump to normal walking.
+            personaEntity.getJumpControl().stop();
+            personaEntity.setShiftKeyDown(false);
+        }
+        PersonaMoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(
                 target.getX(),
                 target.getY(),
@@ -564,10 +607,45 @@ public class Navigator {
                 speed);
     }
 
+    private void applySwimMovement(Location target, SteeringResult.VerticalDirection direction) {
+        PersonaEntity personaEntity = persona.getPersonaEntity();
+        if (personaEntity == null)
+            return;
+        // Check for water-exit jump context.
+        if (direction == SteeringResult.VerticalDirection.UP && !target.getBlock().isLiquid()) {
+            this.jumpState = JumpState.EXITING_WATER;
+            this.jumpStateTicks = 0;
+            this.jumpTargetWaypoint = target;
+            return;
+        }
+        // Apply forward momentum for normal in-water swimming
+        PersonaMoveControl moveControl = personaEntity.getMoveControl();
+        moveControl.setWantedPosition(target.getX(), target.getY(), target.getZ(), getSpeed() * 0.7f);
+        // CHANGE: Replaced direct entity state manipulation with calls to the refactored JumpControl.
+        // This unifies the vertical movement mechanism and fixes the swimming bugs.
+        switch (direction) {
+            case UP:
+                // Use the jump control to apply upward thrust.
+                personaEntity.getJumpControl().jump();
+                personaEntity.setShiftKeyDown(false);
+                break;
+            case DOWN:
+                // Stop any upward thrust and use sneaking to swim down.
+                personaEntity.getJumpControl().stop();
+                personaEntity.setShiftKeyDown(true);
+                break;
+            case NONE:
+                // Stop any upward thrust for horizontal swimming.
+                personaEntity.getJumpControl().stop();
+                personaEntity.setShiftKeyDown(false);
+                break;
+        }
+    }
+
     // Helper method for direct steering
     // Target X and Z, but agent's current Y to prevent flying/digging on uneven terrain
     private void steerDirectlyTowards(Location target, float speed) {
-        MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
+        PersonaMoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(target.getX(), persona.getLocation().getY(), target.getZ(), speed);
     }
 
@@ -576,7 +654,7 @@ public class Navigator {
      */
     private void applyJumpMovement(Location target, float amount) {
         // Apply a speed boost for better distance coverage during a jump.
-        MoveControl moveControl = persona.getPersonaEntity().getMoveControl();
+        PersonaMoveControl moveControl = persona.getPersonaEntity().getMoveControl();
         moveControl.setWantedPosition(
                 target.getX(),
                 target.getY(),

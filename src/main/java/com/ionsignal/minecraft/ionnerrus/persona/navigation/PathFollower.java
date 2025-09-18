@@ -12,6 +12,7 @@ public class PathFollower {
     private static final double WAYPOINT_REACHED_DISTANCE_SQUARED = 0.95 * 0.95;
     private static final double PERSONA_SHOULDER_WIDTH = 0.2;
     private static final double TURN_DETECTION_THRESHOLD = 0.1;
+    private static final double VERTICAL_SWIM_THRESHOLD = 0.5;
 
     private final Path path;
     private int currentIndex;
@@ -28,6 +29,21 @@ public class PathFollower {
         }
         // Index is now updated sequentially at the start of the calculation.
         updateCurrentIndex(currentPos);
+        // Swimming logic where we check if in water, and handle vertical movement.
+        if (currentPos.getBlock().isLiquid() && currentIndex < path.size() - 1) {
+            Location nextPoint = path.getPoint(currentIndex + 1);
+            if (nextPoint.getBlock().isLiquid()) {
+                Location currentPathPoint = path.getPoint(currentIndex);
+                double yDiff = nextPoint.getY() - currentPathPoint.getY();
+                if (yDiff > VERTICAL_SWIM_THRESHOLD) {
+                    return new SteeringResult(nextPoint, SteeringResult.MovementType.SWIM, SteeringResult.VerticalDirection.UP);
+                } else if (yDiff < -VERTICAL_SWIM_THRESHOLD) {
+                    return new SteeringResult(nextPoint, SteeringResult.MovementType.SWIM, SteeringResult.VerticalDirection.DOWN);
+                } else {
+                    return new SteeringResult(nextPoint, SteeringResult.MovementType.SWIM, SteeringResult.VerticalDirection.NONE);
+                }
+            }
+        }
         // Check for drops before checking for jumps to ensure we correctly walk off ledges.
         if (currentIndex < path.size() - 1) {
             Location currentPathPoint = path.getPoint(currentIndex);
