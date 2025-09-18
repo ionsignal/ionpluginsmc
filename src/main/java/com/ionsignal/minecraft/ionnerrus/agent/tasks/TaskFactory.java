@@ -1,5 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.content.Ingredient;
+import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.AcquireMaterialsTask;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.CraftExecutionTask;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.EnsureCraftingStationTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.FindBiomeTask;
 // import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GoToLocationTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;
@@ -7,6 +15,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Biome;
+import org.bukkit.inventory.CraftingRecipe;
 
 import java.util.Map;
 import java.util.Set;
@@ -15,9 +24,11 @@ import java.util.logging.Logger;
 
 public class TaskFactory {
     private final Logger logger;
+    private final BlockTagManager blockTagManager;
 
-    public TaskFactory(Logger logger) {
-        this.logger = logger;
+    public TaskFactory(BlockTagManager blockTagManager) {
+        this.logger = IonNerrus.getInstance().getLogger();
+        this.blockTagManager = blockTagManager;
     }
 
     @SuppressWarnings("unchecked")
@@ -44,6 +55,21 @@ public class TaskFactory {
                     Set<Location> attemptedLocations = (Set<Location>) parameters.get("attemptedLocations");
                     int gatherRadius = (int) parameters.getOrDefault("radius", 50);
                     return new GatherBlockTask(materials, gatherRadius, attemptedLocations);
+
+                case "ENSURE_CRAFTING_STATION":
+                    return new EnsureCraftingStationTask();
+
+                case "ACQUIRE_MATERIALS":
+                    RecipeService.CraftingPlan plan = (RecipeService.CraftingPlan) parameters.get("plan");
+                    Ingredient targetIngredient = (Ingredient) parameters.get("targetIngredient");
+                    int targetQuantity = (int) parameters.get("targetQuantity");
+                    return new AcquireMaterialsTask(plan, targetIngredient, targetQuantity, blockTagManager);
+
+                case "EXECUTE_CRAFT":
+                    CraftingRecipe recipeToExecute = (CraftingRecipe) parameters.get("recipe");
+                    int times = (int) parameters.get("timesToCraft");
+                    CraftingContext context = (CraftingContext) parameters.get("context");
+                    return new CraftExecutionTask(recipeToExecute, times, context);
 
                 default:
                     logger.warning("Unknown task name: " + taskName);

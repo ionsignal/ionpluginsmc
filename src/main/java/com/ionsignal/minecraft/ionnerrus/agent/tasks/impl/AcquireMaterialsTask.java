@@ -1,17 +1,21 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.Ingredient;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService.CraftingPath;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService.CraftingStep;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.RequestItemSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask.GatherResult;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
 
 import java.util.ArrayList;
@@ -23,7 +27,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
@@ -39,8 +42,8 @@ public class AcquireMaterialsTask implements Task {
     private final RecipeService.CraftingPlan plan;
     private final BlockTagManager blockTagManager;
     private final Logger logger;
-    private final Executor mainThreadExecutor;
     private volatile boolean cancelled = false;
+    private Map<Ingredient, Integer> concreteShoppingList;
 
     public AcquireMaterialsTask(RecipeService.CraftingPlan plan, Ingredient targetIngredient, int targetQuantity,
             BlockTagManager blockTagManager) {
@@ -49,12 +52,11 @@ public class AcquireMaterialsTask implements Task {
         this.targetQuantity = targetQuantity;
         this.blockTagManager = blockTagManager;
         this.logger = IonNerrus.getInstance().getLogger();
-        this.mainThreadExecutor = IonNerrus.getInstance().getMainThreadExecutor();
     }
 
     @Override
     public CompletableFuture<Void> execute(NerrusAgent agent) {
-        // Phase 1: Scan Environment. This remains the same.
+        // Phase 1: Scan Environment.
         return performEnvironmentalScan(agent)
                 .thenCompose(nearbyAvailableMaterials -> {
                     if (cancelled)
@@ -64,33 +66,40 @@ public class AcquireMaterialsTask implements Task {
                     // Create a lookup map for efficient access to crafting steps.
                     Map<Ingredient, CraftingStep> stepLookup = plan.craftingSteps().stream()
                             .collect(Collectors.toMap(CraftingStep::ingredientToCraft, step -> step));
-                    // This map will be populated by the recursion to become the final shopping list.
-                    Map<Ingredient, Integer> concreteShoppingList = new HashMap<>();
-                    // Start the recursion from the final target item.
+                    // Initialize the member field for the shopping list and the resolver populates the member field.
+                    this.concreteShoppingList = new HashMap<>();
                     MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup, nearbyAvailableMaterials);
-                    return resolveIngredient(targetIngredient, targetQuantity, concreteShoppingList, stepLookup, agent,
+                    return resolveIngredient(targetIngredient, targetQuantity, stepLookup, agent,
                             nearbyAvailableMaterials, calculator)
                                     .thenCompose(v -> {
                                         if (cancelled)
                                             return CompletableFuture
                                                     .failedFuture(new InterruptedException("Task cancelled during plan resolution."));
                                         logger.info("AcquireMaterialsTask: Final concrete shopping list: " + concreteShoppingList);
-                                        // Phase 3: Compare the concrete list against inventory to find what's missing.
-                                        return determineMissingMaterials(agent, concreteShoppingList);
-                                    })
-                                    .thenCompose(missingMaterials -> {
-                                        if (cancelled)
-                                            return CompletableFuture
-                                                    .failedFuture(new InterruptedException("Task cancelled during material check."));
-                                        // Phase 4: Acquire only the missing materials.
-                                        if (missingMaterials.isEmpty()) {
-                                            logger.info("AcquireMaterialsTask: All required materials are already in inventory.");
-                                            return CompletableFuture.completedFuture(null); // Success, nothing to acquire.
-                                        }
-                                        logger.info("AcquireMaterialsTask: Beginning acquisition of missing materials: " + missingMaterials
-                                                + " with nearby context: " + nearbyAvailableMaterials);
-                                        return acquireMissing(agent, missingMaterials, nearbyAvailableMaterials);
+                                        // Phase 3 & 4 are now handled by the new acquisitionLoop.
+                                        return acquisitionLoop(agent, nearbyAvailableMaterials);
                                     });
+                })
+                .thenCompose(v -> {
+                    if (cancelled) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    logger.info("AcquireMaterialsTask: Acquisition complete. Finalizing context.");
+                    // Get a definitive count of all materials on our shopping list.
+                    Set<Material> allRelevantMaterials = concreteShoppingList.keySet().stream()
+                            .flatMap(ing -> ing.materials().stream())
+                            .collect(Collectors.toSet());
+                    // Also include materials for the final product, in case we already have some.
+                    allRelevantMaterials.addAll(targetIngredient.materials());
+                    return new CountItemsSkill(allRelevantMaterials).execute(agent);
+                })
+                .thenAccept(finalInventoryCount -> {
+                    if (cancelled)
+                        return;
+                    // Create the context and place it on the blackboard for the Goal.
+                    CraftingContext context = new CraftingContext(finalInventoryCount);
+                    agent.getBlackboard().put(BlackboardKeys.CRAFTING_CONTEXT, context);
+                    logger.info("AcquireMaterialsTask: CraftingContext created and placed on blackboard.");
                 });
     }
 
@@ -146,8 +155,6 @@ public class AcquireMaterialsTask implements Task {
      *            The ingredient to resolve now.
      * @param quantityNeeded
      *            The amount of the ingredient needed by its parent.
-     * @param concreteShoppingList
-     *            The final shopping list being built.
      * @param stepLookup
      *            A map of all possible crafting steps for fast lookups.
      * @param agent
@@ -159,7 +166,6 @@ public class AcquireMaterialsTask implements Task {
     private CompletableFuture<Void> resolveIngredient(
             Ingredient ingredientToResolve,
             int quantityNeeded,
-            Map<Ingredient, Integer> concreteShoppingList,
             Map<Ingredient, CraftingStep> stepLookup,
             NerrusAgent agent,
             Set<Material> nearbyAvailableMaterials,
@@ -202,8 +208,7 @@ public class AcquireMaterialsTask implements Task {
                     for (Map.Entry<Ingredient, Integer> requirement : chosenPath.requirements().entrySet()) {
                         Ingredient subIngredient = requirement.getKey();
                         int subQuantityNeeded = requirement.getValue() * craftsToPerform;
-                        // Recursively call the resolver for each child ingredient.
-                        childFutures.add(resolveIngredient(subIngredient, subQuantityNeeded, concreteShoppingList, stepLookup, agent,
+                        childFutures.add(resolveIngredient(subIngredient, subQuantityNeeded, stepLookup, agent,
                                 nearbyAvailableMaterials, calculator));
                     }
                     // Return a future that completes when all child dependencies have been resolved.
@@ -259,51 +264,131 @@ public class AcquireMaterialsTask implements Task {
     }
 
     /**
-     * Recursively acquire all materials from a given list, deciding to gather or request each one.
+     * The main control loop for acquiring materials. It repeatedly checks what's missing and acquires
+     * one type of ingredient at a time until the shopping list is satisfied.
      */
-    private CompletableFuture<Void> acquireMissing(NerrusAgent agent, Map<Ingredient, Integer> missingMaterials,
-            Set<Material> nearbyAvailableMaterials) {
-        if (cancelled || missingMaterials.isEmpty()) {
+    private CompletableFuture<Void> acquisitionLoop(NerrusAgent agent, Set<Material> nearbyAvailableMaterials) {
+        if (cancelled) {
             return CompletableFuture.completedFuture(null);
         }
-        Map.Entry<Ingredient, Integer> entry = missingMaterials.entrySet().iterator().next();
-        Ingredient ingredient = entry.getKey();
-        int amountNeeded = entry.getValue();
-        Material representativeMaterial = ingredient.getPreferredMaterial();
-        CompletableFuture<?> acquisitionFuture;
-        // Only gather if the material is gatherable AND was found nearby in the scan.
-        if (blockTagManager.isGatherable(representativeMaterial) &&
-                !Collections.disjoint(ingredient.materials(), nearbyAvailableMaterials)) {
-            logger.info(
-                    "AcquireMaterialsTask: Material is gatherable and nearby. Gathering " + amountNeeded + " " + ingredient.materials());
-            // CompletableFuture<Void> gatherChain = CompletableFuture.completedFuture(null);
-            // for (int i = 0; i < amountNeeded; i++) {
-            // gatherChain = gatherChain.thenCompose(v -> {
-            // if (cancelled)
-            // return CompletableFuture.failedFuture(new InterruptedException());
-            // logger.info("GatherBlockTask: not initiating gather block");
-            // return CompletableFuture.completedFuture(null);
-            // });
-            // }
-            acquisitionFuture = CompletableFuture.runAsync(() -> {
-                agent.setCurrentTask(new GatherBlockTask(ingredient.materials(), 50, new HashSet<>()));
-            }, mainThreadExecutor);
-        } else {
-            // If not gatherable, or gatherable but not found nearby, we must request it.
-            logger.info("AcquireMaterialsTask: Material is not gatherable or not nearby. Requesting " + amountNeeded + " "
-                    + representativeMaterial);
-            acquisitionFuture = new RequestItemSkill(representativeMaterial, amountNeeded)
-                    .execute(agent)
-                    .thenAccept(success -> {
-                        if (!success) {
-                            throw new RuntimeException("Player did not provide " + representativeMaterial);
+        // Step 1: Re-evaluate what's missing from the concrete plan.
+        return determineMissingMaterials(agent, concreteShoppingList)
+                .thenCompose(missingMaterials -> {
+                    if (cancelled) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    // Step 2: Base Case: Nothing is missing, we are done.
+                    if (missingMaterials.isEmpty()) {
+                        logger.info("AcquireMaterialsTask: All materials acquired. Task complete.");
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    // Step 3: Select one ingredient type to acquire.
+                    Map.Entry<Ingredient, Integer> entry = missingMaterials.entrySet().iterator().next();
+                    Ingredient ingredientToAcquire = entry.getKey();
+                    int amountNeeded = entry.getValue();
+                    Material representativeMaterial = ingredientToAcquire.getPreferredMaterial();
+                    CompletableFuture<?> singleAcquisitionFuture;
+                    // Step 4: Decide whether to gather or request the ingredient.
+                    if (blockTagManager.isGatherable(representativeMaterial) &&
+                            !Collections.disjoint(ingredientToAcquire.materials(), nearbyAvailableMaterials)) {
+                        // Gather the full required amount of this specific ingredient.
+                        singleAcquisitionFuture = gatherIngredient(agent, ingredientToAcquire, amountNeeded, nearbyAvailableMaterials,
+                                new HashSet<>());
+                    } else {
+                        // Request the item from the player.
+                        logger.info("AcquireMaterialsTask: Requesting " + amountNeeded + " " + representativeMaterial);
+                        singleAcquisitionFuture = new RequestItemSkill(representativeMaterial,
+                                concreteShoppingList.get(ingredientToAcquire))
+                                        .execute(agent)
+                                        .thenAccept(success -> {
+                                            if (!success) {
+                                                throw new RuntimeException("Player did not provide " + representativeMaterial);
+                                            }
+                                        });
+                    }
+
+                    // Step 5: After acquiring one type of material, loop back to re-evaluate for the next.
+                    return singleAcquisitionFuture.thenCompose(v -> acquisitionLoop(agent, nearbyAvailableMaterials));
+                });
+    }
+
+    /**
+     * Recursively gathers a specific quantity of an ingredient by repeatedly executing GatherBlockTask.
+     * This method is the sub-loop for handling the quantity of a single material type.
+     *
+     * @param agent
+     *            The agent performing the action.
+     * @param ingredient
+     *            The ingredient to gather.
+     * @param totalNeeded
+     *            The total number of this ingredient required.
+     * @param attemptedLocations
+     *            A set of locations already tried for this ingredient to avoid getting stuck.
+     * @return A CompletableFuture that completes when the required quantity is gathered, or fails if it
+     *         cannot be.
+     */
+    private CompletableFuture<Void> gatherIngredient(NerrusAgent agent, Ingredient ingredient, int totalNeeded,
+            Set<Material> nearbyAvailableMaterials, Set<Location> attemptedLocations) {
+        if (cancelled)
+            return CompletableFuture.completedFuture(null);
+
+        // Check how many we have vs. how many we need.
+        return new CountItemsSkill(ingredient.materials()).execute(agent)
+                .thenCompose(counts -> {
+                    int currentAmount = counts.values().stream().mapToInt(Integer::intValue).sum();
+                    if (currentAmount >= totalNeeded) {
+                        logger.info("AcquireMaterialsTask: Finished gathering " + ingredient + ".");
+                        return CompletableFuture.completedFuture(null); // Base case: we have enough.
+                    }
+                    logger.info(
+                            "AcquireMaterialsTask: Gathering one " + ingredient + " (" + (currentAmount + 1) + "/" + totalNeeded + ").");
+                    // This is the "gate" future that waits for the agent's task to finish.
+                    CompletableFuture<GatherResult> gate = new CompletableFuture<>();
+                    Set<Material> materialsToGather = new HashSet<>(ingredient.materials());
+                    materialsToGather.retainAll(nearbyAvailableMaterials);
+                    // This is the temporary wrapper Task that executes the real task and completes the gate.
+                    Task wrapperTask = new Task() {
+                        private final Task realTask = new GatherBlockTask(materialsToGather, 50, attemptedLocations);
+
+                        @Override
+                        public CompletableFuture<Void> execute(NerrusAgent agent) {
+                            CompletableFuture<Void> future = realTask.execute(agent);
+                            future.whenComplete((v, ex) -> {
+                                if (ex != null) {
+                                    gate.completeExceptionally(ex);
+                                    return;
+                                }
+                                GatherResult result = agent.getBlackboard().getEnum(BlackboardKeys.GATHER_BLOCK_RESULT, GatherResult.class)
+                                        .orElse(GatherResult.FAILED_TO_COLLECT);
+                                agent.getBlackboard().remove(BlackboardKeys.GATHER_BLOCK_RESULT);
+                                gate.complete(result);
+                            });
+                            return future;
+                        }
+
+                        @Override
+                        public void cancel() {
+                            realTask.cancel();
+                            gate.cancel(true);
+                        }
+                    };
+                    IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
+                        if (!cancelled) { // Check for cancellation again before scheduling
+                            agent.setCurrentTask(wrapperTask);
                         }
                     });
-        }
-        return acquisitionFuture.thenCompose(v -> {
-            missingMaterials.remove(ingredient);
-            return acquireMissing(agent, missingMaterials, nearbyAvailableMaterials); // Pass context along.
-        });
+                    // Chain the next action off the gate future.
+                    return gate.thenCompose(result -> {
+                        if (result == GatherResult.SUCCESS) {
+                            // Success, recurse to gather the next one.
+                            return gatherIngredient(agent, ingredient, totalNeeded, nearbyAvailableMaterials, attemptedLocations);
+                        } else {
+                            // Failure, fail the entire acquisition process.
+                            return CompletableFuture
+                                    .failedFuture(new RuntimeException("Failed to gather block for " + ingredient + ". Reason: " + result));
+                        }
+                    });
+                });
     }
 
     @Override
@@ -313,8 +398,7 @@ public class AcquireMaterialsTask implements Task {
 
     /**
      * A helper class to calculate the "acquisition cost" of ingredients recursively.
-     * It uses a memoization cache to avoid re-computing costs for the same ingredient,
-     * which is crucial for performance in complex dependency graphs.
+     * It uses a memoization cache to avoid re-computing costs for the same ingredient.
      */
     private class MemoizedCostCalculator {
         private final Map<Ingredient, CompletableFuture<Integer>> memo = new HashMap<>();

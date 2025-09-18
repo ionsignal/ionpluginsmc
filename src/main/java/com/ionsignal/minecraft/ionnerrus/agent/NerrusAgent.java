@@ -201,6 +201,10 @@ public class NerrusAgent {
         return currentGoal;
     }
 
+    public Task getCurrentTask() {
+        return currentTask;
+    }
+
     public String getActivityDescription() {
         if (!isBusyWithDirective) {
             return "Idle.";

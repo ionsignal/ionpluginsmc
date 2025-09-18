@@ -1,14 +1,18 @@
 package com.ionsignal.minecraft.ionnerrus.agent.skills.results;
 
 import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
+
+import org.bukkit.Material;
+
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A rich result object for the FindCollectableTargetSkill.
  * It provides a status indicating the outcome of the search and, on success,
  * the optimal target that was found.
  */
-public record FindCollectableBlockResult(Status status, Optional<CollectableBlock> target) {
+public record FindCollectableBlockResult(Status status, Optional<CollectableBlock> optimalTarget, Set<Material> allFoundMaterials) {
     /**
      * Describes the outcome of the search for a collectable target.
      */
@@ -39,8 +43,8 @@ public record FindCollectableBlockResult(Status status, Optional<CollectableBloc
      *            The found collectable target.
      * @return A new FindCollectableTargetResult instance.
      */
-    public static FindCollectableBlockResult success(CollectableBlock target) {
-        return new FindCollectableBlockResult(Status.SUCCESS, Optional.of(target));
+    public static FindCollectableBlockResult success(CollectableBlock target, Set<Material> allFound) {
+        return new FindCollectableBlockResult(Status.SUCCESS, Optional.of(target), allFound);
     }
 
     /**
@@ -50,10 +54,10 @@ public record FindCollectableBlockResult(Status status, Optional<CollectableBloc
      *            The reason for the failure.
      * @return A new FindCollectableTargetResult instance.
      */
-    public static FindCollectableBlockResult failure(Status reason) {
+    public static FindCollectableBlockResult failure(Status reason, Set<Material> allFound) {
         if (reason == Status.SUCCESS) {
             throw new IllegalArgumentException("Failure result cannot have SUCCESS status.");
         }
-        return new FindCollectableBlockResult(reason, Optional.empty());
+        return new FindCollectableBlockResult(reason, Optional.empty(), allFound);
     }
 }
