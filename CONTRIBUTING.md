@@ -182,25 +182,31 @@ Don't forget to bump version.
 ```bash
 git tag -n # show previous tags
 git checkout <commit_hash_for_the_version_bump> # checkout commit to tag
-git tag -a v0.0.7-alpha.1 -m "Release version 0.0.7-alpha.1: Smarter Inventory, Dynamic AI, and Refined Skills"
-git push origin v0.0.7-alpha.1
+git tag -a v0.0.8-alpha.1 -m "Release version 0.0.8-alpha.1: Crafting, Advanced Navigation, and Aquatic Mobility"
+git push origin v0.0.8-alpha.1
 ```
 
 ## Latest Release Notes
 
-Title: IonNerrus 0.0.7-alpha.1: Smarter Inventory, Dynamic AI, and Refined Skills
+Title: IonNerrus 0.0.8-alpha.1: Crafting, Advanced Navigation, and Aquatic Mobility
 
-This alpha release brings significant improvements to the agent's internal workings, enhancing its ability to manage inventory, react to its environment, and process directives with greater precision. We've focused on making the agent's decision-making more robust and its skill execution more informative.
+This alpha release marks a major step forward, empowering agents with full item crafting capabilities and a significantly enhanced navigation system. Agents can now plan complex crafting operations, acquire necessary materials, and deftly move through diverse terrains, including water.
 
 This is an early **alpha** build intended for developers and testers. Expect bugs, incomplete features, and rapid changes.
 
 ## Key Features
 
-- **Granular Inventory Tracking**: The agent's ability to count items (`CountItemsSkill`) has been upgraded to provide detailed counts for multiple materials, allowing for more precise resource management in tasks like building or crafting. Goals like `GetBlockGoal` and `GiveItemGoal` now leverage this enhanced capability.
-- **Rich Skill Execution Results**: Skills now return more comprehensive result objects. For example, `CollectItemSkill` now provides a `CollectItemResult` record, offering a clear status of the collection attempt (e.g., success, item gone, navigation failed) and, on success, the actual `ItemStack` collected. This improves the agent's understanding of its actions' outcomes.
-- **Dynamic LLM Context Awareness**: The agent's `ReActDirector` now ensures the Large Language Model (LLM) always receives the most up-to-date system prompt before each cognitive step. This means the LLM is constantly aware of the agent's current environment, inventory, and recent actions, leading to more contextually relevant decision-making.
-- **Improved Directive Handling**: Internal logic for processing directives has been refined. `NerrusAgent` now directly manages the lifecycle of its `ReActDirector`, centralizing control and enabling seamless cancellation of ongoing directives when a new one is issued.
-- **Decoupled Goal Registration**: The system for registering agent goals (`GoalRegistrar`) has been streamlined by removing its direct dependency on the `AgentService`, promoting a cleaner and more modular architecture.
+- **Comprehensive Item Crafting**: Agents can now craft items autonomously.
+  - A new `CraftItemGoal` uses a sophisticated state machine to plan, acquire materials, and execute crafting steps.
+  - The `CraftingContext` provides a virtual inventory for tracking materials and checking recipe feasibility.
+  - New tasks (`AcquireMaterialsTask`, `EnsureCraftingStationTask`, `CraftExecutionTask`) manage material sourcing, crafting station setup, and the actual execution of recipes.
+  - New internal skills for inventory crafting, table crafting, block placement, and item requesting support these operations.
+  - A `/nerrus craft` command is added for direct agent instruction.
+- **Advanced Vertical and Aquatic Navigation**: Agent movement is now far more robust.
+  - Agents can now swim effectively, following paths through water, adjusting vertical position, and executing complex maneuvers to exit water.
+  - Improved vertical movement includes enhanced jump and drop detection with better state management.
+  - A new "bumper check" (`isObstacleDirectlyInFront`) helps agents avoid direct collisions with small obstacles.
+  - Default navigation parameters updated for smarter fall distance handling and to enable swimming.
 
 ## Known Issues
 
