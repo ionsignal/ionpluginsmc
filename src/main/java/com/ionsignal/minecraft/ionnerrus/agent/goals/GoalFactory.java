@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GetBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.MineOreGoal;
@@ -11,6 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FarmGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 
@@ -21,49 +23,43 @@ import java.util.Set;
 public class GoalFactory {
     private final TaskFactory taskFactory;
     private final BlockTagManager blockTagManager;
+    private final RecipeService recipeService;
 
-    public GoalFactory(TaskFactory taskFactory, BlockTagManager blockTagManager) {
+    public GoalFactory(TaskFactory taskFactory, BlockTagManager blockTagManager, RecipeService recipeService) {
         this.taskFactory = taskFactory;
         this.blockTagManager = blockTagManager;
+        this.recipeService = recipeService;
     }
 
     public Goal createGoal(String name, Object parameters) {
         switch (name.toUpperCase()) {
             case "DIG":
-                // Guardrail `Goal`
                 return new DigGoal();
             case "BUILD":
-                // Guardrail `Goal`
                 return new BuildGoal();
             case "FARM":
-                // Guardrail `Goal`
                 return new FarmGoal();
             case "MINE_ORE":
-                // Guardrail `Goal`
                 return new MineOreGoal();
             case "GET_BLOCKS":
-                // The cast is safe because the ReActDirector used the correct class from the ToolDefinition.
                 GetBlockParameters getBlockParams = (GetBlockParameters) parameters;
                 Set<Material> materials = blockTagManager.getMaterialSet(getBlockParams.groupName());
                 if (materials == null) {
-                    // This validation is still necessary as the LLM might hallucinate a group name.
                     throw new IllegalArgumentException("Unknown block group: " + getBlockParams.groupName());
                 }
-                // The Goal's constructor now takes the typed parameter object directly.
                 return new GetBlockGoal(taskFactory, materials, getBlockParams);
             case "GIVE_ITEM":
                 GiveItemParameters giveItemParams = (GiveItemParameters) parameters;
                 Material materialToGive;
                 try {
-                    // Validate that the material name provided by the LLM is a real material.
                     materialToGive = Material.valueOf(giveItemParams.materialName().toUpperCase());
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException("Unknown material name: " + giveItemParams.materialName());
                 }
                 return new GiveItemGoal(giveItemParams, materialToGive);
             case "CRAFT_ITEM":
-                // Guardrail `Goal`
-                return new CraftItemGoal();
+                CraftItemParameters craftParams = (CraftItemParameters) parameters;
+                return new CraftItemGoal(craftParams, recipeService, blockTagManager, taskFactory);
             case "FOLLOW_PLAYER":
                 FollowPlayerParameters followParams = (FollowPlayerParameters) parameters;
                 return new FollowPlayerGoal(followParams);
