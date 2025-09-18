@@ -5,8 +5,12 @@ public final class BlackboardKeys {
     }
 
     // General
-    public static final String TARGET_LOCATION = "targetLocation";
     public static final String ISSUE = "issue";
+    public static final String TARGET_LOCATION = "targetLocation";
+
+    // Crafting
+    public static final String CRAFTING_TABLE_LOCATION = "crafting.tableLocation";
+    public static final String CRAFTING_CONTEXT = "crafting.context";
 
     // Task-specific results
     public static final String GATHER_BLOCK_RESULT = "gatherBlocks.result";

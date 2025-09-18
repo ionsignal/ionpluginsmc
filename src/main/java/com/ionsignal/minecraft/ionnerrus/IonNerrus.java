@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -31,6 +32,7 @@ public class IonNerrus extends JavaPlugin {
     private TaskFactory taskFactory;
     private BlockTagManager blockTagManager;
     private LLMService llmService;
+    private RecipeService recipeService;
 
     @SuppressWarnings("unused")
     private PluginConfig pluginConfig;
@@ -82,11 +84,12 @@ public class IonNerrus extends JavaPlugin {
         // Configuration and Content
         this.pluginConfig = new PluginConfig(getConfig());
         this.blockTagManager = new BlockTagManager();
+        this.recipeService = new RecipeService(this.blockTagManager);
 
         // Core Factories and Services (in dependency order)
-        this.taskFactory = new TaskFactory(getLogger());
+        this.taskFactory = new TaskFactory(this.blockTagManager);
         this.goalRegistry = new GoalRegistry();
-        this.goalFactory = new GoalFactory(this.taskFactory, this.blockTagManager);
+        this.goalFactory = new GoalFactory(this.taskFactory, this.blockTagManager, this.recipeService);
         this.llmService = new LLMService(this);
         this.agentService = new AgentService(this, this.nerrusManager, this.goalRegistry, this.goalFactory, this.llmService);
 

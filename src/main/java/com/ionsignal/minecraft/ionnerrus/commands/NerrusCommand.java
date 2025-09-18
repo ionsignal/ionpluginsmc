@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
@@ -30,6 +31,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -52,7 +54,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             @NotNull String[] args) {
         if (args.length == 0) {
             sender.sendMessage(
-                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow> ...", NamedTextColor.GOLD));
+                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow|craft> ...", NamedTextColor.GOLD));
             return true;
         }
         String subCommand = args[0].toLowerCase();
@@ -76,6 +78,9 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             case "give" -> {
                 return handleGive(sender, args);
             }
+            case "craft" -> {
+                return handleCraft(sender, args);
+            }
             case "do" -> {
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
@@ -98,7 +103,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             }
             default -> {
                 sender.sendMessage(
-                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow> ...",
+                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow|craft> ...",
                                 NamedTextColor.RED));
                 return true;
             }
@@ -249,6 +254,49 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleCraft(CommandSender sender, String[] args) {
+        if (args.length < 4) {
+            sender.sendMessage(Component.text("Usage: /nerrus craft <agent_name> <item_name> <quantity>", NamedTextColor.RED));
+            return true;
+        }
+        String agentName = args[1];
+        NerrusAgent agent = agentService.findAgentByName(agentName);
+        if (agent == null) {
+            sender.sendMessage(Component.text("Agent not found: " + agentName, NamedTextColor.RED));
+            return true;
+        }
+        String itemName = args[2].toUpperCase();
+        int quantity;
+        try {
+            quantity = Integer.parseInt(args[3]);
+            if (quantity <= 0) {
+                sender.sendMessage(Component.text("Quantity must be a positive number.", NamedTextColor.RED));
+                return true;
+            }
+        } catch (NumberFormatException e) {
+            sender.sendMessage(Component.text("Invalid quantity. Must be a number.", NamedTextColor.RED));
+            return true;
+        }
+        try {
+            // This is just a pre-check for user-friendliness. The Goal itself will validate.
+            Material.valueOf(itemName);
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("Unknown item: " + itemName, NamedTextColor.RED));
+            return true;
+        }
+        try {
+            CraftItemParameters params = new CraftItemParameters(itemName, quantity);
+            Goal craftGoal = goalFactory.createGoal("CRAFT_ITEM", params);
+            agent.assignGoal(craftGoal);
+            sender.sendMessage(Component.text("Instructing " + agent.getName() + " to craft " + quantity + " " + itemName + ".",
+                    NamedTextColor.GREEN));
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
+            plugin.getLogger().log(Level.WARNING, "Failed to create CraftItemGoal from command.", e);
+        }
+        return true;
+    }
+
     private boolean handleDo(Player player, String[] args) {
         if (args.length < 3) {
             player.sendMessage(Component.text("Usage: /nerrus do <name> <directive...>", NamedTextColor.RED));
@@ -328,11 +376,11 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "ask", "list", "follow");
+            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "ask", "list", "follow", "craft");
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "remove", "stop", "getblock", "do", "give", "follow", "ask" -> {
+                case "remove", "stop", "getblock", "do", "give", "follow", "ask", "craft" -> {
                     return agentService.getAgents().stream()
                             .map(NerrusAgent::getName)
                             .collect(Collectors.toList());
@@ -357,24 +405,31 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                     Stream<String> agents = agentService.getAgents().stream().map(NerrusAgent::getName);
                     return Stream.concat(players, agents).distinct().sorted().collect(Collectors.toList());
                 }
+                case "craft" -> {
+                    return Arrays.stream(Material.values())
+                            .filter(Material::isItem)
+                            .map(m -> m.name().toLowerCase())
+                            .sorted()
+                            .collect(Collectors.toList());
+                }
                 default -> {
                     return Collections.emptyList();
                 }
             }
         }
         if (args.length == 4) {
-            if ("give".equalsIgnoreCase(args[0])) {
-                return Arrays.stream(Material.values())
-                        .filter(Material::isItem)
-                        .map(m -> m.name().toLowerCase())
-                        .sorted()
-                        .collect(Collectors.toList());
-            }
-            if ("getblock".equalsIgnoreCase(args[0])) {
-                return List.of("8", "16", "32", "64");
-            }
-            if ("follow".equalsIgnoreCase(args[0])) {
-                return List.of("5.0", "8.0", "10.0");
+            switch (args[0].toLowerCase()) {
+                case "give":
+                    return Arrays.stream(Material.values())
+                            .filter(Material::isItem)
+                            .map(m -> m.name().toLowerCase())
+                            .sorted()
+                            .collect(Collectors.toList());
+                case "getblock":
+                case "craft":
+                    return List.of("1", "8", "16", "32", "64");
+                case "follow":
+                    return List.of("5.0", "8.0", "10.0");
             }
         }
         if (args.length == 5) {

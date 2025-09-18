@@ -60,7 +60,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
         World world = start.getWorld();
         if (world == null) {
             return CompletableFuture
-                    .completedFuture(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND));
+                    .completedFuture(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND, Set.of()));
         }
         int snapshotPadding = 16;
         BlockPos min = new BlockPos(start.getBlockX() - searchRadius - snapshotPadding, start.getBlockY() - searchRadius - snapshotPadding,
@@ -83,15 +83,23 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                     List<CollectionCandidate> candidates = BlockSearch.findReachable(
                             start, searchRadius, MAX_CANDIDATES_TO_FIND,
                             movementStrategy, searchProcessor, snapshot);
+                    Set<Material> allFoundMaterials = candidates.stream()
+                            .map(candidate -> snapshot.getBlockState(
+                                    new BlockPos(
+                                            candidate.targetBlockLocation().getBlockX(),
+                                            candidate.targetBlockLocation().getBlockY(),
+                                            candidate.targetBlockLocation().getBlockZ()))
+                                    .getBukkitMaterial())
+                            .collect(Collectors.toSet());
                     if (candidates.isEmpty()) {
                         log(startTime, FindCollectableBlockResult.Status.NO_TARGETS_FOUND);
-                        return FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND);
+                        return FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND, allFoundMaterials);
                     }
-                    // CHANGE: The evaluation logic is now much more sophisticated.
                     Optional<CollectableBlock> finalTarget = evaluateCandidates(start, candidates, snapshot);
+                    // Construct the final result using the new factory methods, passing the found materials.
                     FindCollectableBlockResult finalResult = finalTarget
-                            .map(FindCollectableBlockResult::success)
-                            .orElse(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_PATH_FOUND));
+                            .map(target -> FindCollectableBlockResult.success(target, allFoundMaterials))
+                            .orElse(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_PATH_FOUND, allFoundMaterials));
                     log(startTime, finalResult.status());
                     return finalResult;
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
@@ -146,7 +154,6 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 double exposureScore = calculateExposureScore(candidate.targetBlockLocation(), snapshot);
                 double pathLength = path.getLength();
                 double score = (pathLength * PATH_LENGTH_WEIGHT) - (exposureScore * EXPOSURE_SCORE_WEIGHT);
-
                 scoredAndPathable.add(new ScoredCandidate(
                         new CollectableBlock(candidate.targetBlockLocation(), candidate.standingSpot(), path),
                         score));

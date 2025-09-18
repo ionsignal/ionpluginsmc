@@ -35,14 +35,14 @@ import java.util.logging.Logger;
 public class GatherBlockTask implements Task {
     public static final boolean VISUALIZE_PATH = true;
 
-    private NerrusAgent agent;
-    private Executor mainThreadExecutor;
+    private final Executor mainThreadExecutor;
     private final Set<Location> attemptedLocations;
     private final Set<UUID> unreachableItems = new HashSet<>();
     private final Set<Material> materials;
     private final int searchRadius;
     private final Logger logger;
     private volatile boolean cancelled = false;
+    private NerrusAgent agent;
 
     public enum GatherResult {
         SUCCESS, NO_BLOCKS_IN_RANGE, NO_REACHABLE_BLOCKS_IN_RANGE, FAILED_TO_COLLECT
@@ -91,7 +91,7 @@ public class GatherBlockTask implements Task {
                     // Use a switch on the new rich result status.
                     switch (result.status()) {
                         case SUCCESS:
-                            CollectableBlock target = result.target().get();
+                            CollectableBlock target = result.optimalTarget().get();
                             attemptedLocations.add(target.blockLocation());
                             return navigateToAndBreak(target).thenAccept(success -> {
                                 if (!success) {
