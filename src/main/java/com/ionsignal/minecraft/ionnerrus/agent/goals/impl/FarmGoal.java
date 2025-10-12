@@ -21,7 +21,7 @@ public class FarmGoal implements Goal {
     @Override
     public void start(NerrusAgent agent) {
         // This goal provides immediate feedback to the LLM.
-        this.finalResult = new GoalResult(GoalResult.Status.FAILURE,
+        this.finalResult = new GoalResult.Failure(
                 "The objective failed because I do not have the ability to farm. I cannot plant seeds, till soil, or harvest crops.");
         this.finished = true;
     }

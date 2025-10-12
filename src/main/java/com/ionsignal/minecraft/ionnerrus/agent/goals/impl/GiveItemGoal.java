@@ -145,7 +145,7 @@ public class GiveItemGoal implements Goal {
 
     private void fail(NerrusAgent agent, String message) {
         logger.warning("GiveItemGoal Failed: " + message);
-        this.finalResult = new GoalResult(GoalResult.Status.FAILURE, message);
+        this.finalResult = new GoalResult.Failure(message);
         this.state = State.FAILED;
         if (agent != null && agent.getPersona().getNavigator().isBusy()) {
             agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
@@ -154,7 +154,7 @@ public class GiveItemGoal implements Goal {
 
     private void succeed(NerrusAgent agent, String message) {
         logger.info("GiveItemGoal Succeeded: " + message);
-        this.finalResult = new GoalResult(GoalResult.Status.SUCCESS, message);
+        this.finalResult = new GoalResult.Success(message);
         this.state = State.COMPLETED;
         if (agent != null && agent.getPersona().getNavigator().isBusy()) {
             agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);

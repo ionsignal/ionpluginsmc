@@ -20,7 +20,7 @@ public class BuildGoal implements Goal {
     @Override
     public void start(NerrusAgent agent) {
         // This goal provides immediate feedback to the LLM.
-        this.finalResult = new GoalResult(GoalResult.Status.FAILURE,
+        this.finalResult = new GoalResult.Failure(
                 "The objective failed because my building capabilities are not yet enabled. I cannot construct complex structures.");
         this.finished = true;
     }

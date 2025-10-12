@@ -4,12 +4,12 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.Ingredient;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.AcquireMaterialsTask;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
+
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.CraftExecutionTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.EnsureCraftingStationTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.FindBiomeTask;
-// import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GoToLocationTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;
 
 import org.bukkit.Location;
@@ -40,12 +40,6 @@ public class TaskFactory {
                     int findRadius = (int) parameters.getOrDefault("radius", 1000);
                     return new FindBiomeTask(biomes, findRadius);
 
-                // // Currently disabled as this seems a little over powered
-                // case "FIND_DENSE_BLOCK_AREA":
-                // Set<Material> areaMaterials = (Set<Material>) parameters.get("materials");
-                // int areaRadius = (int) parameters.getOrDefault("radius", 150);
-                // return new FindDenseBlockAreaTask(areaMaterials, areaRadius);
-
                 // case "GOTO_LOCATION":
                 // String key = (String) parameters.getOrDefault("locationBlackboardKey", "targetLocation");
                 // return new GoToLocationTask(key);
@@ -59,17 +53,17 @@ public class TaskFactory {
                 case "ENSURE_CRAFTING_STATION":
                     return new EnsureCraftingStationTask();
 
-                case "ACQUIRE_MATERIALS":
-                    RecipeService.CraftingPlan plan = (RecipeService.CraftingPlan) parameters.get("plan");
-                    Ingredient targetIngredient = (Ingredient) parameters.get("targetIngredient");
-                    int targetQuantity = (int) parameters.get("targetQuantity");
-                    return new AcquireMaterialsTask(plan, targetIngredient, targetQuantity, blockTagManager);
-
                 case "EXECUTE_CRAFT":
                     CraftingRecipe recipeToExecute = (CraftingRecipe) parameters.get("recipe");
                     int times = (int) parameters.get("timesToCraft");
                     CraftingContext context = (CraftingContext) parameters.get("context");
                     return new CraftExecutionTask(recipeToExecute, times, context);
+
+                case "ACQUIRE_MATERIALS":
+                    RecipeService.CraftingPlan plan = (RecipeService.CraftingPlan) parameters.get("plan");
+                    Ingredient targetIngredient = (Ingredient) parameters.get("targetIngredient");
+                    int quantity = (int) parameters.get("targetQuantity");
+                    return new AcquireMaterialsTask(plan, targetIngredient, quantity, this.blockTagManager);
 
                 default:
                     logger.warning("Unknown task name: " + taskName);

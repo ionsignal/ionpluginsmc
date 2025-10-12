@@ -1,22 +1,44 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 /**
- * An immutable record that encapsulates the final result of a Goal's execution.
- * This provides a formal, type-safe contract for communication between the
- * agent's
+ * A sealed interface representing the final result of a Goal's execution.
+ * This provides a formal, type-safe contract for communication between the agent's
  * goal-processing system and the higher-level cognitive director.
- *
- * @param status  The final status of the goal (SUCCESS or FAILURE).
- * @param message A descriptive message intended for the LLM, explaining the
- *                outcome.
  */
-public record GoalResult(Status status, String message) {
+public sealed interface GoalResult {
+    /**
+     * A descriptive message intended for the LLM, explaining the outcome.
+     * 
+     * @return The result message.
+     */
+    String message();
 
     /**
-     * Represents the terminal state of a Goal.
+     * Represents a successful goal completion.
+     * 
+     * @param message
+     *            A descriptive message about the success.
      */
-    public enum Status {
-        SUCCESS,
-        FAILURE
+    record Success(String message) implements GoalResult {
+    }
+
+    /**
+     * Represents a failed goal completion.
+     * 
+     * @param message
+     *            A descriptive message explaining the failure.
+     */
+    record Failure(String message) implements GoalResult {
+    }
+
+    /**
+     * Represents a goal that cannot continue until another goal (a prerequisite) is completed first.
+     * 
+     * @param message
+     *            A descriptive message explaining why the prerequisite is needed.
+     * @param prerequisite
+     *            The definition of the goal that must be completed.
+     */
+    record PrerequisiteResult(String message, GoalPrerequisite prerequisite) implements GoalResult {
     }
 }

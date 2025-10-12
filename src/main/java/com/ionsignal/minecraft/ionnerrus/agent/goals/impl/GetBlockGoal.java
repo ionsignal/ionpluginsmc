@@ -212,11 +212,11 @@ public class GetBlockGoal implements Goal {
     public GoalResult getFinalResult() {
         if (state == State.COMPLETED) {
             String message = "Successfully gathered " + gatheredCount + " " + params.groupName() + ".";
-            return new GoalResult(GoalResult.Status.SUCCESS, message);
+            return new GoalResult.Success(message);
         } else {
             String message = "Failed to gather the required " + params.quantity() + " " + params.groupName() + ". Only found "
                     + gatheredCount + ".";
-            return new GoalResult(GoalResult.Status.FAILURE, message);
+            return new GoalResult.Failure(message);
         }
     }
 

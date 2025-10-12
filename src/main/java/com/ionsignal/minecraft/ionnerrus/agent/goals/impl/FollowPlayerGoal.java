@@ -79,7 +79,7 @@ public class FollowPlayerGoal implements Goal {
     }
 
     private void fail(String message) {
-        this.finalResult = new GoalResult(GoalResult.Status.FAILURE, message);
+        this.finalResult = new GoalResult.Failure(message);
         this.state = State.FINISHED;
     }
 

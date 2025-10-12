@@ -20,7 +20,7 @@ public class DigGoal implements Goal {
     @Override
     public void start(NerrusAgent agent) {
         // This goal provides immediate feedback to the LLM.
-        this.finalResult = new GoalResult(GoalResult.Status.FAILURE,
+        this.finalResult = new GoalResult.Failure(
                 "The objective failed because I have a limitation that prevents me from digging deep underground.");
         this.finished = true;
     }

@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalPrerequisite;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignDirective;
@@ -17,37 +18,49 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
+import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
 
 public class NerrusAgent {
     private static final int MAX_MEMORY_ENTRIES = 5;
-    private final LinkedList<String> actionHistory = new LinkedList<>();
 
+    private final LinkedList<String> actionHistory = new LinkedList<>();
     private final Persona persona;
     private final IonNerrus plugin;
-    private final Blackboard blackboard;
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
+    private final Deque<GoalContext> goalStack = new ArrayDeque<>();
 
     private Task currentTask = null;
-    private Goal currentGoal = null;
-    private CompletableFuture<GoalResult> currentGoalFuture;
+    private CompletableFuture<GoalResult> topLevelGoalFuture;
     private ReActDirector currentDirector = null;
+    private GoalContext currentContext = null;
 
     private volatile boolean isBusyWithDirective = false;
+
+    /**
+     * An immutable record to hold the state of a single goal on the stack.
+     * Each goal gets its own isolated blackboard.
+     */
+    private record GoalContext(Goal goal, Object parameters, Blackboard blackboard) {
+    }
 
     public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.persona = persona;
         this.plugin = plugin;
-        this.blackboard = new Blackboard();
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
@@ -60,7 +73,7 @@ public class NerrusAgent {
             return; // No messages to process
         }
         switch (message) {
-            case AssignGoal cmd -> handleAssignGoal(cmd.goal(), cmd.resultFuture());
+            case AssignGoal cmd -> handleAssignGoal(cmd.goal(), cmd.parameters(), cmd.resultFuture());
             case AssignDirective cmd -> handleAssignDirective(cmd.directive(), cmd.requester());
             case SetBusyWithDirective cmd -> handleSetBusyWithDirective(cmd.isBusy());
             case TaskCompleted event -> handleTaskCompleted(event.error());
@@ -68,10 +81,9 @@ public class NerrusAgent {
         }
     }
 
-    // Public method now non-blocking, sends message instead of direct state mutation
-    public CompletableFuture<GoalResult> assignGoal(Goal goal) {
+    public CompletableFuture<GoalResult> assignGoal(Goal goal, Object parameters) {
         CompletableFuture<GoalResult> future = new CompletableFuture<>();
-        messages.offer(new AssignGoal(goal, future));
+        messages.offer(new AssignGoal(goal, parameters, future));
         return future;
     }
 
@@ -83,40 +95,51 @@ public class NerrusAgent {
         messages.offer(new SetBusyWithDirective(isBusy));
     }
 
-    // Private handler for assign goal command (original assignGoal logic moved here)
-    private void handleAssignGoal(Goal goal, CompletableFuture<GoalResult> resultFuture) {
-        if (this.currentGoal != null) {
-            this.currentGoal.stop(this);
-            // If a previous goal was running, handle its future.
-            if (this.currentGoalFuture != null && !this.currentGoalFuture.isDone()) {
-                if (goal == null) {
-                    // This is a hard stop from a command like '/nerrus stop'.
-                    // Cancel the future to signal an external interruption.
-                    this.currentGoalFuture.cancel(true);
-                } else {
-                    // A new goal is replacing the old one. The old goal has failed.
-                    // Complete normally with a failure state for the ReActDirector to process.
-                    this.currentGoalFuture
-                            .complete(new GoalResult(GoalResult.Status.FAILURE, "Goal was cancelled by a new assignment."));
-                }
+    // Goal assignment to handle only top-level goals and clear the stack.
+    private void handleAssignGoal(Goal goal, Object parameters, CompletableFuture<GoalResult> resultFuture) {
+        String goalName = goal != null ? goal.getClass().getSimpleName() : "null";
+        plugin.getLogger().info(String.format("[%s] Received AssignGoal: %s", getName(), goalName));
+        // Stop and clear the entire goal stack, starting with the current goal.
+        if (this.currentContext != null || !goalStack.isEmpty()) {
+            plugin.getLogger().info(String.format("[%s] Clearing existing goal stack (current: %s, stack size: %d)",
+                    getName(),
+                    currentContext != null ? currentContext.goal().getClass().getSimpleName() : "none",
+                    goalStack.size()));
+            if (this.currentContext != null) {
+                this.currentContext.goal().stop(this);
+            }
+            for (GoalContext context : goalStack) {
+                context.goal().stop(this);
+            }
+            this.goalStack.clear();
+        }
+        // If a previous top-level goal was running, handle its future.
+        if (this.topLevelGoalFuture != null && !this.topLevelGoalFuture.isDone()) {
+            if (goal == null) {
+                plugin.getLogger().info(String.format("[%s] Cancelling top-level goal future due to stop command.", getName()));
+                this.topLevelGoalFuture.cancel(true);
+            } else {
+                plugin.getLogger().info(String.format("[%s] Failing previous top-level goal future due to new assignment.", getName()));
+                this.topLevelGoalFuture.complete(new GoalResult.Failure("Goal was cancelled by a new assignment."));
             }
         }
+        // Cancel any active task.
         if (this.currentTask != null) {
+            plugin.getLogger().info(String.format("[%s] Cancelling active task: %s", getName(), currentTask.getClass().getSimpleName()));
             this.currentTask.cancel();
             this.currentTask = null;
         }
-        this.blackboard.clear();
-        this.currentGoal = goal;
-        this.currentGoalFuture = resultFuture;
-        if (this.currentGoal != null) {
-            // Create a new promise for the new goal.
-            this.currentGoal.start(this);
+        // Set up the new top-level goal.
+        if (goal != null) {
+            plugin.getLogger().info(String.format("[%s] Starting new top-level goal: %s", getName(), goalName));
+            this.currentContext = new GoalContext(goal, parameters, new Blackboard());
+            this.topLevelGoalFuture = resultFuture;
+            this.currentContext.goal().start(this);
             processNextStep();
         } else {
-            // This branch is now only for cases where a null goal is assigned when no goal was running.
-            if (this.currentGoalFuture != null && !this.currentGoalFuture.isDone()) {
-                this.currentGoalFuture.complete(new GoalResult(GoalResult.Status.SUCCESS, "No goal assigned."));
-            }
+            plugin.getLogger().info(String.format("[%s] Goal assignment was null. Agent is now idle.", getName()));
+            this.currentContext = null;
+            this.topLevelGoalFuture = null;
         }
     }
 
@@ -125,7 +148,6 @@ public class NerrusAgent {
             this.currentDirector.cancel();
             this.currentDirector = null;
         }
-
         this.currentDirector = new ReActDirector(this, goalRegistry, goalFactory, llmService);
         this.currentDirector.executeDirective(directive, requester);
     }
@@ -137,23 +159,27 @@ public class NerrusAgent {
         }
     }
 
-    // Private handler for task completion (replaces onTaskComplete method)
     private void handleTaskCompleted(Optional<Throwable> error) {
+        String taskName = currentTask != null ? currentTask.getClass().getSimpleName() : "Unknown Task";
         if (error.isPresent()) {
-            plugin.getLogger().log(Level.SEVERE, "Task failed for agent " + getName(), error.get());
+            plugin.getLogger().log(Level.SEVERE, String.format("[%s] Task %s failed with exception:", getName(), taskName), error.get());
             speak("I ran into an unexpected problem with my task.");
-            getBlackboard().put(BlackboardKeys.ISSUE, "TASK_EXCEPTION");
+            if (getBlackboard() != null) {
+                getBlackboard().put(BlackboardKeys.ISSUE, "TASK_EXCEPTION");
+            }
+        } else {
+            plugin.getLogger().info(String.format("[%s] Task %s completed successfully.", getName(), taskName));
         }
-        if (this.currentGoal != null) {
+        if (this.currentContext != null) {
             this.currentTask = null;
             processNextStep();
         }
     }
 
-    // Modified to send TaskCompleted instead of calling onTaskComplete directly
     public void setCurrentTask(Task task) {
         this.currentTask = task;
         if (this.currentTask != null) {
+            plugin.getLogger().info(String.format("[%s] Executing new task: %s", getName(), task.getClass().getSimpleName()));
             this.currentTask.execute(this)
                     .whenCompleteAsync((v, ex) -> {
                         // Send message instead of direct method call to avoid race conditions
@@ -163,21 +189,80 @@ public class NerrusAgent {
     }
 
     private void processNextStep() {
-        if (currentGoal == null) {
+        if (currentContext == null) {
             return;
         }
-        currentGoal.process(this);
+        plugin.getLogger()
+                .info(String.format("[%s] Processing goal: %s", getName(), currentContext.goal().getClass().getSimpleName()));
+        currentContext.goal().process(this);
         if (currentTask != null) {
-            return;
+            return; // A new task was dispatched, wait for it to complete.
         }
-        if (currentGoal.isFinished()) {
-            GoalResult result = currentGoal.getFinalResult();
-            if (currentGoalFuture != null && !currentGoalFuture.isDone()) {
-                currentGoalFuture.complete(result);
+        if (currentContext.goal().isFinished()) {
+            plugin.getLogger().info(
+                    String.format("[%s] Goal %s reported as finished.", getName(), currentContext.goal().getClass().getSimpleName()));
+            handleGoalCompletion(currentContext.goal().getFinalResult());
+        }
+    }
+
+    private void handleGoalCompletion(GoalResult result) {
+        String completedGoalName = currentContext.goal().getClass().getSimpleName();
+        plugin.getLogger().info(String.format("[%s] Handling completion of %s with result: %s", getName(), completedGoalName,
+                result.getClass().getSimpleName()));
+        switch (result) {
+            case GoalResult.PrerequisiteResult p -> {
+                GoalPrerequisite prerequisite = p.prerequisite();
+                plugin.getLogger().info(String.format("[%s] Goal requires prerequisite: %s with params %s", getName(),
+                        prerequisite.goalName(), prerequisite.parameters()));
+                // Create a temporary goal instance just to get its class for the check.
+                Goal tempGoalForCheck = goalFactory.createGoal(prerequisite.goalName(), prerequisite.parameters());
+                // Circular dependency check.
+                for (GoalContext contextInStack : goalStack) {
+                    if (contextInStack.goal().getClass().equals(tempGoalForCheck.getClass())
+                            && Objects.equals(contextInStack.parameters(), prerequisite.parameters())) {
+                        String errorMessage = "Detected circular goal dependency: " + prerequisite.goalName();
+                        plugin.getLogger().severe(String.format("[%s] %s", getName(), errorMessage));
+                        handleGoalCompletion(new GoalResult.Failure(errorMessage));
+                        return;
+                    }
+                }
+                // Push current goal onto the stack.
+                plugin.getLogger().info(String.format("[%s] Pushing %s to stack. Stack size is now %d.", getName(),
+                        currentContext.goal().getClass().getSimpleName(), goalStack.size() + 1));
+                goalStack.push(this.currentContext);
+                // Create and start the new sub-goal.
+                try {
+                    Goal subGoal = goalFactory.createGoal(prerequisite.goalName(), prerequisite.parameters());
+                    plugin.getLogger().info(String.format("[%s] Starting new sub-goal: %s", getName(), subGoal.getClass().getSimpleName()));
+                    this.currentContext = new GoalContext(subGoal, prerequisite.parameters(), new Blackboard());
+                    this.currentContext.goal().start(this);
+                    processNextStep(); // Immediately process the new sub-goal.
+                } catch (Exception e) {
+                    String errorMessage = "Failed to create prerequisite goal '" + prerequisite.goalName() + "': " + e.getMessage();
+                    plugin.getLogger().log(Level.SEVERE, String.format("[%s] %s", getName(), errorMessage), e);
+                    handleGoalCompletion(new GoalResult.Failure(errorMessage));
+                }
             }
-            // Clean up after completion.
-            this.currentGoal = null;
-            this.currentGoalFuture = null;
+            default -> { // Handles Success and Failure
+                if (goalStack.isEmpty()) {
+                    // This was the top-level goal. Complete its future and we're done.
+                    plugin.getLogger().info(String.format("[%s] Top-level goal %s finished. Result: %s", getName(), completedGoalName,
+                            result.getClass().getSimpleName()));
+                    if (topLevelGoalFuture != null && !topLevelGoalFuture.isDone()) {
+                        topLevelGoalFuture.complete(result);
+                    }
+                    currentContext = null;
+                    topLevelGoalFuture = null;
+                } else {
+                    // This was a sub-goal. Pop the parent and resume it.
+                    GoalContext parentContext = goalStack.pop();
+                    plugin.getLogger().info(String.format("[%s] Sub-goal %s finished. Popping %s from stack. Resuming parent.",
+                            getName(), completedGoalName, parentContext.goal().getClass().getSimpleName()));
+                    this.currentContext = parentContext;
+                    this.currentContext.goal().resume(this, result);
+                    processNextStep(); // Immediately process the resumed parent goal.
+                }
+            }
         }
     }
 
@@ -193,12 +278,14 @@ public class NerrusAgent {
         return persona.getName();
     }
 
+    @Nullable
     public Blackboard getBlackboard() {
-        return blackboard;
+        return currentContext != null ? currentContext.blackboard() : null;
     }
 
+    @Nullable
     public Goal getCurrentGoal() {
-        return currentGoal;
+        return currentContext != null ? currentContext.goal() : null;
     }
 
     public Task getCurrentTask() {
@@ -209,9 +296,12 @@ public class NerrusAgent {
         if (!isBusyWithDirective) {
             return "Idle.";
         }
-        if (currentGoal != null) {
-            // e.g., "Working on goal: GetBlockGoal"
-            return "Working on goal: " + currentGoal.getClass().getSimpleName();
+        Goal goal = getCurrentGoal();
+        if (goal != null) {
+            String stackStr = goalStack.stream()
+                    .map(ctx -> ctx.goal().getClass().getSimpleName())
+                    .collect(Collectors.joining(" -> "));
+            return String.format("Working on goal: %s (Stack: [%s])", goal.getClass().getSimpleName(), stackStr);
         }
         return "Thinking about the next step.";
     }
