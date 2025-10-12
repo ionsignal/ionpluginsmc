@@ -170,7 +170,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
             return true;
         }
-        agent.assignGoal(null); // This stops the current goal and task
+        agent.assignGoal(null, null); // This stops the current goal and task
         sender.sendMessage(Component.text("Stopped current goal for agent " + name, NamedTextColor.YELLOW));
         DebugPath.logAreaAround(agent.getPersona().getLocation(), 5);
         return true;
@@ -210,7 +210,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         try {
             GetBlockParameters params = new GetBlockParameters(groupName, amount);
             Goal getBlockGoal = goalFactory.createGoal("GET_BLOCKS", params);
-            agent.assignGoal(getBlockGoal);
+            agent.assignGoal(getBlockGoal, params);
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
             return true;
@@ -245,7 +245,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         try {
             GiveItemParameters params = new GiveItemParameters(materialName, quantity, targetName);
             Goal giveItemGoal = goalFactory.createGoal("GIVE_ITEM", params);
-            agent.assignGoal(giveItemGoal);
+            agent.assignGoal(giveItemGoal, params);
             sender.sendMessage(Component.text("Instructing " + agentName + " to give items.", NamedTextColor.GREEN));
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
@@ -287,7 +287,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         try {
             CraftItemParameters params = new CraftItemParameters(itemName, quantity);
             Goal craftGoal = goalFactory.createGoal("CRAFT_ITEM", params);
-            agent.assignGoal(craftGoal);
+            agent.assignGoal(craftGoal, params);
             sender.sendMessage(Component.text("Instructing " + agent.getName() + " to craft " + quantity + " " + itemName + ".",
                     NamedTextColor.GREEN));
         } catch (IllegalArgumentException e) {
@@ -349,7 +349,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         try {
             FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist);
             Goal followGoal = goalFactory.createGoal("FOLLOW_PLAYER", params);
-            agent.assignGoal(followGoal);
+            agent.assignGoal(followGoal, params);
             sender.sendMessage(Component.text("Instructing " + agent.getName() + " to follow " + targetName, NamedTextColor.GREEN));
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));

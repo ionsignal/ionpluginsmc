@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FailObjectiveParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
@@ -36,12 +37,11 @@ public class ReActDirector {
     private final AgentContext agentContext;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NerrusAgent agent;
+
     private volatile boolean isCancelled = false;
 
-    // CHANGE START: Add fields to store the initial directive details for context refreshing.
     private String directive;
     private Player requester;
-    // CHANGE END
 
     public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.plugin = IonNerrus.getInstance();
@@ -58,14 +58,12 @@ public class ReActDirector {
         this.isCancelled = true;
         // This is the key to interrupting the whenComplete block.
         // It triggers the CancellationException handler.
-        this.agent.assignGoal(null);
+        this.agent.assignGoal(null, null);
     }
 
     public void executeDirective(String directive, Player requester) {
-        // CHANGE START: Store the directive and requester.
         this.directive = directive;
         this.requester = requester;
-        // CHANGE END
         agent.setBusyWithDirective(true);
         String systemPrompt = agentContext.buildSystemPrompt(directive, requester);
         conversationHistory.add(ChatMessage.SystemMessage.of(systemPrompt));
@@ -79,10 +77,8 @@ public class ReActDirector {
         if (isCancelled) {
             return;
         }
-        // CHANGE START: Refresh the system prompt with the latest agent context before every LLM call.
         String systemPrompt = agentContext.buildSystemPrompt(this.directive, this.requester);
         conversationHistory.set(0, ChatMessage.SystemMessage.of(systemPrompt));
-        // CHANGE END
         ChatRequest request = ChatRequest.builder()
                 .model(llmService.getModelName())
                 .messages(conversationHistory)
@@ -151,7 +147,7 @@ public class ReActDirector {
                 return;
             }
             Goal newGoal = goalFactory.createGoal(toolName, params);
-            agent.assignGoal(newGoal).whenCompleteAsync((goalResult, throwable) -> {
+            agent.assignGoal(newGoal, params).whenCompleteAsync((goalResult, throwable) -> {
                 if (isCancelled) {
                     return;
                 }
@@ -177,9 +173,9 @@ public class ReActDirector {
                     cognitiveStep();
                     return;
                 }
-                // This block is now only for normal (non-exceptional) completions.
-                String resultMessage = goalResult.status() + ": " + goalResult.message();
-                String memory = String.format("[%s] %s: %s", goalResult.status(), toolName.toUpperCase(), goalResult.message());
+                String status = goalResult instanceof GoalResult.Success ? "SUCCESS" : "FAILURE";
+                String resultMessage = status + ": " + goalResult.message();
+                String memory = String.format("[%s] %s: %s", status, toolName.toUpperCase(), goalResult.message());
                 agent.recordAction(memory);
                 plugin.getLogger().info("Goal '" + toolName + "' finished with result: " + resultMessage);
                 ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());

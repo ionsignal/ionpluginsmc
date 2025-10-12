@@ -14,10 +14,24 @@ public interface Goal {
      * The implementation can use the agent's state and blackboard to make a
      * decision.
      * 
-     * @param agent The agent executing the goal.
+     * @param agent
+     *            The agent executing the goal.
      * @return The next Task to execute, or null if the goal is complete.
      */
     void process(NerrusAgent agent);
+
+    /**
+     * Called on a parent goal when a sub-goal it requested has finished.
+     * The default implementation does nothing, so only goals that use sub-goaling need to implement it.
+     *
+     * @param agent
+     *            The agent executing the goal.
+     * @param subGoalResult
+     *            The result of the completed sub-goal.
+     */
+    default void resume(NerrusAgent agent, GoalResult subGoalResult) {
+        // Default implementation is empty.
+    }
 
     /**
      * @return True if the goal has been completed or cannot continue.

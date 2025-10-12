@@ -7,32 +7,30 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.Ingredient;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalPrerequisite;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 
 import org.bukkit.Material;
 import org.bukkit.inventory.CraftingRecipe;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class CraftItemGoal implements Goal {
     private enum State {
-        PLANNING, ACQUIRING_MATERIALS, PREPARING_NEXT_CRAFT_STEP, ENSURING_CRAFTING_STATION, EXECUTING_CRAFT, COMPLETED, FAILED
+        PLANNING, ACQUIRING_MATERIALS, PREPARING_CRAFT, EXECUTING_CRAFT, COMPLETED, FAILED
     }
 
     private final CraftItemParameters params;
@@ -42,11 +40,8 @@ public class CraftItemGoal implements Goal {
 
     private State state = State.PLANNING;
     private GoalResult finalResult;
-    private RecipeService.CraftingPlan craftingPlan;
-    private Deque<RecipeService.CraftingStep> craftingSteps;
-    private CraftingContext craftingContext;
     private Material targetMaterial;
-    private Map<Ingredient, Integer> demandMap;
+    private boolean isFinished = false;
 
     public CraftItemGoal(CraftItemParameters params, RecipeService recipeService, BlockTagManager blockTagManager,
             TaskFactory taskFactory) {
@@ -64,7 +59,21 @@ public class CraftItemGoal implements Goal {
             fail("I do not know how to craft an item named '" + params.itemName() + "'.");
             return;
         }
-        agent.speak("Planning how to craft " + params.quantity() + " " + params.itemName() + ".");
+        agent.speak("Let me see... to craft " + params.quantity() + " " + params.itemName() + ", I'll need a plan.");
+        process(agent);
+    }
+
+    @Override
+    public void resume(NerrusAgent agent, GoalResult subGoalResult) {
+        if (subGoalResult instanceof GoalResult.Failure failure) {
+            fail("I couldn't get what I needed. " + failure.message());
+            return;
+        }
+        this.isFinished = false;
+        this.finalResult = null;
+        this.state = State.ACQUIRING_MATERIALS;
+        agent.speak("Alright, let's see what's next.");
+        process(agent);
     }
 
     @Override
@@ -72,136 +81,80 @@ public class CraftItemGoal implements Goal {
         if (isFinished() || agent.getCurrentTask() != null) {
             return;
         }
-        Task nextTask = null;
         switch (state) {
             case PLANNING:
-                nextTask = createPlanningTask();
+                agent.setCurrentTask(createPlanningTask());
                 break;
-
             case ACQUIRING_MATERIALS:
-                agent.speak("I need to gather some materials first.");
-                nextTask = taskFactory.createTask("ACQUIRE_MATERIALS", Map.of(
-                        "plan", this.craftingPlan,
-                        "targetIngredient", Ingredient.of(this.targetMaterial),
-                        "targetQuantity", params.quantity()));
-                state = State.PREPARING_NEXT_CRAFT_STEP;
+                handleAcquisitionState(agent);
                 break;
-
-            case PREPARING_NEXT_CRAFT_STEP:
-                // This is a synchronous action that might change the state and allow another
-                // case to be hit in the same tick if no task is dispatched.
-                prepareNextCraftStep(agent);
+            case PREPARING_CRAFT:
+                handleCraftPreparation(agent);
                 break;
-
-            case ENSURING_CRAFTING_STATION:
-                nextTask = taskFactory.createTask("ENSURE_CRAFTING_STATION", Map.of());
-                state = State.EXECUTING_CRAFT; // Optimistically transition
-                break;
-
             case EXECUTING_CRAFT:
-                // This state is entered after preparation logic has run.
-                // It dispatches the task that actually performs the craft loop.
-                prepareAndExecuteCraft(agent); // This method will set the next task if needed.
+                agent.setCurrentTask(createCraftExecutionTask(agent));
                 break;
-
             default:
                 break;
         }
-        if (nextTask != null) {
-            agent.setCurrentTask(nextTask);
-        } else if (!isFinished() && agent.getCurrentTask() == null) {
-            // If a state transition happened but no task was dispatched (e.g., after prep),
-            // re-run process to immediately handle the new state.
-            process(agent);
+    }
+
+    private void handleAcquisitionState(NerrusAgent agent) {
+        if (agent.getBlackboard().has(BlackboardKeys.NEXT_PREREQUISITE)) {
+            GoalPrerequisite prereq = agent.getBlackboard().get(BlackboardKeys.NEXT_PREREQUISITE, GoalPrerequisite.class).get();
+            agent.getBlackboard().remove(BlackboardKeys.NEXT_PREREQUISITE);
+            declarePrerequisite("I need to acquire a prerequisite: " + prereq.goalName(), prereq);
+        } else if (agent.getBlackboard().getBoolean(BlackboardKeys.MATERIALS_ACQUIRED, false)) {
+            agent.getBlackboard().remove(BlackboardKeys.MATERIALS_ACQUIRED);
+            agent.setCurrentTask(createContextCreationTask());
+        } else {
+            RecipeService.CraftingPlan plan = agent.getBlackboard().get(BlackboardKeys.CRAFTING_PLAN, RecipeService.CraftingPlan.class)
+                    .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard."));
+            Task task = taskFactory.createTask("ACQUIRE_MATERIALS", Map.of(
+                    "plan", plan,
+                    "targetIngredient", Ingredient.of(targetMaterial),
+                    "targetQuantity", params.quantity()));
+            agent.setCurrentTask(task);
         }
     }
 
-    private void prepareNextCraftStep(NerrusAgent agent) {
-        // First-time entry after acquisition: retrieve the context from the blackboard.
-        if (this.craftingContext == null) {
-            Optional<CraftingContext> contextOpt = agent.getBlackboard().get(BlackboardKeys.CRAFTING_CONTEXT, CraftingContext.class);
-            if (contextOpt.isEmpty()) {
-                fail("Material acquisition failed, so I cannot proceed with crafting.");
-                return;
-            }
-            this.craftingContext = contextOpt.get();
-            agent.getBlackboard().remove(BlackboardKeys.CRAFTING_CONTEXT);
-        }
-        // Check for final completion.
-        if (craftingContext.getAvailableCount(Ingredient.of(targetMaterial)) >= params.quantity()) {
+    @SuppressWarnings("unchecked")
+    private void handleCraftPreparation(NerrusAgent agent) {
+        // This is a synchronous block of logic that decides the next craft
+        CraftingContext context = agent.getBlackboard().get(BlackboardKeys.CRAFTING_CONTEXT, CraftingContext.class)
+                .orElseThrow(() -> new IllegalStateException("Crafting context missing from blackboard."));
+        RecipeService.CraftingPlan plan = agent.getBlackboard().get(BlackboardKeys.CRAFTING_PLAN, RecipeService.CraftingPlan.class)
+                .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard."));
+        Map<Ingredient, RecipeService.CraftingPath> resolvedPlan = (Map<Ingredient, RecipeService.CraftingPath>) agent.getBlackboard()
+                .get(BlackboardKeys.CRAFTING_RESOLVED_PLAN, Map.class)
+                .orElseThrow(() -> new IllegalStateException("Resolved crafting plan missing from blackboard."));
+        // Check if we have enough of the final product
+        if (context.getAvailableCount(Ingredient.of(targetMaterial)) >= params.quantity()) {
             succeed("I have successfully crafted " + params.quantity() + " " + params.itemName() + ".");
             return;
         }
-        // Process the next step in the plan.
-        while (!craftingSteps.isEmpty()) {
-            // First, get the total demand for this intermediate item from our pre-calculated map. Then,
-            // calculate how many more we need to make based on what's already available in the context.
-            RecipeService.CraftingStep currentStep = craftingSteps.peek(); // Peek, don't remove yet.
-            int totalDemand = this.demandMap.getOrDefault(currentStep.ingredientToCraft(), 0);
-            int needed = totalDemand - craftingContext.getAvailableCount(currentStep.ingredientToCraft());
+        // Find the next craftable step in the plan
+        for (RecipeService.CraftingStep step : plan.craftingSteps()) {
+            int needed = calculateNeededForStep(step, plan, context, resolvedPlan);
             if (needed <= 0) {
-                craftingSteps.poll(); // We have enough of this intermediate, discard step and check the next.
+                continue; // We have enough of this intermediate item
+            }
+            RecipeService.CraftingPath pathToCraft = resolvedPlan.get(step.ingredientToCraft());
+            if (pathToCraft == null) {
+                // This shouldn't happen if the plan is consistent, but it's a good safeguard.
                 continue;
             }
-            // Find a usable recipe from the available paths based on our context.
-            Optional<CraftingRecipe> usableRecipeOpt = findUsableRecipe(currentStep);
-            if (usableRecipeOpt.isPresent()) {
-                CraftingRecipe recipeToExecute = usableRecipeOpt.get();
-                int yield = recipeToExecute.getResult().getAmount();
-                int craftsToPerform = (int) Math.ceil((double) needed / yield);
-                agent.getBlackboard().put("craft.recipe", recipeToExecute);
+            if (hasIngredientsForPath(pathToCraft, context)) {
+                int craftsToPerform = (int) Math.ceil((double) needed / pathToCraft.yield());
+                agent.getBlackboard().put("craft.recipe", pathToCraft.recipes().get(0)); // Use first recipe in path
                 agent.getBlackboard().put("craft.times", craftsToPerform);
-                logger.info("Next action: Perform " + craftsToPerform + " craft(s) for " + currentStep.ingredientToCraft());
-                if (RecipeService.is3x3Recipe(recipeToExecute)) {
-                    state = State.ENSURING_CRAFTING_STATION;
-                } else {
-                    state = State.EXECUTING_CRAFT;
-                }
-                return; // Exit to let process() handle the new state.
-            } else {
-                fail("I have a plan to craft " + currentStep.ingredientToCraft()
-                        + ", but I'm missing the specific materials required for it.");
+                this.state = State.EXECUTING_CRAFT;
+                process(agent); // Immediately dispatch the task
                 return;
             }
         }
-        // If the queue is empty but we still haven't met the final goal, something is wrong.
-        if (craftingContext.getAvailableCount(Ingredient.of(targetMaterial)) < params.quantity()) {
-            fail("I completed all crafting steps, but still do not have enough " + params.itemName() + ".");
-        } else {
-            // This can happen if the last craft satisfied the goal.
-            succeed("I have successfully crafted " + params.quantity() + " " + params.itemName() + ".");
-        }
-    }
-
-    private void prepareAndExecuteCraft(NerrusAgent agent) {
-        Optional<CraftingRecipe> recipeOpt = agent.getBlackboard().get("craft.recipe", CraftingRecipe.class);
-        int timesToCraft = agent.getBlackboard().getInt("craft.times", 0);
-        if (recipeOpt.isEmpty() || timesToCraft <= 0) {
-            fail("Internal error: Tried to execute a craft without a valid recipe or quantity.");
-            return;
-        }
-        // If it's a 3x3 recipe, we must have a table location from the previous state.
-        if (RecipeService.is3x3Recipe(recipeOpt.get())) {
-            if (!agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
-                // Here is where we would insert the sub-goal to craft a table. For now, we fail.
-                fail("I need a crafting table to proceed, but I could not find or place one.");
-                return;
-            }
-        }
-        Task craftTask = taskFactory.createTask("EXECUTE_CRAFT", Map.of(
-                "recipe", recipeOpt.get(),
-                "timesToCraft", timesToCraft,
-                "context", this.craftingContext));
-        // After this craft execution, we must re-evaluate the next step.
-        state = State.PREPARING_NEXT_CRAFT_STEP;
-        agent.setCurrentTask(craftTask);
-    }
-
-    private Optional<CraftingRecipe> findUsableRecipe(RecipeService.CraftingStep step) {
-        return step.paths().stream()
-                .flatMap(path -> path.recipes().stream())
-                .filter(craftingContext::hasIngredientsFor)
-                .findFirst();
+        // If we loop through and find nothing to craft, but haven't met the goal, something is wrong.
+        fail("I have all the materials, but I'm not sure how to craft the next step.");
     }
 
     private Task createPlanningTask() {
@@ -215,14 +168,12 @@ public class CraftItemGoal implements Goal {
                             fail("I was unable to create a crafting plan for " + params.itemName() + ".");
                             return;
                         }
-                        craftingPlan = planOpt.get();
-                        craftingSteps = new LinkedList<>(craftingPlan.craftingSteps());
-                        demandMap = calculateFullDemandMap();
-                        String stepsStr = craftingPlan.craftingSteps().stream()
+                        RecipeService.CraftingPlan plan = planOpt.get();
+                        String stepsStr = plan.craftingSteps().stream()
                                 .map(s -> s.ingredientToCraft().toString())
                                 .collect(Collectors.joining(" -> "));
-                        logger.info("Finalized Crafting Plan: Raw Materials: " + craftingPlan.rawIngredients() + " | Steps: " + stepsStr
-                                + " | Demand Map: " + demandMap);
+                        logger.info("Finalized Crafting Plan: Raw Materials: " + plan.rawIngredients() + " | Steps: " + stepsStr);
+                        agent.getBlackboard().put(BlackboardKeys.CRAFTING_PLAN, plan);
                         state = State.ACQUIRING_MATERIALS;
                     });
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
@@ -234,50 +185,105 @@ public class CraftItemGoal implements Goal {
         };
     }
 
-    /**
-     * Calculates the total number of each intermediate and final item that needs to be produced to
-     * satisfy the final goal. It works backwards from the final product through the dependency tree.
-     *
-     * @return A map where the key is the ingredient to be crafted and the value is the total quantity
-     *         required.
-     */
-    private Map<Ingredient, Integer> calculateFullDemandMap() {
-        Map<Ingredient, Integer> fullDemandMap = new HashMap<>();
-        // Seed the map with the final target item and quantity.
-        fullDemandMap.put(Ingredient.of(this.targetMaterial), this.params.quantity());
-        // Create a reversed list of the crafting steps to process dependencies from end to start.
-        List<RecipeService.CraftingStep> reversedSteps = new ArrayList<>(this.craftingSteps);
-        Collections.reverse(reversedSteps);
-        for (RecipeService.CraftingStep step : reversedSteps) {
-            Ingredient product = step.ingredientToCraft();
-            int amountNeeded = fullDemandMap.getOrDefault(product, 0);
-            if (amountNeeded > 0) {
-                // To determine the requirements, we assume the first crafting path is representative.
-                // This is a safe assumption as different recipes for the same item (e.g., oak vs. birch planks)
-                // are structurally identical in terms of ingredient counts.
-                if (step.paths().isEmpty()) {
-                    continue; // Should not happen for a valid plan.
-                }
-                RecipeService.CraftingPath representativePath = step.paths().get(0);
-                // Calculate how many times this craft needs to be performed.
-                int craftsToPerform = (int) Math.ceil((double) amountNeeded / representativePath.yield());
-                // Add the required sub-ingredients to the demand map.
-                for (Map.Entry<Ingredient, Integer> requirement : representativePath.requirements().entrySet()) {
-                    Ingredient requiredIngredient = requirement.getKey();
-                    int amountPerCraft = requirement.getValue();
-                    fullDemandMap.merge(requiredIngredient, amountPerCraft * craftsToPerform, Integer::sum);
+    private Task createCraftExecutionTask(NerrusAgent agent) {
+        CraftingRecipe recipe = agent.getBlackboard().get("craft.recipe", CraftingRecipe.class)
+                .orElseThrow(() -> new IllegalStateException("Missing craft.recipe on blackboard"));
+        int timesToCraft = agent.getBlackboard().get("craft.times", Integer.class)
+                .orElseThrow(() -> new IllegalStateException("Missing craft.times on blackboard"));
+        CraftingContext context = agent.getBlackboard().get(BlackboardKeys.CRAFTING_CONTEXT, CraftingContext.class)
+                .orElseThrow(() -> new IllegalStateException("Missing crafting context on blackboard."));
+
+        // After execution, loop back to preparing for the next craft.
+        this.state = State.PREPARING_CRAFT;
+        return taskFactory.createTask("EXECUTE_CRAFT", Map.of(
+                "recipe", recipe,
+                "timesToCraft", timesToCraft,
+                "context", context));
+    }
+
+    private int calculateNeededForStep(RecipeService.CraftingStep step, RecipeService.CraftingPlan plan, CraftingContext context,
+            Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
+        Ingredient ingredient = step.ingredientToCraft();
+        int totalDemand = calculateFullDemand(ingredient, plan, resolvedPlan);
+        int ownedAmount = context.getAvailableCount(ingredient);
+        return Math.max(0, totalDemand - ownedAmount);
+    }
+
+    private int calculateFullDemand(Ingredient target, RecipeService.CraftingPlan plan,
+            Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
+        if (target.materials().contains(this.targetMaterial)) {
+            return this.params.quantity();
+        }
+        int total = 0;
+        for (RecipeService.CraftingStep step : plan.craftingSteps()) {
+            RecipeService.CraftingPath chosenPath = resolvedPlan.get(step.ingredientToCraft());
+            if (chosenPath == null) {
+                continue; // This step isn't part of the resolved plan.
+            }
+            if (chosenPath.requirements().containsKey(target)) {
+                int parentDemand = calculateFullDemand(step.ingredientToCraft(), plan, resolvedPlan);
+                if (parentDemand > 0) {
+                    int craftsToPerform = (int) Math.ceil((double) parentDemand / chosenPath.yield());
+                    total += craftsToPerform * chosenPath.requirements().get(target);
                 }
             }
         }
-        return fullDemandMap;
+        return total > 0 ? total : 1; // Assume at least 1 is needed if it's an intermediate
+    }
+
+    private boolean hasIngredientsForPath(RecipeService.CraftingPath path, CraftingContext context) {
+        for (Map.Entry<Ingredient, Integer> requirement : path.requirements().entrySet()) {
+            if (context.getAvailableCount(requirement.getKey()) < requirement.getValue()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Task createContextCreationTask() {
+        return new Task() {
+            @Override
+            public CompletableFuture<Void> execute(NerrusAgent agent) {
+                RecipeService.CraftingPlan plan = agent.getBlackboard().get(BlackboardKeys.CRAFTING_PLAN, RecipeService.CraftingPlan.class)
+                        .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard for context creation."));
+                // Collect all materials that could possibly be involved to get a full inventory snapshot.
+                Set<Material> allRelevantMaterials = new HashSet<>();
+                plan.rawIngredients().keySet().forEach(ing -> allRelevantMaterials.addAll(ing.materials()));
+                plan.craftingSteps().forEach(step -> {
+                    allRelevantMaterials.addAll(step.ingredientToCraft().materials());
+                    step.paths().forEach(
+                            path -> path.requirements().keySet().forEach(ing -> allRelevantMaterials.addAll(ing.materials())));
+                });
+                return new CountItemsSkill(allRelevantMaterials).execute(agent)
+                        .thenAccept(inventoryCount -> {
+                            CraftingContext context = new CraftingContext(inventoryCount);
+                            agent.getBlackboard().put(BlackboardKeys.CRAFTING_CONTEXT, context);
+                            state = State.PREPARING_CRAFT;
+                            logger.info("CraftingContext created. Transitioning to PREPARING_CRAFT.");
+                        });
+            }
+
+            @Override
+            public void cancel() {
+                // No-op, skill is short-lived.
+            }
+        };
+    }
+
+    private void declarePrerequisite(String reason, GoalPrerequisite prerequisite) {
+        if (isFinished())
+            return;
+        this.finalResult = new GoalResult.PrerequisiteResult(reason, prerequisite);
+        this.isFinished = true;
     }
 
     private void succeed(String message) {
         if (isFinished()) {
             return;
         }
-        this.finalResult = new GoalResult(GoalResult.Status.SUCCESS, message);
+        this.finalResult = new GoalResult.Success(message);
         this.state = State.COMPLETED;
+        this.isFinished = true;
     }
 
     private void fail(String message) {
@@ -285,13 +291,14 @@ public class CraftItemGoal implements Goal {
             return;
         }
         logger.severe("CraftItemGoal Failed: " + message);
-        this.finalResult = new GoalResult(GoalResult.Status.FAILURE, message);
+        this.finalResult = new GoalResult.Failure(message);
         this.state = State.FAILED;
+        this.isFinished = true;
     }
 
     @Override
     public boolean isFinished() {
-        return state == State.COMPLETED || state == State.FAILED;
+        return isFinished;
     }
 
     @Override
@@ -304,7 +311,7 @@ public class CraftItemGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         if (finalResult == null) {
-            return new GoalResult(GoalResult.Status.FAILURE, "Goal finished without a result.");
+            return new GoalResult.Failure("Goal finished without a result, likely due to cancellation.");
         }
         return finalResult;
     }
