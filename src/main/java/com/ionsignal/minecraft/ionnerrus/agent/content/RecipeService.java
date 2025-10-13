@@ -81,7 +81,8 @@ public class RecipeService {
         String itemsStr = itemsToCraft.entrySet().stream()
                 .map(e -> e.getValue() + "x " + e.getKey())
                 .collect(Collectors.joining(", "));
-        logger.info(String.format("%s[Depth %d] Resolving dependencies for: {%s}", indent, depth, itemsStr));
+        // logger.info(String.format("%s[Depth %d] Resolving dependencies for: {%s}", indent, depth,
+        // itemsStr));
         for (Map.Entry<Ingredient, Integer> entry : new HashMap<>(itemsToCraft).entrySet()) {
             Ingredient ingredient = entry.getKey();
             int needed = entry.getValue();
@@ -93,22 +94,18 @@ public class RecipeService {
             }
             Material representativeMaterial = ingredient.getPreferredMaterial();
             if (blockTagManager.isRawMaterial(representativeMaterial) || blockTagManager.isGatherable(representativeMaterial)) {
-                logger.info(String.format("%s -> Terminal node %s (is a raw/gatherable material). Adding %d to raw materials.", indent,
-                        ingredient,
-                        needed));
+                logger.info(String.format("%s -> Terminal node %s (is a raw/gatherable material). Adding to raw materials list.", indent,
+                        ingredient));
                 totalRawMaterials.merge(ingredient, needed, Integer::sum);
                 continue;
             }
             List<CraftingRecipe> recipes = findRecipesForIngredient(ingredient);
             if (recipes.isEmpty()) {
-                logger.info(String.format("%s -> Terminal node %s (no recipe). Adding %d to raw materials.",
-                        indent, ingredient, needed));
+                logger.info(String.format("%s -> Terminal node %s (no recipe). Adding to raw materials list.", indent, ingredient));
                 totalRawMaterials.merge(ingredient, needed, Integer::sum);
                 continue;
             }
             // Group recipes by their abstract ingredient signature.
-            // Map<Map<Ingredient, Integer>, List<CraftingRecipe>> recipeGroups = recipes.stream()
-            // .collect(Collectors.groupingBy(this::getAbstractIngredientSignature));
             Map<Map<Ingredient, Integer>, List<CraftingRecipe>> recipeGroups = recipes.stream()
                     .collect(Collectors.groupingBy(this::getIngredientSignature));
             // Create CraftingPath objects for each group.
@@ -119,14 +116,14 @@ public class RecipeService {
                         return new CraftingPath(groupEntry.getKey(), groupEntry.getValue(), yield);
                     })
                     .toList();
-            // We still need a representative yield to calculate craftsToPerform for the recursion.
-            // We'll just use the first path's yield for this. The execution logic will use the correct yield
-            // later.
+            // We still need a representative yield to calculate craftsToPerform for the recursion and we'll
+            // just use the first path's yield for this. The execution logic will use the correct yield later.
             int representativeYield = paths.get(0).yield();
             int craftsToPerform = (int) Math.ceil((double) needed / representativeYield);
-            logger.info(String.format(
-                    "%s -> Found %d recipe(s) for %s, grouped into %d distinct path(s). Representative yield: %d. Need to perform %d craft(s).",
-                    indent, recipes.size(), ingredient, paths.size(), representativeYield, craftsToPerform));
+            // logger.info(String.format(
+            // "%s -> Found %d recipe(s) for %s, grouped into %d distinct path(s). Representative yield: %d.
+            // Need to perform %d craft(s).",
+            // indent, recipes.size(), ingredient, paths.size(), representativeYield, craftsToPerform));
             // Collect all possible sub-ingredients from all paths.
             Map<Ingredient, Integer> allSubIngredients = new HashMap<>();
             for (CraftingPath path : paths) {
@@ -141,7 +138,8 @@ public class RecipeService {
                 logger.info(String.format("%s -> Descending into dependencies for %s...", indent, ingredient));
                 resolveDependencies(allSubIngredients, totalRawMaterials, orderedSteps, depth + 1);
             }
-            logger.info(String.format("%s -> Finished dependencies for %s. Adding to ordered steps.", indent, ingredient));
+            // logger.info(String.format("%s -> Finished dependencies for %s. Adding to ordered steps.", indent,
+            // ingredient));
             orderedSteps.add(new CraftingStep(ingredient, paths));
         }
         logger.info(String.format("%s[Depth %d] Finished resolving for: {%s}", indent, depth, itemsStr));

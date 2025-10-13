@@ -11,6 +11,8 @@ import org.bukkit.inventory.ShapelessRecipe;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Manages the state of a complex crafting job, acting as a virtual inventory.
@@ -87,7 +89,10 @@ public class CraftingContext {
 
     private List<RecipeChoice> getRecipeChoices(CraftingRecipe recipe) {
         if (recipe instanceof ShapedRecipe shaped) {
-            return List.copyOf(shaped.getChoiceMap().values());
+            // We now filter out these nulls to get a clean list of actual ingredients.
+            return shaped.getChoiceMap().values().stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
         } else if (recipe instanceof ShapelessRecipe shapeless) {
             return shapeless.getChoiceList();
         }

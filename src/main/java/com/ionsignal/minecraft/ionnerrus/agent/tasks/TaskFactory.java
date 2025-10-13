@@ -8,9 +8,10 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.AcquireMaterialsTask;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
 
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.CraftExecutionTask;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.EnsureCraftingStationTask;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.FindNearbyBlockTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.FindBiomeTask;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.PlaceBlockTask;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -50,8 +51,14 @@ public class TaskFactory {
                     int gatherRadius = (int) parameters.getOrDefault("radius", 50);
                     return new GatherBlockTask(materials, gatherRadius, attemptedLocations);
 
-                case "ENSURE_CRAFTING_STATION":
-                    return new EnsureCraftingStationTask();
+                case "FIND_NEARBY_BLOCK":
+                    Material materialToFind = (Material) parameters.get("material");
+                    int searchRadius = (int) parameters.getOrDefault("radius", 20);
+                    return new FindNearbyBlockTask(materialToFind, searchRadius);
+
+                case "PLACE_BLOCK":
+                    Material materialToPlace = (Material) parameters.get("material");
+                    return new PlaceBlockTask(materialToPlace);
 
                 case "EXECUTE_CRAFT":
                     CraftingRecipe recipeToExecute = (CraftingRecipe) parameters.get("recipe");

@@ -69,7 +69,6 @@ public class AcquireMaterialsTask implements Task {
                             .thenCompose(resolutionResult -> {
                                 if (cancelled)
                                     return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
-
                                 // Phase 3: Compare list to inventory to find what's missing.
                                 return determineFirstMissingMaterial(agent, resolutionResult.shoppingList())
                                         .thenAccept(missingMaterialOpt -> {
@@ -93,7 +92,6 @@ public class AcquireMaterialsTask implements Task {
         Map<Ingredient, Integer> shoppingList = new HashMap<>();
         Map<Ingredient, CraftingPath> executionPlan = new HashMap<>();
         MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup, nearbyMaterials);
-
         return resolveIngredient(targetIngredient, targetQuantity, stepLookup, agent, nearbyMaterials, calculator, shoppingList,
                 executionPlan)
                         .thenApply(v -> new ResolutionResult(shoppingList, executionPlan));
@@ -104,14 +102,12 @@ public class AcquireMaterialsTask implements Task {
             Map<Ingredient, CraftingPath> executionPlan) {
         if (cancelled)
             return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
-
         if (blockTagManager.isRawMaterial(ingredient.getPreferredMaterial())
                 || blockTagManager.isGatherable(ingredient.getPreferredMaterial())
                 || !stepLookup.containsKey(ingredient)) {
             shoppingList.merge(ingredient, quantity, Integer::sum);
             return CompletableFuture.completedFuture(null);
         }
-
         CraftingStep step = stepLookup.get(ingredient);
         return chooseBestPath(step, agent, stepLookup, nearbyMaterials, calculator)
                 .thenCompose(chosenPath -> {
@@ -166,7 +162,6 @@ public class AcquireMaterialsTask implements Task {
         Ingredient ingredient = missing.getKey();
         int quantity = missing.getValue();
         Material preferredMaterial = ingredient.getPreferredMaterial();
-
         if (blockTagManager.isGatherable(preferredMaterial)) {
             Set<Material> group = blockTagManager.getMaterialSetFor(preferredMaterial);
             Optional<String> groupNameOpt = (group != null) ? blockTagManager.getGroupNameFor(group) : Optional.empty();
@@ -174,11 +169,9 @@ public class AcquireMaterialsTask implements Task {
                 return new GoalPrerequisite("GET_BLOCKS", new GetBlockParameters(groupNameOpt.get(), quantity));
             }
         }
-
         if (plan.craftingSteps().stream().anyMatch(step -> step.ingredientToCraft().equals(ingredient))) {
             return new GoalPrerequisite("CRAFT_ITEM", new CraftItemParameters(preferredMaterial.name(), quantity));
         }
-
         return new GoalPrerequisite("REQUEST_ITEM", new RequestItemParameters(preferredMaterial.name(), quantity));
     }
 
