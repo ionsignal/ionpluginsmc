@@ -1,10 +1,11 @@
 main: com.ionsignal.minecraft.ionnerrus.IonNerrus
 name: IonNerrus
 version: 0.0.8-alpha.1
-api-version: '1.21.8'
+api-version: "1.21.8"
 author: Ion Signal
 description: An LLM powered NPC decision engine
 depend: []
+softdepend: [FancyHolograms]
 commands:
   nerrus:
     description: Manages Nerrus agents and their tasks.

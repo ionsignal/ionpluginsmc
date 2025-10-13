@@ -19,6 +19,8 @@ java {
 dependencies {
   compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
   paperweight.paperDevBundle("1.21.8-R0.1-SNAPSHOT")
+  // FancyHolograms v2
+  compileOnly(files("libs/fancyholograms-3.0.0.jar"))
   // Simple OpenAI API Layer
   implementation("io.github.sashirestela:simple-openai:3.22.1")
   // HTTP Client for future LLM integration
