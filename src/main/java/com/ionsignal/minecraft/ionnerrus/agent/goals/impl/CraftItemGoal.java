@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 
 public class CraftItemGoal implements Goal {
     private enum State {
-        PLANNING, ACQUIRING_MATERIALS, PREPARING_CRAFT, EXECUTING_CRAFT, COMPLETED, FAILED
+        PLANNING, ACQUIRING_MATERIALS, ENSURING_STATION, PREPARING_CRAFT, EXECUTING_CRAFT, COMPLETED, FAILED
     }
 
     private final CraftItemParameters params;
@@ -42,6 +42,7 @@ public class CraftItemGoal implements Goal {
     private GoalResult finalResult;
     private Material targetMaterial;
     private boolean isFinished = false;
+    private int ensuringStationStep = 0;
 
     public CraftItemGoal(CraftItemParameters params, RecipeService recipeService, BlockTagManager blockTagManager,
             TaskFactory taskFactory) {
@@ -71,8 +72,15 @@ public class CraftItemGoal implements Goal {
         }
         this.isFinished = false;
         this.finalResult = null;
-        this.state = State.ACQUIRING_MATERIALS;
-        agent.speak("Alright, let's see what's next.");
+        // If we were trying to get a crafting table, we should now re-check for one.
+        if (this.state == State.ENSURING_STATION) {
+            agent.speak("Okay, I have what I need to make a crafting table. Let's try this again.");
+            this.state = State.PREPARING_CRAFT; // Go back to preparation to re-trigger the station check.
+            this.ensuringStationStep = 0;
+        } else {
+            this.state = State.ACQUIRING_MATERIALS;
+            agent.speak("Alright, let's see what's next.");
+        }
         process(agent);
     }
 
@@ -87,6 +95,9 @@ public class CraftItemGoal implements Goal {
                 break;
             case ACQUIRING_MATERIALS:
                 handleAcquisitionState(agent);
+                break;
+            case ENSURING_STATION:
+                handleEnsuringStation(agent);
                 break;
             case PREPARING_CRAFT:
                 handleCraftPreparation(agent);
@@ -147,6 +158,14 @@ public class CraftItemGoal implements Goal {
                 continue;
             }
             if (hasIngredientsForPath(pathToCraft, context)) {
+                if (RecipeService.is3x3Recipe(pathToCraft.recipes().get(0))
+                        && !agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
+                    agent.speak("I'll need a crafting table for this.");
+                    this.state = State.ENSURING_STATION;
+                    this.ensuringStationStep = 0;
+                    process(agent); // Immediately re-process to enter the new state logic.
+                    return;
+                }
                 int craftsToPerform = (int) Math.ceil((double) needed / pathToCraft.yield());
                 agent.getBlackboard().put("craft.recipe", pathToCraft.recipes().get(0)); // Use first recipe in path
                 agent.getBlackboard().put("craft.times", craftsToPerform);
@@ -157,6 +176,64 @@ public class CraftItemGoal implements Goal {
         }
         // If we loop through and find nothing to craft, but haven't met the goal, something is wrong.
         fail("I have all the materials, but I'm not sure how to craft the next step.");
+    }
+
+    private void handleEnsuringStation(NerrusAgent agent) {
+        switch (ensuringStationStep) {
+            case 0: // Find a nearby table
+                agent.setCurrentTask(taskFactory.createTask("FIND_NEARBY_BLOCK", Map.of("material", Material.CRAFTING_TABLE)));
+                ensuringStationStep++;
+                break;
+            case 1: // Check if we found one
+                if (agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
+                    this.state = State.PREPARING_CRAFT; // Found one, go back to prepare the craft.
+                    process(agent);
+                } else {
+                    ensuringStationStep++; // Didn't find one, check inventory.
+                    process(agent);
+                }
+                break;
+            case 2: // Check inventory for a table
+                agent.setCurrentTask(createCountCraftingTableTask());
+                ensuringStationStep++;
+                break;
+            case 3: // Decide whether to place or craft a table
+                int count = agent.getBlackboard().getInt("crafting.tableCount", 0);
+                agent.getBlackboard().remove("crafting.tableCount");
+                if (count > 0) {
+                    agent.setCurrentTask(taskFactory.createTask("PLACE_BLOCK", Map.of("material", Material.CRAFTING_TABLE)));
+                    ensuringStationStep++; // Move to step 4 to check placement result.
+                } else {
+                    // No table in inventory, must craft one.
+                    declarePrerequisite("I need to craft a crafting table first.",
+                            new GoalPrerequisite("CRAFT_ITEM", new CraftItemParameters("CRAFTING_TABLE", 1)));
+                }
+                break;
+            case 4: // Check result of placement
+                if (agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
+                    this.state = State.PREPARING_CRAFT; // Placed one, go back to prepare the craft.
+                    process(agent);
+                } else {
+                    fail("I have a crafting table, but I couldn't place it.");
+                }
+                break;
+        }
+    }
+
+    private Task createCountCraftingTableTask() {
+        return new Task() {
+            @Override
+            public CompletableFuture<Void> execute(NerrusAgent agent) {
+                return new CountItemsSkill(Set.of(Material.CRAFTING_TABLE)).execute(agent)
+                        .thenAccept(counts -> {
+                            agent.getBlackboard().put("crafting.tableCount", counts.getOrDefault(Material.CRAFTING_TABLE, 0));
+                        });
+            }
+
+            @Override
+            public void cancel() {
+            }
+        };
     }
 
     private Task createPlanningTask() {
@@ -194,7 +271,6 @@ public class CraftItemGoal implements Goal {
                 .orElseThrow(() -> new IllegalStateException("Missing craft.times on blackboard"));
         CraftingContext context = agent.getBlackboard().get(BlackboardKeys.CRAFTING_CONTEXT, CraftingContext.class)
                 .orElseThrow(() -> new IllegalStateException("Missing crafting context on blackboard."));
-
         // After execution, loop back to preparing for the next craft.
         this.state = State.PREPARING_CRAFT;
         return taskFactory.createTask("EXECUTE_CRAFT", Map.of(

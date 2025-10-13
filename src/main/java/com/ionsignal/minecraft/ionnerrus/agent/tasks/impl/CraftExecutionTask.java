@@ -2,11 +2,10 @@ package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CraftAtTableSkill;
-import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CraftInInventorySkill;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.helpers.CraftingContext;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.ExecuteCraftSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 
 import org.bukkit.Location;
 import org.bukkit.inventory.CraftingRecipe;
@@ -38,22 +37,21 @@ public class CraftExecutionTask implements Task {
         if (remaining <= 0 || cancelled) {
             return CompletableFuture.completedFuture(null);
         }
-
         CompletableFuture<Boolean> craftFuture;
-        if (RecipeService.is3x3Recipe(recipe)) {
-            Location tableLocation = agent.getBlackboard().getLocation(BlackboardKeys.CRAFTING_TABLE_LOCATION)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "CraftExecutionTask requires a crafting table location on the blackboard for 3x3 recipes."));
-            craftFuture = new CraftAtTableSkill(recipe, tableLocation).execute(agent);
-        } else {
-            craftFuture = new CraftInInventorySkill(recipe).execute(agent);
-        }
-
+        boolean is3x3 = RecipeService.is3x3Recipe(recipe);
+        // For 3x3 recipes, the parent Goal MUST have placed the table location on the blackboard.
+        Location tableLocation = is3x3
+                ? agent.getBlackboard().getLocation(BlackboardKeys.CRAFTING_TABLE_LOCATION)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "CraftExecutionTask requires a crafting table location for 3x3 recipes."))
+                : null;
+        craftFuture = new ExecuteCraftSkill(recipe, tableLocation).execute(agent);
         return craftFuture.thenCompose(success -> {
             if (cancelled)
                 return CompletableFuture.completedFuture(null);
             if (!success) {
-                return CompletableFuture.failedFuture(new RuntimeException("Failed to execute craft for " + recipe.getResult().getType()));
+                return CompletableFuture
+                        .failedFuture(new RuntimeException("Failed to execute craft for " + recipe.getResult().getType()));
             }
             // On success, update the context and recurse.
             context.consumeIngredientsFor(recipe);

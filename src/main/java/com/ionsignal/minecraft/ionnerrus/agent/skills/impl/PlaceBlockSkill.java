@@ -37,16 +37,12 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
 
     private final Material materialToPlace;
     private final Logger logger;
-    // CHANGE START: Add main thread executor for scheduling actions and NMS calls
     private final Executor mainThreadExecutor;
-    // CHANGE END
 
     public PlaceBlockSkill(Material materialToPlace) {
         this.materialToPlace = materialToPlace;
         this.logger = IonNerrus.getInstance().getLogger();
-        // CHANGE START
         this.mainThreadExecutor = IonNerrus.getInstance().getMainThreadExecutor();
-        // CHANGE END
     }
 
     @Override
@@ -77,7 +73,6 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
                         logger.warning("PlaceBlockSkill: Failed to navigate to standing spot.");
                         return CompletableFuture.completedFuture(Optional.empty());
                     }
-                    // CHANGE START: Correctly schedule and wait for the FaceHeadBodyAction
                     // This block MUST execute on the main thread to safely interact with the ActionController.
                     logger.info("PlaceBlockSkill: Navigation successful. Scheduling face action.");
                     // The constructor is now correct: (Location, turnBody, durationTicks).
@@ -96,8 +91,6 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
                         // Step 5: Execute the NMS logic to place the block.
                         return placeBlockFromInventory(agent, placementSpot);
                     }, mainThreadExecutor); // Ensure the continuation also runs on the main thread.
-                    // CHANGE END
-
                 }, mainThreadExecutor); // The composition after navigation must be on the main thread.
             });
         });
@@ -159,18 +152,13 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
                     Direction.UP, // The face that was "clicked"
                     posBelow,
                     false);
-            // CHANGE START: Correct the UseOnContext constructor call.
-            // It requires the world (Level) as the first parameter.
             UseOnContext useOnContext = new UseOnContext(personaEntity.level(), personaEntity, InteractionHand.MAIN_HAND, nmsStack,
                     hitResult);
-            // CHANGE END
-            // CHANGE START: Correct the method signature for `useOn`.
-            // The method only takes the UseOnContext object; the hand is already part of the context.
             nmsStack.useOn(useOnContext);
-            // CHANGE END
             // Verify that the block was actually placed.
             if (location.getBlock().getType() == materialToPlace) {
                 logger.info("Successfully placed " + materialToPlace + " at " + location.toVector());
+                bukkitStack.setAmount(bukkitStack.getAmount() - 1);
                 return Optional.of(location);
             } else {
                 logger.warning("Failed to place " + materialToPlace + " at " + location.toVector() + ". The block is now "
