@@ -43,7 +43,7 @@ public class RecipeService {
      *            The desired quantity of the final item.
      * @return An Optional containing the full CraftingPlan, or empty if the item cannot be crafted.
      */
-    public Optional<CraftingPlan> createCraftingPlan(Material targetMaterial, int quantity) {
+    public Optional<CraftingBlueprint> createCraftingPlan(Material targetMaterial, int quantity) {
         try {
             Map<Ingredient, Integer> requiredItems = new HashMap<>();
             requiredItems.put(Ingredient.of(targetMaterial), quantity);
@@ -51,7 +51,7 @@ public class RecipeService {
             List<CraftingStep> orderedSteps = new ArrayList<>();
             logger.info("[RecipeService] Starting crafting plan for " + quantity + "x " + targetMaterial);
             resolveDependencies(requiredItems, totalRawMaterials, orderedSteps, 0);
-            return Optional.of(new CraftingPlan(totalRawMaterials, orderedSteps));
+            return Optional.of(new CraftingBlueprint(totalRawMaterials, orderedSteps));
         } catch (IllegalStateException e) {
             logger.severe("Failed to create crafting plan for " + targetMaterial + ": " + e.getMessage());
             return Optional.empty();
@@ -168,7 +168,7 @@ public class RecipeService {
      *            An ordered list of intermediate and final crafting actions. Dependencies
      *            will always appear before the items that require them.
      */
-    public record CraftingPlan(Map<Ingredient, Integer> rawIngredients, List<CraftingStep> craftingSteps) {
+    public record CraftingBlueprint(Map<Ingredient, Integer> rawIngredients, List<CraftingStep> craftingSteps) {
     }
 
     /**

@@ -108,7 +108,8 @@ public class CraftItemGoal implements Goal {
             agent.getBlackboard().remove(BlackboardKeys.MATERIALS_ACQUIRED);
             agent.setCurrentTask(createContextCreationTask());
         } else {
-            RecipeService.CraftingPlan plan = agent.getBlackboard().get(BlackboardKeys.CRAFTING_PLAN, RecipeService.CraftingPlan.class)
+            RecipeService.CraftingBlueprint plan = agent.getBlackboard()
+                    .get(BlackboardKeys.CRAFTING_BLUEPRINT, RecipeService.CraftingBlueprint.class)
                     .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard."));
             Task task = taskFactory.createTask("ACQUIRE_MATERIALS", Map.of(
                     "plan", plan,
@@ -123,10 +124,11 @@ public class CraftItemGoal implements Goal {
         // This is a synchronous block of logic that decides the next craft
         CraftingContext context = agent.getBlackboard().get(BlackboardKeys.CRAFTING_CONTEXT, CraftingContext.class)
                 .orElseThrow(() -> new IllegalStateException("Crafting context missing from blackboard."));
-        RecipeService.CraftingPlan plan = agent.getBlackboard().get(BlackboardKeys.CRAFTING_PLAN, RecipeService.CraftingPlan.class)
+        RecipeService.CraftingBlueprint plan = agent.getBlackboard()
+                .get(BlackboardKeys.CRAFTING_BLUEPRINT, RecipeService.CraftingBlueprint.class)
                 .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard."));
-        Map<Ingredient, RecipeService.CraftingPath> resolvedPlan = (Map<Ingredient, RecipeService.CraftingPath>) agent.getBlackboard()
-                .get(BlackboardKeys.CRAFTING_RESOLVED_PLAN, Map.class)
+        Map<Ingredient, RecipeService.CraftingPath> executionPlan = (Map<Ingredient, RecipeService.CraftingPath>) agent.getBlackboard()
+                .get(BlackboardKeys.CRAFTING_EXECUTION_PLAN, Map.class)
                 .orElseThrow(() -> new IllegalStateException("Resolved crafting plan missing from blackboard."));
         // Check if we have enough of the final product
         if (context.getAvailableCount(Ingredient.of(targetMaterial)) >= params.quantity()) {
@@ -135,11 +137,11 @@ public class CraftItemGoal implements Goal {
         }
         // Find the next craftable step in the plan
         for (RecipeService.CraftingStep step : plan.craftingSteps()) {
-            int needed = calculateNeededForStep(step, plan, context, resolvedPlan);
+            int needed = calculateNeededForStep(step, plan, context, executionPlan);
             if (needed <= 0) {
                 continue; // We have enough of this intermediate item
             }
-            RecipeService.CraftingPath pathToCraft = resolvedPlan.get(step.ingredientToCraft());
+            RecipeService.CraftingPath pathToCraft = executionPlan.get(step.ingredientToCraft());
             if (pathToCraft == null) {
                 // This shouldn't happen if the plan is consistent, but it's a good safeguard.
                 continue;
@@ -162,18 +164,18 @@ public class CraftItemGoal implements Goal {
             @Override
             public CompletableFuture<Void> execute(NerrusAgent agent) {
                 return CompletableFuture.runAsync(() -> {
-                    Optional<RecipeService.CraftingPlan> planOpt = recipeService.createCraftingPlan(targetMaterial, params.quantity());
+                    Optional<RecipeService.CraftingBlueprint> planOpt = recipeService.createCraftingPlan(targetMaterial, params.quantity());
                     IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
                         if (planOpt.isEmpty()) {
                             fail("I was unable to create a crafting plan for " + params.itemName() + ".");
                             return;
                         }
-                        RecipeService.CraftingPlan plan = planOpt.get();
+                        RecipeService.CraftingBlueprint plan = planOpt.get();
                         String stepsStr = plan.craftingSteps().stream()
                                 .map(s -> s.ingredientToCraft().toString())
                                 .collect(Collectors.joining(" -> "));
                         logger.info("Finalized Crafting Plan: Raw Materials: " + plan.rawIngredients() + " | Steps: " + stepsStr);
-                        agent.getBlackboard().put(BlackboardKeys.CRAFTING_PLAN, plan);
+                        agent.getBlackboard().put(BlackboardKeys.CRAFTING_BLUEPRINT, plan);
                         state = State.ACQUIRING_MATERIALS;
                     });
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
@@ -201,7 +203,7 @@ public class CraftItemGoal implements Goal {
                 "context", context));
     }
 
-    private int calculateNeededForStep(RecipeService.CraftingStep step, RecipeService.CraftingPlan plan, CraftingContext context,
+    private int calculateNeededForStep(RecipeService.CraftingStep step, RecipeService.CraftingBlueprint plan, CraftingContext context,
             Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
         Ingredient ingredient = step.ingredientToCraft();
         int totalDemand = calculateFullDemand(ingredient, plan, resolvedPlan);
@@ -209,7 +211,7 @@ public class CraftItemGoal implements Goal {
         return Math.max(0, totalDemand - ownedAmount);
     }
 
-    private int calculateFullDemand(Ingredient target, RecipeService.CraftingPlan plan,
+    private int calculateFullDemand(Ingredient target, RecipeService.CraftingBlueprint plan,
             Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
         if (target.materials().contains(this.targetMaterial)) {
             return this.params.quantity();
@@ -244,7 +246,8 @@ public class CraftItemGoal implements Goal {
         return new Task() {
             @Override
             public CompletableFuture<Void> execute(NerrusAgent agent) {
-                RecipeService.CraftingPlan plan = agent.getBlackboard().get(BlackboardKeys.CRAFTING_PLAN, RecipeService.CraftingPlan.class)
+                RecipeService.CraftingBlueprint plan = agent.getBlackboard()
+                        .get(BlackboardKeys.CRAFTING_BLUEPRINT, RecipeService.CraftingBlueprint.class)
                         .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard for context creation."));
                 // Collect all materials that could possibly be involved to get a full inventory snapshot.
                 Set<Material> allRelevantMaterials = new HashSet<>();

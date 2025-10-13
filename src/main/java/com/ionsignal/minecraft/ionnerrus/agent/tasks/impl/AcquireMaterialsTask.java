@@ -37,17 +37,17 @@ import java.util.stream.Collectors;
  * required materials, and then identifies the first missing item to create a sub-goal for.
  */
 public class AcquireMaterialsTask implements Task {
-    private final RecipeService.CraftingPlan plan;
+    private final RecipeService.CraftingBlueprint plan;
     private final Ingredient targetIngredient;
     private final int targetQuantity;
     private final BlockTagManager blockTagManager;
     private final Logger logger;
     private volatile boolean cancelled = false;
 
-    private record ResolutionResult(Map<Ingredient, Integer> shoppingList, Map<Ingredient, CraftingPath> resolvedPlan) {
+    private record ResolutionResult(Map<Ingredient, Integer> shoppingList, Map<Ingredient, CraftingPath> executionPlan) {
     }
 
-    public AcquireMaterialsTask(RecipeService.CraftingPlan plan, Ingredient targetIngredient, int targetQuantity,
+    public AcquireMaterialsTask(RecipeService.CraftingBlueprint plan, Ingredient targetIngredient, int targetQuantity,
             BlockTagManager blockTagManager) {
         this.plan = plan;
         this.targetIngredient = targetIngredient;
@@ -78,8 +78,8 @@ public class AcquireMaterialsTask implements Task {
                                                 GoalPrerequisite prereq = createPrerequisiteFor(missingMaterialOpt.get());
                                                 agent.getBlackboard().put(BlackboardKeys.NEXT_PREREQUISITE, prereq);
                                             } else {
-                                                agent.getBlackboard().put(BlackboardKeys.CRAFTING_RESOLVED_PLAN,
-                                                        resolutionResult.resolvedPlan());
+                                                agent.getBlackboard().put(BlackboardKeys.CRAFTING_EXECUTION_PLAN,
+                                                        resolutionResult.executionPlan());
                                                 agent.getBlackboard().put(BlackboardKeys.MATERIALS_ACQUIRED, true);
                                             }
                                         });
@@ -91,17 +91,17 @@ public class AcquireMaterialsTask implements Task {
         Map<Ingredient, CraftingStep> stepLookup = plan.craftingSteps().stream()
                 .collect(Collectors.toMap(CraftingStep::ingredientToCraft, step -> step));
         Map<Ingredient, Integer> shoppingList = new HashMap<>();
-        Map<Ingredient, CraftingPath> resolvedPlan = new HashMap<>();
+        Map<Ingredient, CraftingPath> executionPlan = new HashMap<>();
         MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup, nearbyMaterials);
 
         return resolveIngredient(targetIngredient, targetQuantity, stepLookup, agent, nearbyMaterials, calculator, shoppingList,
-                resolvedPlan)
-                        .thenApply(v -> new ResolutionResult(shoppingList, resolvedPlan));
+                executionPlan)
+                        .thenApply(v -> new ResolutionResult(shoppingList, executionPlan));
     }
 
     private CompletableFuture<Void> resolveIngredient(Ingredient ingredient, int quantity, Map<Ingredient, CraftingStep> stepLookup,
             NerrusAgent agent, Set<Material> nearbyMaterials, MemoizedCostCalculator calculator, Map<Ingredient, Integer> shoppingList,
-            Map<Ingredient, CraftingPath> resolvedPlan) {
+            Map<Ingredient, CraftingPath> executionPlan) {
         if (cancelled)
             return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
 
@@ -115,12 +115,12 @@ public class AcquireMaterialsTask implements Task {
         CraftingStep step = stepLookup.get(ingredient);
         return chooseBestPath(step, agent, stepLookup, nearbyMaterials, calculator)
                 .thenCompose(chosenPath -> {
-                    resolvedPlan.put(ingredient, chosenPath);
+                    executionPlan.put(ingredient, chosenPath);
                     int craftsToPerform = (int) Math.ceil((double) quantity / chosenPath.yield());
                     List<CompletableFuture<Void>> childFutures = new ArrayList<>();
                     for (Map.Entry<Ingredient, Integer> req : chosenPath.requirements().entrySet()) {
                         childFutures.add(resolveIngredient(req.getKey(), req.getValue() * craftsToPerform, stepLookup, agent,
-                                nearbyMaterials, calculator, shoppingList, resolvedPlan));
+                                nearbyMaterials, calculator, shoppingList, executionPlan));
                     }
                     return CompletableFuture.allOf(childFutures.toArray(new CompletableFuture[0]));
                 });

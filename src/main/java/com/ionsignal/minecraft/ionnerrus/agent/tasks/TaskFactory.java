@@ -60,7 +60,7 @@ public class TaskFactory {
                     return new CraftExecutionTask(recipeToExecute, times, context);
 
                 case "ACQUIRE_MATERIALS":
-                    RecipeService.CraftingPlan plan = (RecipeService.CraftingPlan) parameters.get("plan");
+                    RecipeService.CraftingBlueprint plan = (RecipeService.CraftingBlueprint) parameters.get("plan");
                     Ingredient targetIngredient = (Ingredient) parameters.get("targetIngredient");
                     int quantity = (int) parameters.get("targetQuantity");
                     return new AcquireMaterialsTask(plan, targetIngredient, quantity, this.blockTagManager);

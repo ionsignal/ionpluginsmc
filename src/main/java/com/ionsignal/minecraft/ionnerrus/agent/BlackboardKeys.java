@@ -11,8 +11,8 @@ public final class BlackboardKeys {
     // Crafting
     public static final String CRAFTING_TABLE_LOCATION = "crafting.tableLocation";
     public static final String CRAFTING_CONTEXT = "crafting.context";
-    public static final String CRAFTING_PLAN = "crafting.plan";
-    public static final String CRAFTING_RESOLVED_PLAN = "crafting.resolvedPlan";
+    public static final String CRAFTING_BLUEPRINT = "crafting.blueprint";
+    public static final String CRAFTING_EXECUTION_PLAN = "crafting.executionPlan";
     public static final String NEXT_PREREQUISITE = "crafting.nextPrerequisite";
     public static final String MATERIALS_ACQUIRED = "crafting.materialsAcquired";
 
