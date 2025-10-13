@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus;
 
+import org.bukkit.Color;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.util.List;
@@ -17,5 +18,52 @@ public class PluginConfig {
 
     public boolean isHuskHomesIntegrationEnabled() {
         return this.handle.getBoolean("integrations.huskhomes", false);
+    }
+
+    public boolean isChatBubblesEnabled() {
+        return this.handle.getBoolean("chat-bubbles.enabled", false);
+    }
+
+    public double getChatBubbleYOffset() {
+        return this.handle.getDouble("chat-bubbles.y-offset", 1.2);
+    }
+
+    public int getChatBubbleVisibilityDistance() {
+        return this.handle.getInt("chat-bubbles.visibility-distance", 20);
+    }
+
+    public int getChatBubbleMaxWidth() {
+        return this.handle.getInt("chat-bubbles.max-line-width", 40);
+    }
+
+    public int getChatBubbleWPM() {
+        return this.handle.getInt("chat-bubbles.words-per-minute", 180);
+    }
+
+    public double getChatBubbleMinSlideDuration() {
+        return this.handle.getDouble("chat-bubbles.min-slide-duration-seconds", 2.0);
+    }
+
+    public Color getChatBubbleBackgroundColor() {
+        String hex = this.handle.getString("chat-bubbles.background-color-hex", "#BFFFFFFF");
+        try {
+            // Ensure the hex string is valid for parsing
+            if (hex.startsWith("#")) {
+                long colorValue = Long.parseLong(hex.substring(1), 16);
+                // Handle RGB and ARGB hex strings
+                if (hex.length() == 7) { // #RRGGBB
+                    return Color.fromRGB((int) colorValue);
+                } else if (hex.length() == 9) { // #AARRGGBB
+                    return Color.fromARGB((int) colorValue);
+                }
+            }
+        } catch (NumberFormatException e) {
+            // Fallback to default if parsing fails
+        }
+        return Color.fromARGB(191, 255, 255, 255); // Default semi-transparent white
+    }
+
+    public float getChatBubbleScale() {
+        return (float) this.handle.getDouble("chat-bubbles.scale", 1.2);
     }
 }

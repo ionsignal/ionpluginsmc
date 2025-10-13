@@ -344,8 +344,8 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String targetName = args[2];
-        double followDist = args.length > 3 ? Double.parseDouble(args[3]) : 6.0;
-        double stopDist = args.length > 4 ? Double.parseDouble(args[4]) : 2.5;
+        double followDist = args.length > 3 ? Double.parseDouble(args[3]) : 12.0;
+        double stopDist = args.length > 4 ? Double.parseDouble(args[4]) : 8.0;
         try {
             FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist);
             Goal followGoal = goalFactory.createGoal("FOLLOW_PLAYER", params);
@@ -429,7 +429,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 case "craft":
                     return List.of("1", "8", "16", "32", "64");
                 case "follow":
-                    return List.of("5.0", "8.0", "10.0");
+                    return List.of("10.0", "12.0", "16.0");
             }
         }
         if (args.length == 5) {
@@ -437,7 +437,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 return List.of("1", "8", "16", "32", "64");
             }
             if ("follow".equalsIgnoreCase(args[0])) {
-                return List.of("2.0", "2.5", "3.0");
+                return List.of("6.0", "8.0", "12.0");
             }
         }
         return Collections.emptyList();

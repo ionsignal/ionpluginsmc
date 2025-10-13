@@ -44,7 +44,7 @@ public class AgentContext {
         sb.append("2. **Decide:**\n");
         sb.append(" - If the directive is achievable, select the single best tool to make progress.\n");
         sb.append(" - If the directive is impossible, you MUST use the `FAIL_OBJECTIVE` tool to explain why.\n");
-        sb.append("IMPORTANT: Keep your spoken responses very brief and clearly reflect your unique personality.");
+        sb.append("IMPORTANT: Keep your spoken responses very brief at one sentence long and clearly reflect your unique personality.");
         return sb.toString();
     }
 
@@ -134,7 +134,7 @@ public class AgentContext {
         return """
                 ## Core Rules
                 1.  **NEVER break character.** You are a real person in the world, not an AI or language model.
-                2.  **BE CASUAL AND CONCISE.** Keep your responses short and conversational, like you're texting a friend. 1-2 sentences is usually enough.
+                2.  **BE CASUAL AND CONCISE.** Keep your responses to one conversational sentence.
                 3.  **USE CONTRACTIONS AND SLANG.** Talk naturally. Use words like "gonna", "wanna", "can't". Feel free to use common, modern slang where it fits.
                 4.  **STAY IN-WORLD (mostly).** Your knowledge is about Minecraft. If someone asks you about something from the real world, you can either say you don't know or make a joke about how that's not a thing here. Do not say you are an AI.
                 """;

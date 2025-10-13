@@ -8,6 +8,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
+import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleListener;
+import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCommand;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
@@ -33,8 +35,7 @@ public class IonNerrus extends JavaPlugin {
     private BlockTagManager blockTagManager;
     private LLMService llmService;
     private RecipeService recipeService;
-
-    @SuppressWarnings("unused")
+    private ChatBubbleService chatBubbleService;
     private PluginConfig pluginConfig;
 
     @Override
@@ -55,6 +56,17 @@ public class IonNerrus extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(new PlayerListener(this, nerrusManager), this);
         getServer().getPluginManager().registerEvents(new PersonaInteractionListener(), this);
+
+        if (pluginConfig.isChatBubblesEnabled()) {
+            if (getServer().getPluginManager().getPlugin("FancyHolograms") == null) {
+                getLogger().warning("Chat Bubbles feature is enabled, but the FancyHolograms plugin was not found. Feature disabled.");
+            } else {
+                // --- MODIFIED LINE ---
+                getServer().getPluginManager().registerEvents(new ChatBubbleListener(this, this.chatBubbleService), this);
+                getLogger().info("Chat Bubbles feature has been enabled.");
+            }
+        }
+
         getLogger().info("IonNerrus has been enabled.");
     }
 
@@ -73,7 +85,7 @@ public class IonNerrus extends JavaPlugin {
         saveDefaultConfig();
         reloadConfig();
 
-        // Platform-specific and Manager setup
+        // Platform-specific and manager setup
         this.nerrusManager = new NerrusManager(this);
         if (!this.nerrusManager.initialize()) {
             getLogger().severe("Failed to initialize NerrusManager. Disabling plugin.");
@@ -81,7 +93,7 @@ public class IonNerrus extends JavaPlugin {
             return;
         }
 
-        // Configuration and Content
+        // Configuration and content
         this.pluginConfig = new PluginConfig(getConfig());
         this.blockTagManager = new BlockTagManager();
         this.recipeService = new RecipeService(this.blockTagManager);
@@ -96,6 +108,9 @@ public class IonNerrus extends JavaPlugin {
         // Registration of static tool definitions (now happens only once)
         GoalRegistrar registrar = new GoalRegistrar(this.goalRegistry, this.blockTagManager);
         registrar.registerAll();
+
+        // Chat bubble service
+        this.chatBubbleService = new ChatBubbleService(this);
 
         // Load saved agents, future implementation
         // this.agentService.loadAgents();
@@ -119,5 +134,13 @@ public class IonNerrus extends JavaPlugin {
 
     public AgentService getAgentService() {
         return agentService;
+    }
+
+    public PluginConfig getPluginConfig() {
+        return pluginConfig;
+    }
+
+    public ChatBubbleService getChatBubbleService() {
+        return chatBubbleService;
     }
 }

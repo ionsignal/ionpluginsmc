@@ -1,12 +1,9 @@
 # List of world names where this plugin should be active.
 # An empty list [] means the plugin is disabled everywhere.
-# Example:
-# enabled-worlds:
-#   - "world"
-#   - "world_nether"
-#   - "world_the_end"
 enabled-worlds:
   - "world"
+#   - "world_nether"
+#   - "world_the_end"
 
 integrations:
   huskhomes: false
@@ -15,3 +12,20 @@ llm:
   apiKey: ""
   baseUrl: "http://172.20.2.104:8000"
   modelName: "qwen3-coder"
+
+chat-bubbles:
+  enabled: true
+  # How far above the player's head the bubble should appear.
+  y-offset: 1.0
+  # How far away players can see the chat bubble, in blocks.
+  visibility-distance: 10
+  # The maximum number of characters per line before text is wrapped.
+  max-line-width: 60
+  # Average words per minute to use for calculating display time.
+  words-per-minute: 180
+  # The minimum time a single sentence slide will be displayed, in seconds.
+  min-slide-duration-seconds: 2.0
+  # The background color of the chat bubble, in ARGB hex format. Default is a semi-transparent white.
+  background-color-hex: "#BF000000"
+  # The scale of the hologram text. 1.0 is default.
+  scale: 1.2

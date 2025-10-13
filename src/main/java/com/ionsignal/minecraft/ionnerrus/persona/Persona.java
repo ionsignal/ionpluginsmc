@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.persona.action.ActionController;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Navigator;
@@ -104,7 +105,11 @@ public class Persona {
     public void speak(String message) {
         if (!isSpawned())
             return;
-        manager.getPlatformBridge().broadcastChat(this, message);
+        // manager.getPlatformBridge().broadcastChat(this, message);
+        IonNerrus plugin = IonNerrus.getInstance();
+        if (plugin.getPluginConfig().isChatBubblesEnabled() && plugin.getChatBubbleService() != null) {
+            plugin.getChatBubbleService().showBubble(this.getPersonaEntity().getBukkitEntity(), message);
+        }
     }
 
     public UUID getUniqueId() {
