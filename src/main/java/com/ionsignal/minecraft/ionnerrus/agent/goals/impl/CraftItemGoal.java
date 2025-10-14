@@ -20,6 +20,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 import org.bukkit.Material;
 import org.bukkit.inventory.CraftingRecipe;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -38,11 +39,14 @@ public class CraftItemGoal implements Goal {
     private final TaskFactory taskFactory;
     private final Logger logger;
 
+    private boolean isFinished = false;
+    private int initialTargetItemCount = 0;
+    private int ensuringStationStep = 0;
     private State state = State.PLANNING;
     private GoalResult finalResult;
-    private Material targetMaterial;
-    private boolean isFinished = false;
-    private int ensuringStationStep = 0;
+    private Material targetItemMaterial;
+    private Map<Ingredient, Integer> neededCache;
+    private Map<Ingredient, Integer> demandCache;
 
     public CraftItemGoal(CraftItemParameters params, RecipeService recipeService, BlockTagManager blockTagManager,
             TaskFactory taskFactory) {
@@ -55,7 +59,7 @@ public class CraftItemGoal implements Goal {
     @Override
     public void start(NerrusAgent agent) {
         try {
-            this.targetMaterial = Material.valueOf(params.itemName().toUpperCase());
+            this.targetItemMaterial = Material.valueOf(params.itemName().toUpperCase());
         } catch (IllegalArgumentException e) {
             fail("I do not know how to craft an item named '" + params.itemName() + "'.");
             return;
@@ -124,7 +128,7 @@ public class CraftItemGoal implements Goal {
                     .orElseThrow(() -> new IllegalStateException("Crafting plan missing from blackboard."));
             Task task = taskFactory.createTask("ACQUIRE_MATERIALS", Map.of(
                     "plan", plan,
-                    "targetIngredient", Ingredient.of(targetMaterial),
+                    "targetIngredient", Ingredient.of(targetItemMaterial),
                     "targetQuantity", params.quantity()));
             agent.setCurrentTask(task);
         }
@@ -141,14 +145,18 @@ public class CraftItemGoal implements Goal {
         Map<Ingredient, RecipeService.CraftingPath> executionPlan = (Map<Ingredient, RecipeService.CraftingPath>) agent.getBlackboard()
                 .get(BlackboardKeys.CRAFTING_EXECUTION_PLAN, Map.class)
                 .orElseThrow(() -> new IllegalStateException("Resolved crafting plan missing from blackboard."));
+        // Decoupling Demand from Deficit: Initialize both caches for this round of calculations.
+        this.neededCache = new HashMap<>();
+        this.demandCache = new HashMap<>();
         // Check if we have enough of the final product
-        if (context.getAvailableCount(Ingredient.of(targetMaterial)) >= params.quantity()) {
+        if (context.getAvailableCount(Ingredient.of(targetItemMaterial)) >= initialTargetItemCount + params.quantity()) {
             succeed("I have successfully crafted " + params.quantity() + " " + params.itemName() + ".");
             return;
         }
         // Find the next craftable step in the plan
         for (RecipeService.CraftingStep step : plan.craftingSteps()) {
-            int needed = calculateNeededForStep(step, plan, context, executionPlan);
+            // Use the new, accurate, inventory-aware demand calculation.
+            int needed = calculateNeeded(step.ingredientToCraft(), plan, context, executionPlan);
             if (needed <= 0) {
                 continue; // We have enough of this intermediate item
             }
@@ -174,8 +182,13 @@ public class CraftItemGoal implements Goal {
                 return;
             }
         }
-        // If we loop through and find nothing to craft, but haven't met the goal, something is wrong.
-        fail("I have all the materials, but I'm not sure how to craft the next step.");
+        // Instead of failing, transition back to ACQUIRING_MATERIALS. This creates a robust loop
+        // that allows the agent to gather more intermediate resources if it runs out mid-craft.
+        // If we loop through and find nothing to craft, but haven't met the goal,
+        // it means we ran out of an intermediate material. We must re-acquire.
+        logger.info("Stuck in craft preparation. Re-evaluating material needs.");
+        this.state = State.ACQUIRING_MATERIALS;
+        process(agent); // Immediately re-process to enter the acquisition state.
     }
 
     private void handleEnsuringStation(NerrusAgent agent) {
@@ -241,7 +254,8 @@ public class CraftItemGoal implements Goal {
             @Override
             public CompletableFuture<Void> execute(NerrusAgent agent) {
                 return CompletableFuture.runAsync(() -> {
-                    Optional<RecipeService.CraftingBlueprint> planOpt = recipeService.createCraftingPlan(targetMaterial, params.quantity());
+                    Optional<RecipeService.CraftingBlueprint> planOpt = recipeService.createCraftingPlan(targetItemMaterial,
+                            params.quantity());
                     IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
                         if (planOpt.isEmpty()) {
                             fail("I was unable to create a crafting plan for " + params.itemName() + ".");
@@ -279,34 +293,60 @@ public class CraftItemGoal implements Goal {
                 "context", context));
     }
 
-    private int calculateNeededForStep(RecipeService.CraftingStep step, RecipeService.CraftingBlueprint plan, CraftingContext context,
+    /**
+     * Recursively calculates the total number of a target ingredient required by the full crafting
+     * plan, irrespective of current inventory. This is the "strategic" calculation.
+     */
+    private int calculateTotalDemand(Ingredient target, RecipeService.CraftingBlueprint plan,
             Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
-        Ingredient ingredient = step.ingredientToCraft();
-        int totalDemand = calculateFullDemand(ingredient, plan, resolvedPlan);
-        int ownedAmount = context.getAvailableCount(ingredient);
-        return Math.max(0, totalDemand - ownedAmount);
-    }
-
-    private int calculateFullDemand(Ingredient target, RecipeService.CraftingBlueprint plan,
-            Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
-        if (target.materials().contains(this.targetMaterial)) {
-            return this.params.quantity();
+        // Use memoization to avoid re-calculating for the same ingredient.
+        if (demandCache.containsKey(target)) {
+            return demandCache.get(target);
         }
-        int total = 0;
-        for (RecipeService.CraftingStep step : plan.craftingSteps()) {
-            RecipeService.CraftingPath chosenPath = resolvedPlan.get(step.ingredientToCraft());
-            if (chosenPath == null) {
-                continue; // This step isn't part of the resolved plan.
-            }
-            if (chosenPath.requirements().containsKey(target)) {
-                int parentDemand = calculateFullDemand(step.ingredientToCraft(), plan, resolvedPlan);
-                if (parentDemand > 0) {
-                    int craftsToPerform = (int) Math.ceil((double) parentDemand / chosenPath.yield());
-                    total += craftsToPerform * chosenPath.requirements().get(target);
+        int totalDemand;
+        // Base Case: If the target is the final item, demand is the total we need to have at the end.
+        if (target.materials().contains(this.targetItemMaterial)) {
+            totalDemand = this.initialTargetItemCount + this.params.quantity();
+        } else {
+            // Recursive Step: Sum the demand from all parent items that require this 'target'.
+            totalDemand = 0;
+            for (RecipeService.CraftingStep parentStep : plan.craftingSteps()) {
+                RecipeService.CraftingPath chosenPath = resolvedPlan.get(parentStep.ingredientToCraft());
+                if (chosenPath == null || !chosenPath.requirements().containsKey(target)) {
+                    continue; // This parent doesn't use our target ingredient in its chosen path.
+                }
+                // RECURSIVE CALL: Find the total demand for the parent item.
+                int parentTotalDemand = calculateTotalDemand(parentStep.ingredientToCraft(), plan, resolvedPlan);
+                if (parentTotalDemand > 0) {
+                    // How many times do we need to perform the parent craft to meet its total demand?
+                    // Note: We do not subtract inventory here. This is a pure calculation on the recipe graph.
+                    int craftsToPerform = (int) Math.ceil((double) parentTotalDemand / chosenPath.yield());
+                    // Add the resulting demand for our target ingredient.
+                    totalDemand += craftsToPerform * chosenPath.requirements().get(target);
                 }
             }
         }
-        return total > 0 ? total : 1; // Assume at least 1 is needed if it's an intermediate
+        demandCache.put(target, totalDemand);
+        return totalDemand;
+    }
+
+    /**
+     * Calculates the net number of items needed for a step by comparing the total strategic demand
+     * with the current tactical inventory. This is the "tactical" calculation.
+     */
+    private int calculateNeeded(Ingredient target, RecipeService.CraftingBlueprint plan, CraftingContext context,
+            Map<Ingredient, RecipeService.CraftingPath> resolvedPlan) {
+        if (neededCache.containsKey(target)) {
+            return neededCache.get(target);
+        }
+        // Step 1: Get the total strategic demand for the item.
+        int totalDemand = calculateTotalDemand(target, plan, resolvedPlan);
+        // Step 2: Get the current amount available in our virtual inventory.
+        int ownedAmount = context.getAvailableCount(target);
+        // Step 3: The deficit is the difference.
+        int needed = Math.max(0, totalDemand - ownedAmount);
+        neededCache.put(target, needed);
+        return needed;
     }
 
     private boolean hasIngredientsForPath(RecipeService.CraftingPath path, CraftingContext context) {
@@ -338,7 +378,9 @@ public class CraftItemGoal implements Goal {
                             CraftingContext context = new CraftingContext(inventoryCount);
                             agent.getBlackboard().put(BlackboardKeys.CRAFTING_CONTEXT, context);
                             state = State.PREPARING_CRAFT;
-                            logger.info("CraftingContext created. Transitioning to PREPARING_CRAFT.");
+                            initialTargetItemCount = context.getAvailableCount(Ingredient.of(targetItemMaterial));
+                            logger.info("CraftingContext created. Initial target item count: " + initialTargetItemCount
+                                    + ". Transitioning to PREPARING_CRAFT.");
                         });
             }
 
