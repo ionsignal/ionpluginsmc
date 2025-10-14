@@ -44,8 +44,15 @@ public class AcquireMaterialsTask implements Task {
     private final Logger logger;
     private volatile boolean cancelled = false;
 
-    private record ResolutionResult(Map<Ingredient, Integer> shoppingList, Map<Ingredient, CraftingPath> executionPlan) {
-    }
+    // --- START MODIFICATION ---
+    // The ResolutionResult record is no longer needed as these maps will be instance fields.
+    // private record ResolutionResult(Map<Ingredient, Integer> shoppingList, Map<Ingredient,
+    // CraftingPath> executionPlan) {}
+
+    // Add new instance fields to hold the state of the recursive resolution process.
+    private Map<Ingredient, Integer> shoppingList;
+    private Map<Ingredient, CraftingPath> executionPlan;
+    // --- END MODIFICATION ---
 
     public AcquireMaterialsTask(RecipeService.CraftingBlueprint plan, Ingredient targetIngredient, int targetQuantity,
             BlockTagManager blockTagManager) {
@@ -58,68 +65,172 @@ public class AcquireMaterialsTask implements Task {
 
     @Override
     public CompletableFuture<Void> execute(NerrusAgent agent) {
-        // Phase 1: Scan Environment.
+        // --- START REWRITE OF EXECUTE METHOD ---
+        // Phase 1: Initialize the state-holding maps for this execution run.
+        this.shoppingList = new HashMap<>();
+        this.executionPlan = new HashMap<>();
+
+        // Phase 2: Scan Environment for gatherable materials to inform path choices.
         return performEnvironmentalScan(agent)
                 .thenCompose(nearbyMaterials -> {
-                    if (cancelled)
-                        return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
+                    if (cancelled) {
+                        return CompletableFuture.failedFuture(new InterruptedException("Task cancelled during environmental scan."));
+                    }
 
-                    // Phase 2: Resolve the ambiguous plan into a concrete shopping list and resolved plan.
-                    return resolveConcreteShoppingList(agent, nearbyMaterials)
-                            .thenCompose(resolutionResult -> {
-                                if (cancelled)
-                                    return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
-                                // Phase 3: Compare list to inventory to find what's missing.
-                                return determineFirstMissingMaterial(agent, resolutionResult.shoppingList())
+                    // Phase 3: Set up helpers for the recursive resolution.
+                    Map<Ingredient, CraftingStep> stepLookup = plan.craftingSteps().stream()
+                            .collect(Collectors.toMap(CraftingStep::ingredientToCraft, step -> step));
+                    MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup, nearbyMaterials);
+
+                    // Phase 4: Kick off the top-down, inventory-aware, recursive resolution.
+                    return resolveIngredient(targetIngredient, targetQuantity, stepLookup, agent, nearbyMaterials, calculator, 0)
+                            .thenCompose(v -> {
+                                if (cancelled) {
+                                    return CompletableFuture
+                                            .failedFuture(new InterruptedException("Task cancelled during plan resolution."));
+                                }
+
+                                // --- START MODIFICATION ---
+                                // Added logging for the final results before determining the prerequisite.
+                                logger.info("[AcquireMaterialsTask] Resolution complete.");
+                                logger.info("[AcquireMaterialsTask] Final Shopping List: " + this.shoppingList);
+                                String execPlanStr = this.executionPlan.entrySet().stream()
+                                        .map(e -> e.getKey() + " -> " + e.getValue().recipes().get(0).getResult().getType())
+                                        .collect(Collectors.joining(", "));
+                                logger.info("[AcquireMaterialsTask] Final Execution Plan: {" + execPlanStr + "}");
+                                // --- END MODIFICATION ---
+
+                                // Phase 5: Compare the final, minimal shopping list to inventory to find the first missing item.
+                                return determineFirstMissingMaterial(agent, this.shoppingList)
                                         .thenAccept(missingMaterialOpt -> {
-                                            // Phase 4: Declare the result on the blackboard.
+                                            // Phase 6: Declare the result on the blackboard.
                                             if (missingMaterialOpt.isPresent()) {
+                                                // A prerequisite was found.
                                                 GoalPrerequisite prereq = createPrerequisiteFor(missingMaterialOpt.get());
                                                 agent.getBlackboard().put(BlackboardKeys.NEXT_PREREQUISITE, prereq);
                                             } else {
-                                                agent.getBlackboard().put(BlackboardKeys.CRAFTING_EXECUTION_PLAN,
-                                                        resolutionResult.executionPlan());
+                                                // No missing materials; all requirements are met.
+                                                agent.getBlackboard().put(BlackboardKeys.CRAFTING_EXECUTION_PLAN, this.executionPlan);
                                                 agent.getBlackboard().put(BlackboardKeys.MATERIALS_ACQUIRED, true);
                                             }
                                         });
                             });
                 });
+        // --- END REWRITE OF EXECUTE METHOD ---
     }
 
-    private CompletableFuture<ResolutionResult> resolveConcreteShoppingList(NerrusAgent agent, Set<Material> nearbyMaterials) {
-        Map<Ingredient, CraftingStep> stepLookup = plan.craftingSteps().stream()
-                .collect(Collectors.toMap(CraftingStep::ingredientToCraft, step -> step));
-        Map<Ingredient, Integer> shoppingList = new HashMap<>();
-        Map<Ingredient, CraftingPath> executionPlan = new HashMap<>();
-        MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup, nearbyMaterials);
-        return resolveIngredient(targetIngredient, targetQuantity, stepLookup, agent, nearbyMaterials, calculator, shoppingList,
-                executionPlan)
-                        .thenApply(v -> new ResolutionResult(shoppingList, executionPlan));
-    }
+    // --- START REMOVAL OF OBSOLETE METHOD ---
+    // This method is replaced by the new recursive `resolveIngredient` method.
+    /*
+     * private CompletableFuture<ResolutionResult> resolveConcreteShoppingList(NerrusAgent agent,
+     * Set<Material> nearbyMaterials) {
+     * Map<Ingredient, CraftingStep> stepLookup = plan.craftingSteps().stream()
+     * .collect(Collectors.toMap(CraftingStep::ingredientToCraft, step -> step));
+     * Map<Ingredient, Integer> shoppingList = new HashMap<>();
+     * Map<Ingredient, CraftingPath> executionPlan = new HashMap<>();
+     * MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup,
+     * nearbyMaterials);
+     * return resolveIngredient(targetIngredient, targetQuantity, stepLookup, agent, nearbyMaterials,
+     * calculator, shoppingList,
+     * executionPlan)
+     * .thenApply(v -> new ResolutionResult(shoppingList, executionPlan));
+     * }
+     */
+    // --- END REMOVAL OF OBSOLETE METHOD ---
 
+    // --- START NEW RECURSIVE RESOLVER METHOD ---
+    /**
+     * The core recursive function that resolves the dependencies for a single ingredient.
+     * It checks inventory, calculates deficits, and recursively calls itself for sub-ingredients if
+     * necessary.
+     */
     private CompletableFuture<Void> resolveIngredient(Ingredient ingredient, int quantity, Map<Ingredient, CraftingStep> stepLookup,
-            NerrusAgent agent, Set<Material> nearbyMaterials, MemoizedCostCalculator calculator, Map<Ingredient, Integer> shoppingList,
-            Map<Ingredient, CraftingPath> executionPlan) {
-        if (cancelled)
+            NerrusAgent agent, Set<Material> nearbyMaterials, MemoizedCostCalculator calculator, int depth) {
+        if (cancelled) {
             return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
-        if (blockTagManager.isRawMaterial(ingredient.getPreferredMaterial())
-                || blockTagManager.isGatherable(ingredient.getPreferredMaterial())
-                || !stepLookup.containsKey(ingredient)) {
-            shoppingList.merge(ingredient, quantity, Integer::sum);
-            return CompletableFuture.completedFuture(null);
         }
-        CraftingStep step = stepLookup.get(ingredient);
-        return chooseBestPath(step, agent, stepLookup, nearbyMaterials, calculator)
-                .thenCompose(chosenPath -> {
-                    executionPlan.put(ingredient, chosenPath);
-                    int craftsToPerform = (int) Math.ceil((double) quantity / chosenPath.yield());
-                    List<CompletableFuture<Void>> childFutures = new ArrayList<>();
-                    for (Map.Entry<Ingredient, Integer> req : chosenPath.requirements().entrySet()) {
-                        childFutures.add(resolveIngredient(req.getKey(), req.getValue() * craftsToPerform, stepLookup, agent,
-                                nearbyMaterials, calculator, shoppingList, executionPlan));
+
+        // --- START MODIFICATION ---
+        // Added logging throughout the resolver.
+        final String indent = "  ".repeat(depth);
+        logger.info(String.format("%s[Depth %d] Resolving %dx %s", indent, depth, quantity, ingredient));
+        // --- END MODIFICATION ---
+
+        // Create and memoize the future for this ingredient's resolution process.
+        CompletableFuture<Void> resolutionFuture = new CountItemsSkill(ingredient.materials()).execute(agent)
+                .thenCompose(inventory -> {
+                    if (cancelled) {
+                        return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
                     }
-                    return CompletableFuture.allOf(childFutures.toArray(new CompletableFuture[0]));
+
+                    int ownedAmount = ingredient.materials().stream().mapToInt(mat -> inventory.getOrDefault(mat, 0)).sum();
+                    int deficit = quantity - ownedAmount;
+
+                    // --- START MODIFICATION ---
+                    logger.info(String.format("%s[Depth %d] -> Inventory has %d, deficit is %d", indent, depth, ownedAmount, deficit));
+                    // --- END MODIFICATION ---
+
+                    // // Base Case 1: We already have enough of this item. Prune this dependency branch.
+                    // if (deficit <= 0) {
+                    // // --- START MODIFICATION ---
+                    // logger.info(String.format("%s[Depth %d] -> Requirement met. Pruning branch.", indent, depth));
+                    // // --- END MODIFICATION ---
+                    // return CompletableFuture.completedFuture(null);
+                    // }
+
+                    boolean isRawOrUncraftable = blockTagManager.isRawMaterial(ingredient.getPreferredMaterial())
+                            || blockTagManager.isGatherable(ingredient.getPreferredMaterial())
+                            || !stepLookup.containsKey(ingredient);
+
+                    // Base Case 2: The item is a raw material or cannot be crafted. Add the deficit to the shopping
+                    // list.
+                    if (isRawOrUncraftable) {
+                        // --- START MODIFICATION ---
+                        logger.info(
+                                String.format("%s[Depth %d] -> Is raw/uncraftable. Adding %d to shopping list.", indent, depth, deficit));
+                        // --- END MODIFICATION ---
+                        if (deficit > 0) {
+                            shoppingList.merge(ingredient, deficit, Integer::sum);
+                        }
+                        // shoppingList.merge(ingredient, deficit, Integer::sum);
+                        return CompletableFuture.completedFuture(null);
+                    }
+
+                    // Recursive Step: The item is craftable and we have a deficit.
+                    CraftingStep step = stepLookup.get(ingredient);
+                    return chooseBestPath(step, agent, stepLookup, nearbyMaterials, calculator)
+                            .thenCompose(chosenPath -> {
+                                // --- START MODIFICATION ---
+                                String pathIngredients = chosenPath.requirements().entrySet().stream()
+                                        .map(e -> e.getValue() + "x " + e.getKey())
+                                        .collect(Collectors.joining(", "));
+                                logger.info(String.format("%s[Depth %d] -> Chose path yielding %d with ingredients: {%s}", indent, depth,
+                                        chosenPath.yield(), pathIngredients));
+                                // --- END MODIFICATION ---
+
+                                executionPlan.put(ingredient, chosenPath);
+
+                                // LATEST FIX HERE: The original code pruned the entire branch if the deficit was <= 0,
+                                // which resulted in an incomplete executionPlan. The new logic ensures that we always
+                                // recurse into children to build the full plan. We only calculate a non-zero
+                                // number of crafts (and thus a non-zero demand for child ingredients) if there is
+                                // an actual deficit for the parent item.
+                                int craftsToPerform = 0;
+                                if (deficit > 0) {
+                                    craftsToPerform = (int) Math.ceil((double) deficit / chosenPath.yield());
+                                }
+
+                                List<CompletableFuture<Void>> childFutures = new ArrayList<>();
+                                for (Map.Entry<Ingredient, Integer> req : chosenPath.requirements().entrySet()) {
+                                    // RECURSIVE CALL for each sub-ingredient.
+                                    childFutures.add(resolveIngredient(req.getKey(), req.getValue() * craftsToPerform, stepLookup, agent,
+                                            nearbyMaterials, calculator, depth + 1));
+                                }
+                                return CompletableFuture.allOf(childFutures.toArray(new CompletableFuture[0]));
+                            });
                 });
+
+        return resolutionFuture;
     }
 
     private CompletableFuture<CraftingPath> chooseBestPath(CraftingStep step, NerrusAgent agent, Map<Ingredient, CraftingStep> stepLookup,
