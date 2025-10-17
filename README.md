@@ -155,5 +155,14 @@ Interested in contributing? Here's how to get a development environment set up.
 
 ### Debug Server
 
+Start debug server:
+
 ```bash
 ./gradlew runServer --no-daemon --stacktrace
+```
+
+### Refresh Task Dependencies
+
+```bash
+./gradlew runServer --refresh-dependencies
+```
