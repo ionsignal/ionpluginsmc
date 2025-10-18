@@ -161,6 +161,12 @@ Start debug server:
 ./gradlew runServer --no-daemon --stacktrace
 ```
 
+### Paperweight Minecraft Source
+
+```bash
+jar -xf mappedServerJar.jar
+```
+
 ### Refresh Task Dependencies
 
 ```bash
