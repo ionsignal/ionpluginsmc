@@ -138,20 +138,20 @@ Interested in contributing? Here's how to get a development environment set up.
 
 ### Build Steps
 
-1. Clone the repository:
+Clone the repository:
 
-    ```bash
-    git clone https://github.com/ionsignal/ionnerrus.git
-    cd ionnerrus
-    ```
+```bash
+git clone https://github.com/ionsignal/ionnerrus.git
+cd ionnerrus
+```
 
-2. Build the plugin using the Gradle wrapper:
+Build the plugin using the Gradle wrapper:
 
-    ```bash
-    ./gradlew build
-    ```
+```bash
+./gradlew clean build
+```
 
-3. The compiled, shaded JAR will be located in `build/libs/`.
+The compiled, shaded JAR will be located in `build/libs/`.
 
 ### Debug Server
 
