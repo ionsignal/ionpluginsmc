@@ -61,7 +61,6 @@ public class IonNerrus extends JavaPlugin {
             if (getServer().getPluginManager().getPlugin("FancyHolograms") == null) {
                 getLogger().warning("Chat Bubbles feature is enabled, but the FancyHolograms plugin was not found. Feature disabled.");
             } else {
-                // --- MODIFIED LINE ---
                 getServer().getPluginManager().registerEvents(new ChatBubbleListener(this, this.chatBubbleService), this);
                 getLogger().info("Chat Bubbles feature has been enabled.");
             }

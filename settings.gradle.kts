@@ -3,3 +3,5 @@ plugins {
 }
 
 rootProject.name = "ionnerrus"
+
+include("ionnerrus-terra-addon")
