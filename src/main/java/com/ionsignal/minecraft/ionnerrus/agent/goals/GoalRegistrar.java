@@ -3,15 +3,11 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 
-import org.reflections.Reflections;
-import org.reflections.scanners.Scanners;
-import org.reflections.util.ConfigurationBuilder;
+import io.github.classgraph.ClassGraph;
+import io.github.classgraph.ClassInfoList;
+import io.github.classgraph.ScanResult;
 
-import java.io.File;
 import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
-import java.net.URISyntaxException;
-import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -34,22 +30,18 @@ public class GoalRegistrar {
      * instantiates them, and registers their ToolDefinitions.
      */
     public void registerAll() {
-        logger.info("Discovering GoalProviders...");
-        try {
-            // Use direct URL to JAR file rather than relying on ClasspathHelper within a shadowed plugin.
-            ClassLoader pluginClassLoader = IonNerrus.getInstance().getClass().getClassLoader();
-            File pluginFile = new File(IonNerrus.getInstance().getClass().getProtectionDomain().getCodeSource().getLocation().toURI());
-            ConfigurationBuilder config = new ConfigurationBuilder()
-                    .setUrls(pluginFile.toURI().toURL())
-                    .setScanners(Scanners.SubTypes.filterResultsBy(s -> true)) // Ensure all subtypes are found
-                    .addClassLoaders(pluginClassLoader);
-            Reflections reflections = new Reflections(config);
-            Set<Class<? extends GoalProvider>> providerClasses = reflections.getSubTypesOf(GoalProvider.class);
-            for (Class<? extends GoalProvider> providerClass : providerClasses) {
-                if (providerClass.isMemberClass() && !java.lang.reflect.Modifier.isStatic(providerClass.getModifiers())) {
-                    logger.warning(" -> Skipping non-static inner class: " + providerClass.getName());
-                    continue;
-                }
+        logger.info("Discovering GoalProviders using ClassGraph...");
+        String providerInterfaceName = GoalProvider.class.getName();
+        // ClassGraph's try-with-resources ensures the scanner is closed properly.
+        try (ScanResult scanResult = new ClassGraph()
+                .enableClassInfo()
+                .addClassLoader(IonNerrus.getInstance().getClass().getClassLoader())
+                .scan()) {
+            // Find all classes that implement the GoalProvider interface
+            ClassInfoList providerClassesInfo = scanResult.getClassesImplementing(providerInterfaceName);
+            // Load the classes, which gives us List<Class<GoalProvider>>
+            for (Class<? extends GoalProvider> providerClass : providerClassesInfo.loadClasses(GoalProvider.class)) {
+                // We can proceed directly to instantiation
                 try {
                     GoalProvider provider = providerClass.getDeclaredConstructor().newInstance();
                     var toolDefinition = provider.getToolDefinition(blockTagManager);
@@ -60,8 +52,9 @@ public class GoalRegistrar {
                 }
             }
             logger.info("GoalProvider discovery complete. " + goalRegistry.getAll().size() + " tools registered.");
-        } catch (URISyntaxException | MalformedURLException e) {
-            logger.log(Level.SEVERE, "Could not get plugin JAR URL for classpath scanning.", e);
+        } catch (Exception e) {
+            // Catching a broad exception here because various runtime exceptions on can be thrown
+            logger.log(Level.SEVERE, "An unexpected error occurred during classpath scanning for GoalProviders.", e);
         }
     }
 }

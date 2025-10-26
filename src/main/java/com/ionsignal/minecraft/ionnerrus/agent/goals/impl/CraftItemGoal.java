@@ -134,6 +134,48 @@ public class CraftItemGoal implements Goal {
         }
     }
 
+    private void handleEnsuringStation(NerrusAgent agent) {
+        switch (ensuringStationStep) {
+            case 0: // Find a nearby table
+                agent.setCurrentTask(taskFactory.createTask("FIND_NEARBY_BLOCK", Map.of("material", Material.CRAFTING_TABLE)));
+                ensuringStationStep++;
+                break;
+            case 1: // Check if we found one
+                if (agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
+                    this.state = State.PREPARING_CRAFT; // Found one, go back to prepare the craft.
+                    process(agent);
+                } else {
+                    ensuringStationStep++; // Didn't find one, check inventory.
+                    process(agent);
+                }
+                break;
+            case 2: // Check inventory for a table
+                agent.setCurrentTask(createCountCraftingTableTask());
+                ensuringStationStep++;
+                break;
+            case 3: // Decide whether to place or craft a table
+                int count = agent.getBlackboard().getInt("crafting.tableCount", 0);
+                agent.getBlackboard().remove("crafting.tableCount");
+                if (count > 0) {
+                    agent.setCurrentTask(taskFactory.createTask("PLACE_BLOCK", Map.of("material", Material.CRAFTING_TABLE)));
+                    ensuringStationStep++; // Move to step 4 to check placement result.
+                } else {
+                    // No table in inventory, must craft one.
+                    declarePrerequisite("I need to craft a crafting table first.",
+                            new GoalPrerequisite("CRAFT_ITEM", new CraftItemParameters("CRAFTING_TABLE", 1)));
+                }
+                break;
+            case 4: // Check result of placement
+                if (agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
+                    this.state = State.PREPARING_CRAFT; // Placed one, go back to prepare the craft.
+                    process(agent);
+                } else {
+                    fail("I have a crafting table, but I couldn't place it.");
+                }
+                break;
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private void handleCraftPreparation(NerrusAgent agent) {
         // This is a synchronous block of logic that decides the next craft
@@ -189,48 +231,6 @@ public class CraftItemGoal implements Goal {
         logger.info("Stuck in craft preparation. Re-evaluating material needs.");
         this.state = State.ACQUIRING_MATERIALS;
         process(agent); // Immediately re-process to enter the acquisition state.
-    }
-
-    private void handleEnsuringStation(NerrusAgent agent) {
-        switch (ensuringStationStep) {
-            case 0: // Find a nearby table
-                agent.setCurrentTask(taskFactory.createTask("FIND_NEARBY_BLOCK", Map.of("material", Material.CRAFTING_TABLE)));
-                ensuringStationStep++;
-                break;
-            case 1: // Check if we found one
-                if (agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
-                    this.state = State.PREPARING_CRAFT; // Found one, go back to prepare the craft.
-                    process(agent);
-                } else {
-                    ensuringStationStep++; // Didn't find one, check inventory.
-                    process(agent);
-                }
-                break;
-            case 2: // Check inventory for a table
-                agent.setCurrentTask(createCountCraftingTableTask());
-                ensuringStationStep++;
-                break;
-            case 3: // Decide whether to place or craft a table
-                int count = agent.getBlackboard().getInt("crafting.tableCount", 0);
-                agent.getBlackboard().remove("crafting.tableCount");
-                if (count > 0) {
-                    agent.setCurrentTask(taskFactory.createTask("PLACE_BLOCK", Map.of("material", Material.CRAFTING_TABLE)));
-                    ensuringStationStep++; // Move to step 4 to check placement result.
-                } else {
-                    // No table in inventory, must craft one.
-                    declarePrerequisite("I need to craft a crafting table first.",
-                            new GoalPrerequisite("CRAFT_ITEM", new CraftItemParameters("CRAFTING_TABLE", 1)));
-                }
-                break;
-            case 4: // Check result of placement
-                if (agent.getBlackboard().has(BlackboardKeys.CRAFTING_TABLE_LOCATION)) {
-                    this.state = State.PREPARING_CRAFT; // Placed one, go back to prepare the craft.
-                    process(agent);
-                } else {
-                    fail("I have a crafting table, but I couldn't place it.");
-                }
-                break;
-        }
     }
 
     private Task createCountCraftingTableTask() {
