@@ -26,6 +26,8 @@ import java.util.List;
  *            The generation depth (0 for start piece, increases with each connection)
  * @param parent
  *            The piece that spawned this one (null for start piece)
+ * @param sourcePoolId
+ *            PHASE 3 ADDED: The ID of the pool this piece was selected from
  */
 public record PlacedJigsawPiece(
 		String nbtFile,
@@ -34,7 +36,8 @@ public record PlacedJigsawPiece(
 		NBTStructure.StructureData structureData,
 		List<TransformedJigsawBlock> connections,
 		int depth,
-		PlacedJigsawPiece parent) {
+		PlacedJigsawPiece parent,
+		String sourcePoolId) { // PHASE 3 CHANGE: Added sourcePoolId field
 
 	/**
 	 * Creates a PlacedJigsawPiece with validation.
@@ -59,6 +62,7 @@ public record PlacedJigsawPiece(
 			throw new IllegalArgumentException("Depth cannot be negative");
 		}
 		// Parent can be null for the start piece
+		// PHASE 3: sourcePoolId can be null for simple (non-jigsaw) structures
 	}
 
 	/**
@@ -122,6 +126,7 @@ public record PlacedJigsawPiece(
 				.map(conn -> conn.position().equals(connectionPosition) ? conn.asConsumed() : conn)
 				.toList();
 
+		// PHASE 3 CHANGE: Include sourcePoolId when creating new instance
 		return new PlacedJigsawPiece(
 				nbtFile,
 				worldPosition,
@@ -129,18 +134,21 @@ public record PlacedJigsawPiece(
 				structureData,
 				updatedConnections,
 				depth,
-				parent);
+				parent,
+				sourcePoolId); // ADDED: Preserve sourcePoolId
 	}
 
 	/**
 	 * Factory method to create a start piece (no parent).
+	 * PHASE 3 CHANGE: Added sourcePoolId parameter
 	 */
 	public static PlacedJigsawPiece createStartPiece(
 			String nbtFile,
 			Vector3Int worldPosition,
 			Rotation rotation,
 			NBTStructure.StructureData structureData,
-			List<TransformedJigsawBlock> connections) {
+			List<TransformedJigsawBlock> connections,
+			String sourcePoolId) { // PHASE 3 CHANGE: Added parameter
 		return new PlacedJigsawPiece(
 				nbtFile,
 				worldPosition,
@@ -148,7 +156,7 @@ public record PlacedJigsawPiece(
 				structureData,
 				connections,
 				0, // Start pieces have depth 0
-				null // No parent
-		);
+				null, // No parent
+				sourcePoolId); // PHASE 3: Include sourcePoolId
 	}
 }

@@ -4,7 +4,6 @@ import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.util.vector.Vector3Int;
 import com.dfsek.terra.api.util.Rotation;
-import com.dfsek.terra.api.registry.key.RegistryKey;
 
 import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureTemplate;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.*;
@@ -13,6 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import com.ionsignal.minecraft.ionnerrus.terra.provider.NBTStructureProvider;
 import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
 import com.ionsignal.minecraft.ionnerrus.terra.util.TransformUtil;
+import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
 import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
 
 import java.util.*;
@@ -27,11 +27,13 @@ public class JigsawGenerator {
 	private static final Logger LOGGER = Logger.getLogger(JigsawGenerator.class.getName());
 
 	private final ConfigPack pack;
-	private final Platform platform;
 	private final Random random;
 	private final JigsawStructureTemplate config;
 	private final Vector3Int origin;
 	private final PoolRegistry poolRegistry;
+
+	@SuppressWarnings("unused")
+	private final Platform platform;
 
 	private final List<PlacedJigsawPiece> pieces;
 	private final PriorityQueue<PendingJigsawConnection> connectionQueue;
@@ -69,11 +71,9 @@ public class JigsawGenerator {
 			LOGGER.warning("Failed to place start piece from pool: " + startPoolId);
 			return JigsawPlacement.empty(origin, config.getID());
 		}
-
 		pieces.add(startPiece);
 		occupiedSpace.add(startPiece.getWorldBounds());
 		queueConnections(startPiece, 0);
-
 		// 2. Process connection queue recursively
 		while (!connectionQueue.isEmpty()) {
 			PendingJigsawConnection pending = connectionQueue.poll();
@@ -95,7 +95,6 @@ public class JigsawGenerator {
 				pieces.add(childPiece);
 				occupiedSpace.add(childPiece.getWorldBounds());
 				queueConnections(childPiece, pending.depth() + 1);
-
 				// Mark the connection as consumed
 				updateConnectionAsConsumed(pending);
 			}
@@ -111,19 +110,16 @@ public class JigsawGenerator {
 	private PlacedJigsawPiece selectAndPlaceStartPiece(String startPoolId) {
 		JigsawPool startPool = poolRegistry.getPool(startPoolId);
 		if (startPool == null) {
-			// ADDED: Log error when pool not found
 			LOGGER.severe("Start pool not found: " + startPoolId);
 			return null;
 		}
 		String nbtFile = startPool.selectRandomElement(random);
 		if (nbtFile == null) {
-			// ADDED: Log warning when pool is empty
 			LOGGER.warning("Start pool is empty: " + startPoolId);
 			return null;
 		}
 		NBTStructure.StructureData structureData = NBTStructureProvider.getInstance().load(pack, nbtFile);
 		if (structureData == null) {
-			// ADDED: Log error when structure file can't be loaded
 			LOGGER.severe("Failed to load structure file: " + nbtFile);
 			return null;
 		}
@@ -135,68 +131,137 @@ public class JigsawGenerator {
 				origin,
 				rotation,
 				structureData.size());
-		return PlacedJigsawPiece.createStartPiece(
-				nbtFile,
-				origin,
-				rotation,
-				structureData,
-				connections);
+		// Include sourcePoolId in PlacedJigsawPiece creation
+		return PlacedJigsawPiece.createStartPiece(nbtFile, origin, rotation, structureData, connections, startPoolId);
 	}
 
 	/**
-	 * Attempts to place a piece connecting to the given connection point.
+	 * Connection and rotation logic
 	 */
 	private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
 		// Get target pool
-		String targetPoolId = pending.getTargetPool();
+		String targetPoolId = pending.getTargetPoolId();
 		JigsawPool pool = poolRegistry.getPool(targetPoolId);
 		if (pool == null) {
-			// ADDED: Debug logging for missing pools
-			LOGGER.fine("Target pool not found: " + targetPoolId);
+			LOGGER.warning("Target pool not found: " + targetPoolId);
 			return null;
 		}
-		// Try multiple pieces from the pool (in case some don't fit)
-		List<String> candidateFiles = selectCandidateFiles(pool, 5);
+		// Increased candidates and added shuffling for variety
+		List<String> candidateFiles = selectCandidateFiles(pool, 10);
+		Collections.shuffle(candidateFiles, random);
+		// Exhaustive search through all candidates, jigsaws, and valid rotations
 		for (String nbtFile : candidateFiles) {
 			NBTStructure.StructureData structureData = NBTStructureProvider.getInstance().load(pack, nbtFile);
 			if (structureData == null) {
 				continue;
 			}
-			// Find a compatible jigsaw in the child structure
-			JigsawData.JigsawBlock compatibleJigsaw = findCompatibleJigsaw(structureData.jigsawBlocks(), pending.connection());
-			if (compatibleJigsaw == null) {
-				continue;
-			}
-			// Calculate alignment transform
-			PlacementTransform transform = TransformUtil.calculateAlignment(
-					pending.connection(),
-					compatibleJigsaw,
-					structureData.size());
-			// Check collision with existing pieces
-			AABB childBounds = AABB.fromPiece(
-					transform.position(),
-					structureData.size(),
-					transform.rotation());
-			if (!collides(childBounds)) {
-				// Transform jigsaw blocks to world space
-				List<TransformedJigsawBlock> connections = transformJigsawBlocks(
-						structureData.jigsawBlocks(),
-						transform.position(),
-						transform.rotation(),
-						structureData.size());
-				// MODIFIED: Include parent reference when creating child piece
-				return new PlacedJigsawPiece(
-						nbtFile,
-						transform.position(),
-						transform.rotation(),
-						structureData,
-						connections,
-						pending.depth() + 1,
-						pending.sourcePiece()); // ADDED: parent reference
+			// Shuffle for variety, so we don't always connect the same jigsaw if multiple are valid
+			List<JigsawData.JigsawBlock> shuffledJigsaws = new ArrayList<>(structureData.jigsawBlocks());
+			Collections.shuffle(shuffledJigsaws, random);
+			for (JigsawData.JigsawBlock childJigsaw : shuffledJigsaws) {
+				// A. Check if the names/targets match between the parent and potential child.
+				if (!JigsawConnection.matchesConnectionName(pending.getTargetName(), childJigsaw.info().name()) ||
+						!JigsawConnection.matchesConnectionName(childJigsaw.info().target(), pending.connection().info().name())) {
+					continue;
+				}
+				// Determine rotations to try based on joint type
+				List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
+				// Try each valid rotation
+				for (Rotation rotation : rotationsToTry) {
+					// Create a rotated version of the child jigsaw for alignment calculation
+					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(childJigsaw, rotation, structureData.size());
+					// Calculate alignment with the rotated jigsaw
+					PlacementTransform transform = TransformUtil.calculateAlignment(
+							pending.connection(),
+							rotatedChildJigsaw,
+							structureData.size());
+					// Apply the additional rotation to the transform
+					PlacementTransform finalTransform = new PlacementTransform(
+							transform.position(),
+							combineRotations(transform.rotation(), rotation));
+					// Check collision with existing pieces
+					AABB childBounds = AABB.fromPiece(
+							finalTransform.position(),
+							structureData.size(),
+							finalTransform.rotation());
+					if (!collides(childBounds)) {
+						// Transform jigsaw blocks to world space
+						List<TransformedJigsawBlock> connections = transformJigsawBlocks(
+								structureData.jigsawBlocks(),
+								finalTransform.position(),
+								finalTransform.rotation(),
+								structureData.size());
+						// Include sourcePoolId in PlacedJigsawPiece creation
+						return new PlacedJigsawPiece(
+								nbtFile,
+								finalTransform.position(),
+								finalTransform.rotation(),
+								structureData,
+								connections,
+								pending.depth() + 1,
+								pending.sourcePiece(),
+								targetPoolId);
+					}
+				}
 			}
 		}
+		return null; // Failed to place any piece
+	}
 
-		return null;
+	// Get rotations to try based on joint type
+	private List<Rotation> getRotationsForJoint(JigsawData.JointType jointType) {
+		if (jointType == JigsawData.JointType.ROLLABLE) {
+			// ROLLABLE joints can use any rotation
+			return List.of(Rotation.NONE, Rotation.CW_90, Rotation.CW_180, Rotation.CCW_90);
+		} else {
+			// ALIGNED joints preserve orientation
+			return List.of(Rotation.NONE);
+		}
+	}
+
+	// Rotate a jigsaw block for alignment calculation
+	private JigsawData.JigsawBlock rotateJigsawBlock(JigsawData.JigsawBlock jigsaw, Rotation rotation, Vector3Int structureSize) {
+		if (rotation == Rotation.NONE) {
+			return jigsaw;
+		}
+		// Rotate position
+		Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rotation, structureSize);
+		// Rotate orientation
+		String rotatedOrientation = TransformUtil.rotateOrientation(jigsaw.orientation(), rotation);
+		return new JigsawData.JigsawBlock(rotatedPos, rotatedOrientation, jigsaw.info());
+	}
+
+	// Combine two rotations
+	private Rotation combineRotations(Rotation first, Rotation second) {
+		if (first == Rotation.NONE)
+			return second;
+		if (second == Rotation.NONE)
+			return first;
+		int firstSteps = rotationToSteps(first);
+		int secondSteps = rotationToSteps(second);
+		int totalSteps = (firstSteps + secondSteps) % 4;
+		return stepsToRotation(totalSteps);
+	}
+
+	// Convert rotation to steps
+	private int rotationToSteps(Rotation rotation) {
+		return switch (rotation) {
+			case NONE -> 0;
+			case CW_90 -> 1;
+			case CW_180 -> 2;
+			case CCW_90 -> 3;
+		};
+	}
+
+	// Convert steps to rotation
+	private Rotation stepsToRotation(int steps) {
+		return switch (steps % 4) {
+			case 0 -> Rotation.NONE;
+			case 1 -> Rotation.CW_90;
+			case 2 -> Rotation.CW_180;
+			case 3 -> Rotation.CCW_90;
+			default -> Rotation.NONE;
+		};
 	}
 
 	/**
@@ -244,23 +309,6 @@ public class JigsawGenerator {
 						rotation,
 						structureSize))
 				.collect(Collectors.toList());
-	}
-
-	/**
-	 * Finds a compatible jigsaw block in a structure for connection.
-	 */
-	private JigsawData.JigsawBlock findCompatibleJigsaw(
-			List<JigsawData.JigsawBlock> jigsawBlocks,
-			TransformedJigsawBlock targetConnection) {
-		for (JigsawData.JigsawBlock jigsaw : jigsawBlocks) {
-			// Check if this jigsaw can connect to the target
-			if (JigsawConnection.matchesConnectionName(
-					jigsaw.info().target(),
-					targetConnection.info().name())) {
-				return jigsaw;
-			}
-		}
-		return null;
 	}
 
 	/**

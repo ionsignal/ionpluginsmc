@@ -98,10 +98,17 @@ public record PendingJigsawConnection(
 	}
 
 	/**
-	 * Gets the target pool ID for this connection.
+	 * Gets the target connection name for this connection.
 	 */
-	public String getTargetPool() {
+	public String getTargetName() {
 		return connection.info().target();
+	}
+
+	/**
+	 * Gets the target pool ID for selecting the next piece.
+	 */
+	public String getTargetPoolId() {
+		return connection.info().pool();
 	}
 
 	/**
