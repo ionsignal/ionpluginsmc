@@ -115,4 +115,14 @@ public record TransformedJigsawBlock(
 
 		return false;
 	}
+
+	/**
+	 * Converts this transformed jigsaw back to a regular JigsawBlock for use with JigsawConnection
+	 * validation. The position is preserved, but the validation logic uses orientation and info.
+	 *
+	 * @return A JigsawBlock representation of this transformed connection
+	 */
+	public JigsawData.JigsawBlock toJigsawBlock() {
+		return new JigsawData.JigsawBlock(position, orientation, info);
+	}
 }

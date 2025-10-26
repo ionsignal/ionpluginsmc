@@ -8,11 +8,11 @@ import com.dfsek.terra.api.block.state.BlockState;
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.structure.Structure;
 import com.dfsek.terra.api.world.WritableWorld;
-import com.dfsek.terra.api.world.chunk.generation.ProtoWorld; // ADDED: For bounds checking
+import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
 
 import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureTemplate;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.JigsawPlacement; // ADDED
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece; // ADDED
+import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.JigsawPlacement;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
 import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
@@ -37,29 +37,42 @@ public class JigsawStructure implements Structure {
 	@Override
 	public boolean generate(Vector3Int location, WritableWorld world, Random random, Rotation terraRotation) {
 		try {
-			// Step 1: Create cache key from location and world seed
-			PlacementCacheKey cacheKey = PlacementCacheKey.from(
-					config.getID(),
-					pack,
-					location,
-					world.getSeed());
-			// Step 2: Get or generate the complete jigsaw placement
-			JigsawPlacement placement = JigsawPlacementCache.getInstance().getOrGenerate(cacheKey,
-					() -> generateFullPlacement(location, cacheKey.getStructureSeed()));
-			// Step 3: Check if we have a valid placement
+			boolean isWorldgenContext = (world instanceof ProtoWorld);
+			JigsawPlacement placement;
+			if (isWorldgenContext) {
+				// This prevents the same structure from being generated multiple times in overlapping chunks
+				PlacementCacheKey cacheKey = PlacementCacheKey.from(
+						config.getID(),
+						pack,
+						location,
+						world.getSeed());
+				placement = JigsawPlacementCache.getInstance().getOrGenerate(cacheKey,
+						() -> generateFullPlacement(location, cacheKey.getStructureSeed()));
+				LOGGER.fine(String.format(
+						"[WORLDGEN] Using cached placement for structure '%s' at chunk (%d, %d)",
+						config.getID(), cacheKey.spawnChunkX(), cacheKey.spawnChunkZ()));
+			} else {
+				// This fixes the bug where multiple commands in the same chunk would reuse the cached location
+				// We still use the world seed to keep the structure composition deterministic
+				long structureSeed = location.getX() ^ ((long) location.getZ() << 32) ^ world.getSeed();
+				placement = generateFullPlacement(location, structureSeed);
+				LOGGER.fine(String.format(
+						"[MANUAL] Generated fresh placement for structure '%s' at exact location %s",
+						config.getID(), location));
+			}
+			// Check if we have a valid placement
 			if (placement == null || placement.isEmpty()) {
 				LOGGER.warning(String.format(
 						"No valid jigsaw placement generated for structure '%s' at %s",
 						config.getID(), location));
 				return false;
 			}
-			// Step 4: Determine the bounds of the current ProtoWorld We need to be defensive here since we
-			// don't know the exact buffer size
+			// Determine the bounds of the current ProtoWorld We need to be defensive here since we don't know
+			// the exact buffer size so ssume a reasonable buffer (3x3 chunks is common for Terra) This is
+			// defensive - we'll check bounds when placing blocks
 			int centerChunkX = location.getX() >> 4;
 			int centerChunkZ = location.getZ() >> 4;
-			// Assume a reasonable buffer (3x3 chunks is common for Terra) This is defensive - we'll check
-			// bounds when placing blocks
-			int chunkRadius = 1; // Conservative estimate
+			int chunkRadius = 1;
 			// Step 5: Place all pieces that intersect with the current chunk region
 			int placedPieces = 0;
 			int placedBlocks = 0;
@@ -86,7 +99,6 @@ public class JigsawStructure implements Structure {
 					placedBlocks += blocksPlaced;
 				}
 			}
-			// ADDED: Log placement summary
 			if (placedPieces > 0) {
 				LOGGER.info(String.format(
 						"Placed %d pieces (%d blocks) from structure '%s' in chunk region around (%d, %d)",
@@ -102,7 +114,7 @@ public class JigsawStructure implements Structure {
 	}
 
 	/**
-	 * ADDED: Generates the complete jigsaw placement for a structure.
+	 * Generates the complete jigsaw placement for a structure.
 	 * This is only called once per unique structure location and cached.
 	 */
 	private JigsawPlacement generateFullPlacement(Vector3Int origin, long structureSeed) {
@@ -111,10 +123,10 @@ public class JigsawStructure implements Structure {
 			if (config.getStartPool() == null ||
 					config.getStartPool().isEmpty() ||
 					"minecraft:empty".equals(config.getStartPool())) {
-				// ADDED: Fallback to simple single-file placement for backwards compatibility
+				// Fallback to simple single-file placement for backwards compatibility
 				return generateSimplePlacement(origin, structureSeed);
 			}
-			// ADDED: Full jigsaw generation
+			// Full jigsaw generation
 			LOGGER.info(String.format(
 					"Generating jigsaw structure '%s' at %s with start pool '%s'",
 					config.getID(), origin, config.getStartPool()));
@@ -125,7 +137,7 @@ public class JigsawStructure implements Structure {
 					origin,
 					structureSeed);
 			JigsawPlacement placement = generator.generate(config.getStartPool());
-			// ADDED: Log generation summary
+			// Log generation summary
 			LOGGER.info(placement.getSummary());
 			return placement;
 		} catch (Exception e) {
@@ -137,7 +149,7 @@ public class JigsawStructure implements Structure {
 	}
 
 	/**
-	 * ADDED: Generates a simple single-piece placement for non-jigsaw structures.
+	 * Generates a simple single-piece placement for non-jigsaw structures.
 	 * This maintains backwards compatibility with the original implementation.
 	 */
 	private JigsawPlacement generateSimplePlacement(Vector3Int origin, long structureSeed) {
@@ -152,17 +164,18 @@ public class JigsawStructure implements Structure {
 					config.getID(), config.getFile()));
 			return JigsawPlacement.empty(origin, config.getID());
 		}
-		// ADDED: Create a single-piece placement with random rotation
+		// Create a single-piece placement with random rotation
 		Random random = new Random(structureSeed);
 		Rotation[] rotations = Rotation.values();
 		Rotation rotation = rotations[random.nextInt(rotations.length)];
+		// Include sourcePoolId as null for simple placement
 		PlacedJigsawPiece singlePiece = PlacedJigsawPiece.createStartPiece(
 				config.getFile(),
 				origin,
 				rotation,
 				structureData,
-				java.util.Collections.emptyList() // No connections for simple placement
-		);
+				java.util.Collections.emptyList(), // No connections for simple placement
+				null); // sourcePoolId is null for non-jigsaw structures
 		return new JigsawPlacement(
 				java.util.List.of(singlePiece),
 				origin,
@@ -170,7 +183,7 @@ public class JigsawStructure implements Structure {
 	}
 
 	/**
-	 * ADDED: Places the blocks from a single jigsaw piece into the world.
+	 * Places the blocks from a single jigsaw piece into the world.
 	 * 
 	 * @param piece
 	 *            The piece to place
@@ -189,8 +202,8 @@ public class JigsawStructure implements Structure {
 				if (terraBlockState == null || terraBlockState.isAir()) {
 					continue; // Skip air blocks
 				}
-				// Apply rotation to the block state
-				BlockState rotatedBlockState = BlockStateRotator.rotate(terraBlockState, piece.rotation());
+				// Updated to use new BlockStateRotator with platform parameter
+				BlockState rotatedBlockState = BlockStateRotator.rotate(terraBlockState, piece.rotation(), platform);
 				// Calculate the world position for this block
 				Vector3Int rotatedPos = CoordinateConverter.rotate(
 						block.pos(),
@@ -200,8 +213,7 @@ public class JigsawStructure implements Structure {
 						piece.worldPosition().getX() + rotatedPos.getX(),
 						piece.worldPosition().getY() + rotatedPos.getY(),
 						piece.worldPosition().getZ() + rotatedPos.getZ());
-				// ADDED: Defensive bounds checking before placing
-				// This prevents errors if we try to place outside the ProtoWorld bounds
+				// Enhanced defensive bounds checking with try-catch
 				try {
 					world.setBlockState(
 							finalPos.getX(),
@@ -210,8 +222,10 @@ public class JigsawStructure implements Structure {
 							rotatedBlockState);
 					blocksPlaced++;
 				} catch (Exception e) {
-					// Block is outside the writable region, skip it
+					// Silent catch - Block is outside the writable region
 					// This is expected for pieces at the edge of the ProtoWorld
+					// Optionally log at FINEST level for debugging
+					// LOGGER.finest("Block at " + finalPos + " is outside writable region");
 				}
 			} catch (Exception e) {
 				LOGGER.warning(String.format(
