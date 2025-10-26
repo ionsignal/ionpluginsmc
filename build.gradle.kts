@@ -1,14 +1,14 @@
 plugins {
   `java-library`
   id("io.papermc.paperweight.userdev") version "2.0.0-beta.18"
-  id("xyz.jpenilla.run-paper") version "3.0.0" // runServer and runMojangMappedServer tasks for testing
-  id("com.gradleup.shadow") version "9.1.0"
-  id("com.github.ben-manes.versions") version "0.52.0" 
+  id("xyz.jpenilla.run-paper") version "3.0.2"
+  id("com.gradleup.shadow") version "9.2.2"
+  id("com.github.ben-manes.versions") version "0.53.0" 
   id("eclipse") 
 }
 
 group = "com.ionsignal.minecraft.ionnerrus"
-version = "0.0.8-alpha.1-SNAPSHOT" // Update in plugin.yml as well
+version = "0.0.9-alpha.1-SNAPSHOT"
 description = "An LLM powered NPC decision engine"
 
 java {
@@ -25,8 +25,7 @@ dependencies {
   implementation("io.github.sashirestela:simple-openai:3.22.1")
   // HTTP Client for future LLM integration
   implementation("com.squareup.okhttp3:okhttp:5.1.0")
-  // Reflections library for classpath scanning
-  implementation("org.reflections:reflections:0.10.2")
+  implementation("io.github.classgraph:classgraph:4.8.184")
 }
 
 repositories {
@@ -64,14 +63,26 @@ tasks {
       "-XX:+AllowEnhancedClassRedefinition"
     )
     minecraftVersion("1.21.8")
+    // Explicit dependency on the addon's build task
+    dependsOn(":ionnerrus-terra-addon:build")
+    // Copy the Terra addon JAR to the addons directory before starting
+    doFirst {
+      val addonProject = project(":ionnerrus-terra-addon")
+      val addonJar = addonProject.tasks.named("shadowJar").get().outputs.files.singleFile
+      val terraAddonsDir = file("run/plugins/Terra/addons")
+      terraAddonsDir.mkdirs()
+      copy {
+        from(addonJar)
+        into(terraAddonsDir)
+      }
+      logger.lifecycle("Copied Terra addon to: ${terraAddonsDir}/${addonJar.name}")
+    }
   }
 
-  // shadowJar task to relocate dependencies
   shadowJar {
     // Add relocation rules for dependencies
     relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
-    relocate("org.reflections", "com.ionsignal.minecraft.ionnerrus.lib.reflections")
-    relocate("org.javassist", "com.ionsignal.minecraft.ionnerrus.lib.javassist")
+    relocate("io.github.classgraph", "com.ionsignal.minecraft.ionnerrus.lib.classgraph")
     relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3")
     relocate("io.github.sashirestela.openai", "com.ionsignal.minecraft.ionnerrus.lib.openai")
     relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ionnerrus.lib.jackson")
@@ -81,5 +92,7 @@ tasks {
 
   build {
     dependsOn(shadowJar)
+    // Build the addon before building the main plugin
+    dependsOn(":ionnerrus-terra-addon:build")
   }
 }
