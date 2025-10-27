@@ -5,6 +5,8 @@ import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -159,15 +161,46 @@ public record JigsawPlacement(
 	}
 
 	/**
+	 * Gets a breakdown of pool usage in this placement.
+	 * 
+	 * @return Map of poolId -> count of pieces from that pool
+	 */
+	public Map<String, Integer> getPoolUsageBreakdown() {
+		return pieces.stream()
+				.filter(piece -> piece.sourcePoolId() != null) // PHASE 1: Handle null for simple structures
+				.collect(Collectors.groupingBy(
+						PlacedJigsawPiece::sourcePoolId,
+						Collectors.summingInt(p -> 1)));
+	}
+
+	/**
+	 * Gets a breakdown by specific element file.
+	 * 
+	 * @return Map of elementFile -> count
+	 */
+	public Map<String, Integer> getElementUsageBreakdown() {
+		return pieces.stream()
+				.collect(Collectors.groupingBy(
+						PlacedJigsawPiece::nbtFile,
+						Collectors.summingInt(p -> 1)));
+	}
+
+	/**
 	 * Gets a summary string for logging.
 	 */
 	public String getSummary() {
+		Map<String, Integer> poolUsage = getPoolUsageBreakdown();
+		String poolSummary = poolUsage.isEmpty()
+				? "N/A (simple structure)"
+				: poolUsage.toString();
+
 		return String.format(
-				"JigsawPlacement[id=%s, pieces=%d, maxDepth=%d, bounds=%s, blocks=%d]",
+				"JigsawPlacement[id=%s, pieces=%d, maxDepth=%d, bounds=%s, blocks=%d, pools=%s]",
 				structureId,
 				getPieceCount(),
 				getMaxDepth(),
 				totalBounds,
-				getTotalBlockCount());
+				getTotalBlockCount(),
+				poolSummary);
 	}
 }

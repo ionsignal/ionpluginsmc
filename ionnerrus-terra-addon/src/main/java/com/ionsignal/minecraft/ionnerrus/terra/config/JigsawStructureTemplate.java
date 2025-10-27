@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.terra.config;
 
-import com.dfsek.tectonic.api.config.template.annotations.Default; // ADDED: Import for default values
+import com.dfsek.tectonic.api.config.template.annotations.Default;
 import com.dfsek.tectonic.api.config.template.annotations.Value;
 import com.dfsek.terra.api.config.AbstractableTemplate;
 import com.dfsek.terra.api.config.meta.Meta;
@@ -12,25 +12,25 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
 	@Value("file")
 	private @Meta String file;
 
-	// ADDED: Starting pool reference for jigsaw generation
 	@Value("start-pool")
 	@Default
 	private @Meta String startPool = "minecraft:empty";
 
-	// ADDED: Maximum generation depth (number of connections to follow)
 	@Value("max-depth")
 	@Default
 	private @Meta int maxDepth = 7;
 
-	// ADDED: Maximum radius from starting point
 	@Value("max-distance")
 	@Default
 	private @Meta int maxDistance = 80;
 
-	// ADDED: Whether to adapt to terrain height
 	@Value("terrain-adaptation")
 	@Default
 	private @Meta String terrainAdaptation = "none";
+
+	@Value("enforcement-strategy")
+	@Default
+	private @Meta String enforcementStrategy = "best_effort";
 
 	@Override
 	public String getID() {
@@ -41,7 +41,6 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
 		return file;
 	}
 
-	// ADDED: Getter methods for new fields
 	public String getStartPool() {
 		return startPool;
 	}
@@ -56,5 +55,14 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
 
 	public String getTerrainAdaptation() {
 		return terrainAdaptation;
+	}
+
+	/**
+	 * Gets the enforcement strategy for min/max count constraints.
+	 * 
+	 * @return Enforcement strategy string (strict, best_effort, or flexible)
+	 */
+	public String getEnforcementStrategy() {
+		return enforcementStrategy;
 	}
 }
