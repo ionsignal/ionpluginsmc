@@ -389,14 +389,14 @@ public class JigsawGenerator {
 	 */
 	private void ensureMinimumPieceCounts() {
 		// Track which pools have been used and their counts
-		Map<String, Integer> poolUsage = new HashMap<>();
+		// Map<String, Integer> poolUsage = new HashMap<>();
 		// ADDED: This is a placeholder implementation
 		// A full implementation would need to:
 		// 1. Track which pool each piece came from (requires modifying PlacedJigsawPiece)
 		// 2. Check min-count requirements from JigsawPool.WeightedElement
 		// 3. Force-place additional pieces if requirements aren't met
 		// For now, just log that this step would happen
-		LOGGER.fine("Minimum piece count enforcement would happen here");
+		// LOGGER.fine("Minimum piece count enforcement would happen here");
 	}
 
 	// PHASE 1: ADDED - Method to get generation statistics

@@ -11,9 +11,10 @@ import com.ionsignal.minecraft.ionnerrus.terra.generation.JigsawPool;
  * ConfigType for registering jigsaw pools with Terra.
  */
 public class JigsawPoolType implements ConfigType<JigsawPoolTemplate, JigsawPool> {
-
 	private static final TypeKey<JigsawPool> POOL_TYPE_KEY = new TypeKey<>() {
 	};
+
+	@SuppressWarnings("unused")
 	private final Platform platform;
 
 	public JigsawPoolType(Platform platform) {
