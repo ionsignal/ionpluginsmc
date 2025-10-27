@@ -15,7 +15,18 @@ import com.ionsignal.minecraft.ionnerrus.terra.util.TransformUtil;
 import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
 import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
 
-import java.util.*;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.PoolUsageTracker;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.GenerationStatistics;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.logging.Logger;
 
@@ -39,6 +50,11 @@ public class JigsawGenerator {
 	private final PriorityQueue<PendingJigsawConnection> connectionQueue;
 	private final Set<AABB> occupiedSpace;
 
+	private final PoolUsageTracker usageTracker;
+	private int attemptedConnections;
+	private int successfulConnections;
+	private long generationStartTime;
+
 	public JigsawGenerator(
 			ConfigPack pack,
 			Platform platform,
@@ -54,6 +70,9 @@ public class JigsawGenerator {
 		this.pieces = new ArrayList<>();
 		this.connectionQueue = new PriorityQueue<>();
 		this.occupiedSpace = new HashSet<>();
+		this.usageTracker = new PoolUsageTracker();
+		this.attemptedConnections = 0;
+		this.successfulConnections = 0;
 	}
 
 	/**
@@ -64,15 +83,19 @@ public class JigsawGenerator {
 	 * @return A JigsawPlacement containing all placed pieces
 	 */
 	public JigsawPlacement generate(String startPoolId) {
-		// 1. Select and place initial piece from start pool
+		// Record start time
+		generationStartTime = System.currentTimeMillis();
+		// Select and place initial piece from start pool
 		PlacedJigsawPiece startPiece = selectAndPlaceStartPiece(startPoolId);
 		if (startPiece == null) {
-			// ADDED: Log warning when no start piece can be placed
+			// Log warning when no start piece can be placed
 			LOGGER.warning("Failed to place start piece from pool: " + startPoolId);
 			return JigsawPlacement.empty(origin, config.getID());
 		}
 		pieces.add(startPiece);
 		occupiedSpace.add(startPiece.getWorldBounds());
+		// Record start piece placement
+		usageTracker.recordPlacement(startPiece.sourcePoolId(), startPiece.nbtFile());
 		queueConnections(startPiece, 0);
 		// 2. Process connection queue recursively
 		while (!connectionQueue.isEmpty()) {
@@ -99,8 +122,16 @@ public class JigsawGenerator {
 				updateConnectionAsConsumed(pending);
 			}
 		}
-		// 3. Ensure minimum pool requirements are met
+		// Ensure minimum pool requirements are met
 		ensureMinimumPieceCounts();
+		// Log generation summary
+		long generationTime = System.currentTimeMillis() - generationStartTime;
+		LOGGER.fine(String.format(
+				"Generation completed in %dms: %d pieces placed, %d/%d connections successful",
+				generationTime,
+				pieces.size(),
+				successfulConnections,
+				attemptedConnections));
 		return new JigsawPlacement(pieces, origin, config.getID());
 	}
 
@@ -139,6 +170,7 @@ public class JigsawGenerator {
 	 * Connection and rotation logic
 	 */
 	private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
+		attemptedConnections++;
 		// Get target pool
 		String targetPoolId = pending.getTargetPoolId();
 		JigsawPool pool = poolRegistry.getPool(targetPoolId);
@@ -191,6 +223,10 @@ public class JigsawGenerator {
 								finalTransform.position(),
 								finalTransform.rotation(),
 								structureData.size());
+						// Track successful connection
+						successfulConnections++;
+						// Record usage before returning
+						usageTracker.recordPlacement(targetPoolId, nbtFile);
 						// Include sourcePoolId in PlacedJigsawPiece creation
 						return new PlacedJigsawPiece(
 								nbtFile,
@@ -361,5 +397,45 @@ public class JigsawGenerator {
 		// 3. Force-place additional pieces if requirements aren't met
 		// For now, just log that this step would happen
 		LOGGER.fine("Minimum piece count enforcement would happen here");
+	}
+
+	// PHASE 1: ADDED - Method to get generation statistics
+	/**
+	 * Gets comprehensive statistics about the generation process.
+	 * 
+	 * @return GenerationStatistics containing all metrics
+	 */
+	public GenerationStatistics getStatistics() {
+		List<String> violations = new ArrayList<>();
+		// NOTE: Violations will be populated in Phase 2 with constraint checking
+
+		// Calculate generation time
+		long generationTime = System.currentTimeMillis() - generationStartTime;
+
+		// Aggregate pool usage from tracker
+		Map<String, Integer> poolUsageSummary = usageTracker.getSnapshot().entrySet().stream()
+				.collect(Collectors.toMap(
+						Map.Entry::getKey,
+						e -> e.getValue().values().stream().mapToInt(Integer::intValue).sum()));
+
+		return new GenerationStatistics(
+				config.getID(),
+				pieces.size(),
+				pieces.stream().mapToInt(PlacedJigsawPiece::depth).max().orElse(0),
+				generationTime,
+				poolUsageSummary,
+				violations,
+				attemptedConnections,
+				successfulConnections);
+	}
+
+	// PHASE 1: ADDED - Getter for usage tracker (needed for Phase 2)
+	/**
+	 * Gets the pool usage tracker for this generator.
+	 * 
+	 * @return The PoolUsageTracker instance
+	 */
+	public PoolUsageTracker getUsageTracker() {
+		return usageTracker;
 	}
 }
