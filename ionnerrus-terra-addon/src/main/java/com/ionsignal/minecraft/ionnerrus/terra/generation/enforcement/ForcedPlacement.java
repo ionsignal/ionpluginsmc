@@ -27,16 +27,32 @@ import java.util.stream.Collectors;
  * Logic for forcing placement of pieces to meet minimum count requirements.
  * This is a "last resort" mechanism that attempts to find valid connection points
  * for required pieces after normal generation completes.
+ * 
+ * IMPORTANT: This must maintain generation determinism by using the same Random
+ * seed as the main generator.
+ * 
+ * ROTATION LOGIC:
+ * For ALIGNED joints: Use base alignment rotation from calculateAlignment
+ * For ROLLABLE joints:
+ * 1. Calculate base alignment rotation (makes jigsaws face each other)
+ * 2. Try adding 0°, 90°, 180°, 270° additional rotation around connection axis
+ * 3. Recalculate structure position for each additional rotation
  */
 public class ForcedPlacement {
 	private static final Logger LOGGER = Logger.getLogger(ForcedPlacement.class.getName());
 	private static final int MAX_FORCED_ATTEMPTS = 50; // Prevent infinite loops
+	private static final List<Rotation> ALL_ROTATIONS = List.of(
+			Rotation.NONE,
+			Rotation.CW_90,
+			Rotation.CW_180,
+			Rotation.CCW_90);
 
 	private final ConfigPack pack;
 	private final Random random;
 
 	public ForcedPlacement(ConfigPack pack, long seed) {
 		this.pack = pack;
+		// Derive a seed for forced placement to maintain determinism
 		this.random = new Random(seed ^ 0x5DEECE66DL);
 	}
 
@@ -156,7 +172,10 @@ public class ForcedPlacement {
 
 	/**
 	 * Attempts to place a piece at a specific connection point.
-	 * Tries all valid rotations and returns the first successful placement.
+	 * Uses the CORRECTED rotation logic:
+	 * 1. Calculate base alignment (jigsaws facing each other)
+	 * 2. For ALIGNED joints: use base alignment directly
+	 * 3. For ROLLABLE joints: try adding each additional rotation (0°, 90°, 180°, 270°)
 	 */
 	private PlacedJigsawPiece tryForcePlacement(
 			ConnectionCandidate candidate,
@@ -173,25 +192,35 @@ public class ForcedPlacement {
 		if (compatibleJigsaws.isEmpty()) {
 			return null; // No compatible connection points
 		}
-		// Try each compatible jigsaw with all valid rotations
+		// Try each compatible jigsaw
 		for (JigsawData.JigsawBlock childJigsaw : compatibleJigsaws) {
-			// Determine rotations to try based on joint type
-			List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
-			for (Rotation rotation : rotationsToTry) {
-				// Create a rotated version of the child jigsaw for alignment calculation
-				JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(
-						childJigsaw,
-						rotation,
-						structureData.size());
-				// Calculate alignment with the rotated jigsaw
-				PlacementTransform transform = TransformUtil.calculateAlignment(
-						parentConnection,
-						rotatedChildJigsaw,
-						structureData.size());
-				// Apply the additional rotation to the transform
+			// Calculate base alignment first (using ORIGINAL child jigsaw)
+			PlacementTransform baseTransform = TransformUtil.calculateAlignment(
+					parentConnection,
+					childJigsaw, // IMPORTANT: Use original, unrotated jigsaw
+					structureData.size());
+			// Determine which rotations to try based on joint type
+			JigsawData.JointType jointType = childJigsaw.info().jointType();
+			List<Rotation> rotationsToTry = jointType == JigsawData.JointType.ROLLABLE
+					? ALL_ROTATIONS // Try all 4 rotations for ROLLABLE
+					: List.of(Rotation.NONE); // Only base alignment for ALIGNED
+			// Try each additional rotation
+			for (Rotation additionalRotation : rotationsToTry) {
+				// Combine base alignment rotation with additional rotation
+				Rotation finalRotation = combineRotations(
+						baseTransform.rotation(),
+						additionalRotation);
+				// Recalculate structure position accounting for additional rotation
+				// When we rotate around the connection point, the structure origin moves
+				Vector3Int finalPosition = calculatePositionWithAdditionalRotation(
+						baseTransform.position(),
+						childJigsaw.position(),
+						additionalRotation,
+						structureData.size(),
+						baseTransform.rotation());
 				PlacementTransform finalTransform = new PlacementTransform(
-						transform.position(),
-						combineRotations(transform.rotation(), rotation));
+						finalPosition,
+						finalRotation);
 				// Check collision with existing pieces
 				AABB childBounds = AABB.fromPiece(
 						finalTransform.position(),
@@ -204,9 +233,8 @@ public class ForcedPlacement {
 							finalTransform.position(),
 							finalTransform.rotation(),
 							structureData.size());
-					// Calculate depth (parent depth + 1)
+					// Calculate depth (parent depth + 1) and create placed piece
 					int depth = candidate.parentPiece().depth() + 1;
-					// Create the placed piece
 					return new PlacedJigsawPiece(
 							constraint.elementFile(),
 							finalTransform.position(),
@@ -219,8 +247,75 @@ public class ForcedPlacement {
 				}
 			}
 		}
-
 		return null; // Failed to find non-colliding placement
+	}
+
+	/**
+	 * Calculates the structure's world position when an additional rotation is applied around the
+	 * connection point.
+	 * 
+	 * When we rotate a structure around its connection point, the structure's origin
+	 * moves. This method calculates where the origin ends up.
+	 * 
+	 * ALGORITHM:
+	 * 1. Start with base position (from base alignment)
+	 * 2. Calculate where the jigsaw is after base rotation
+	 * 3. Apply additional rotation to that jigsaw position
+	 * 4. Calculate new structure origin position
+	 * 
+	 * @param basePosition
+	 *            Position from base alignment calculation
+	 * @param childJigsawLocalPos
+	 *            Local position of child jigsaw in structure
+	 * @param additionalRotation
+	 *            Additional rotation being applied (0°, 90°, 180°, 270°)
+	 * @param structureSize
+	 *            Size of the child structure
+	 * @param baseRotation
+	 *            The base alignment rotation
+	 * @return The final world position for the structure origin
+	 */
+	private Vector3Int calculatePositionWithAdditionalRotation(
+			Vector3Int basePosition,
+			Vector3Int childJigsawLocalPos,
+			Rotation additionalRotation,
+			Vector3Int structureSize,
+			Rotation baseRotation) {
+		if (additionalRotation == Rotation.NONE) {
+			return basePosition; // No adjustment needed
+		}
+		// Step 1: Calculate where the jigsaw is after base rotation
+		Vector3Int jigsawAfterBaseRotation = CoordinateConverter.rotate(
+				childJigsawLocalPos,
+				baseRotation,
+				structureSize);
+		// Step 2: Apply additional rotation to the jigsaw position
+		// The additional rotation is around the connection point (world origin of jigsaw)
+		Vector3Int jigsawAfterAdditionalRotation = CoordinateConverter.rotate(
+				jigsawAfterBaseRotation,
+				additionalRotation,
+				calculateRotatedSize(structureSize, baseRotation));
+		// Step 3: Calculate offset difference caused by additional rotation
+		Vector3Int offsetDelta = Vector3Int.of(
+				jigsawAfterAdditionalRotation.getX() - jigsawAfterBaseRotation.getX(),
+				jigsawAfterAdditionalRotation.getY() - jigsawAfterBaseRotation.getY(),
+				jigsawAfterAdditionalRotation.getZ() - jigsawAfterBaseRotation.getZ());
+		// Step 4: Adjust base position by the offset delta
+		return Vector3Int.of(
+				basePosition.getX() - offsetDelta.getX(),
+				basePosition.getY() - offsetDelta.getY(),
+				basePosition.getZ() - offsetDelta.getZ());
+	}
+
+	/**
+	 * Calculates the effective size of a structure after rotation.
+	 * X and Z dimensions are swapped for 90° and 270° rotations.
+	 */
+	private Vector3Int calculateRotatedSize(Vector3Int size, Rotation rotation) {
+		return switch (rotation) {
+			case CW_90, CCW_90 -> Vector3Int.of(size.getZ(), size.getY(), size.getX());
+			case CW_180, NONE -> size;
+		};
 	}
 
 	/**
@@ -236,58 +331,27 @@ public class ForcedPlacement {
 	}
 
 	/**
-	 * Gets rotations to try based on joint type.
-	 */
-	private List<Rotation> getRotationsForJoint(JigsawData.JointType jointType) {
-		if (jointType == JigsawData.JointType.ROLLABLE) {
-			// ROLLABLE joints can use any rotation
-			return List.of(Rotation.NONE, Rotation.CW_90, Rotation.CW_180, Rotation.CCW_90);
-		} else {
-			// ALIGNED joints preserve orientation
-			return List.of(Rotation.NONE);
-		}
-	}
-
-	/**
-	 * Rotates a jigsaw block for alignment calculation.
-	 */
-	private JigsawData.JigsawBlock rotateJigsawBlock(
-			JigsawData.JigsawBlock jigsaw,
-			Rotation rotation,
-			Vector3Int structureSize) {
-		if (rotation == Rotation.NONE) {
-			return jigsaw;
-		}
-		// Rotate position
-		Vector3Int rotatedPos = CoordinateConverter.rotate(
-				jigsaw.position(),
-				rotation,
-				structureSize);
-		// Rotate orientation
-		String rotatedOrientation = TransformUtil.rotateOrientation(
-				jigsaw.orientation(),
-				rotation);
-		return new JigsawData.JigsawBlock(rotatedPos, rotatedOrientation, jigsaw.info());
-	}
-
-	/**
-	 * Combines two rotations.
+	 * Combines two rotations by adding their rotation steps.
+	 * 
+	 * @param first
+	 *            Base rotation
+	 * @param second
+	 *            Additional rotation to apply
+	 * @return Combined rotation
 	 */
 	private Rotation combineRotations(Rotation first, Rotation second) {
 		if (first == Rotation.NONE)
 			return second;
 		if (second == Rotation.NONE)
 			return first;
-
 		int firstSteps = rotationToSteps(first);
 		int secondSteps = rotationToSteps(second);
 		int totalSteps = (firstSteps + secondSteps) % 4;
-
 		return stepsToRotation(totalSteps);
 	}
 
 	/**
-	 * Converts rotation to steps.
+	 * Converts a rotation to number of 90° clockwise steps.
 	 */
 	private int rotationToSteps(Rotation rotation) {
 		return switch (rotation) {
@@ -299,7 +363,7 @@ public class ForcedPlacement {
 	}
 
 	/**
-	 * Converts steps to rotation.
+	 * Converts number of 90° clockwise steps to a rotation.
 	 */
 	private Rotation stepsToRotation(int steps) {
 		return switch (steps % 4) {
