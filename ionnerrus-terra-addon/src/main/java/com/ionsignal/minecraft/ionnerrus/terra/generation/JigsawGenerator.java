@@ -17,10 +17,13 @@ import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
 
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.PoolUsageTracker;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.GenerationStatistics;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.EnforcementStrategy;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ForcedPlacement;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ConstraintViolation;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +32,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.logging.Logger;
+import java.util.logging.Level;
 
 /**
  * Main class for the recursive jigsaw structure generation algorithm.
@@ -55,6 +59,17 @@ public class JigsawGenerator {
 	private int successfulConnections;
 	private long generationStartTime;
 
+	private final EnforcementStrategy enforcementStrategy;
+	private final List<UsageConstraints> allConstraints;
+	private final ForcedPlacement forcedPlacement;
+
+	/**
+	 * Violations captured during enforcement phase.
+	 * This is populated by ensureMinimumPieceCounts() and referenced by getStatistics().
+	 * Tracking violations here prevents inefficient recalculation and ensures consistency.
+	 */
+	private final List<ConstraintViolation> capturedViolations = new ArrayList<>();
+
 	public JigsawGenerator(
 			ConfigPack pack,
 			Platform platform,
@@ -73,6 +88,63 @@ public class JigsawGenerator {
 		this.usageTracker = new PoolUsageTracker();
 		this.attemptedConnections = 0;
 		this.successfulConnections = 0;
+		this.enforcementStrategy = EnforcementStrategy.fromConfig(config.getEnforcementStrategy());
+		this.allConstraints = gatherConstraintsFromPools();
+		if (enforcementStrategy != EnforcementStrategy.BEST_EFFORT && allConstraints.isEmpty()) {
+			LOGGER.warning(String.format(
+					"Enforcement strategy is '%s' but no constraints were found. " +
+							"This may indicate a configuration issue or that pools haven't loaded yet.",
+					enforcementStrategy.getConfigValue()));
+		}
+		this.forcedPlacement = new ForcedPlacement(pack, seed);
+		if (!allConstraints.isEmpty()) {
+			long minConstraints = allConstraints.stream().filter(UsageConstraints::hasMinimum).count();
+			long maxConstraints = allConstraints.stream().filter(UsageConstraints::hasMaximum).count();
+			LOGGER.info(String.format(
+					"Generator initialized with enforcement strategy: %s, tracking %d constraints (%d min, %d max)",
+					enforcementStrategy.getConfigValue(),
+					allConstraints.size(),
+					minConstraints,
+					maxConstraints));
+		}
+	}
+
+	/**
+	 * Gathers all usage constraints from pools referenced by this structure, sorting constraints to
+	 * ensure deterministic processing order
+	 * 
+	 * @return List of all constraints from registered pools, or empty list on failure
+	 */
+	private List<UsageConstraints> gatherConstraintsFromPools() {
+		try {
+			List<UsageConstraints> constraints = poolRegistry.getAllConstraints();
+			if (constraints.isEmpty()) {
+				LOGGER.fine("No constraints found in pool registry...");
+				return Collections.emptyList();
+			}
+			List<UsageConstraints> filtered = constraints.stream()
+					.filter(c -> c.hasMinimum() || c.hasMaximum())
+					.toList();
+			// Sort constraints for deterministic processing
+			List<UsageConstraints> sorted = filtered.stream()
+					.sorted((c1, c2) -> {
+						int poolCompare = c1.poolId().compareTo(c2.poolId());
+						if (poolCompare != 0) {
+							return poolCompare;
+						}
+						return c1.elementFile().compareTo(c2.elementFile());
+					})
+					.toList();
+			LOGGER.fine(String.format(
+					"Gathered and sorted %d constraints (deterministic order ensured)",
+					sorted.size()));
+			return sorted;
+		} catch (Exception e) {
+			LOGGER.log(Level.WARNING,
+					"Failed to gather constraints from pool registry...",
+					e);
+			return Collections.emptyList();
+		}
 	}
 
 	/**
@@ -85,53 +157,49 @@ public class JigsawGenerator {
 	public JigsawPlacement generate(String startPoolId) {
 		// Record start time
 		generationStartTime = System.currentTimeMillis();
+		// Clear captured violations from any previous run
+		capturedViolations.clear();
 		// Select and place initial piece from start pool
 		PlacedJigsawPiece startPiece = selectAndPlaceStartPiece(startPoolId);
 		if (startPiece == null) {
-			// Log warning when no start piece can be placed
 			LOGGER.warning("Failed to place start piece from pool: " + startPoolId);
 			return JigsawPlacement.empty(origin, config.getID());
 		}
 		pieces.add(startPiece);
 		occupiedSpace.add(startPiece.getWorldBounds());
-		// Record start piece placement
 		usageTracker.recordPlacement(startPiece.sourcePoolId(), startPiece.nbtFile());
 		queueConnections(startPiece, 0);
-		// 2. Process connection queue recursively
+		// Process connection queue recursively
 		while (!connectionQueue.isEmpty()) {
 			PendingJigsawConnection pending = connectionQueue.poll();
-			// Check depth limit
 			if (pending.exceedsDepth(config.getMaxDepth())) {
 				continue;
 			}
-			// Check distance limit
 			if (pending.exceedsDistance(origin, config.getMaxDistance())) {
 				continue;
 			}
-			// Skip if this is a terminator connection
 			if (pending.isTerminator()) {
 				continue;
 			}
-			// Try to place a connecting piece
 			PlacedJigsawPiece childPiece = tryPlaceConnectingPiece(pending);
 			if (childPiece != null) {
 				pieces.add(childPiece);
 				occupiedSpace.add(childPiece.getWorldBounds());
 				queueConnections(childPiece, pending.depth() + 1);
-				// Mark the connection as consumed
 				updateConnectionAsConsumed(pending);
 			}
 		}
-		// Ensure minimum pool requirements are met
+		// Ensure minimum piece counts are met
 		ensureMinimumPieceCounts();
 		// Log generation summary
 		long generationTime = System.currentTimeMillis() - generationStartTime;
 		LOGGER.fine(String.format(
-				"Generation completed in %dms: %d pieces placed, %d/%d connections successful",
+				"Generation completed in %dms: %d pieces placed, %d/%d connections successful%s",
 				generationTime,
 				pieces.size(),
 				successfulConnections,
-				attemptedConnections));
+				attemptedConnections,
+				capturedViolations.isEmpty() ? "" : " (" + capturedViolations.size() + " violations)"));
 		return new JigsawPlacement(pieces, origin, config.getID());
 	}
 
@@ -154,80 +222,68 @@ public class JigsawGenerator {
 			LOGGER.severe("Failed to load structure file: " + nbtFile);
 			return null;
 		}
-		// Start piece is placed at origin with random rotation
 		Rotation rotation = selectRandomRotation();
-		// Transform jigsaw blocks to world space
 		List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 				structureData.jigsawBlocks(),
 				origin,
 				rotation,
 				structureData.size());
-		// Include sourcePoolId in PlacedJigsawPiece creation
 		return PlacedJigsawPiece.createStartPiece(nbtFile, origin, rotation, structureData, connections, startPoolId);
 	}
 
 	/**
-	 * Connection and rotation logic
+	 * Attempts to place a piece at a pending connection point and respects maximum count constraints.
 	 */
 	private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
 		attemptedConnections++;
-		// Get target pool
 		String targetPoolId = pending.getTargetPoolId();
 		JigsawPool pool = poolRegistry.getPool(targetPoolId);
 		if (pool == null) {
 			LOGGER.warning("Target pool not found: " + targetPoolId);
 			return null;
 		}
-		// Increased candidates and added shuffling for variety
-		List<String> candidateFiles = selectCandidateFiles(pool, 10);
+		// Respect max count constraints
+		List<String> candidateFiles = selectCandidateFilesRespectingMaxCounts(pool, 10);
+		// Check if selection returned candidates
+		if (candidateFiles.isEmpty()) {
+			LOGGER.fine("No eligible candidates from pool " + targetPoolId + " (all elements may have reached max count)");
+			return null;
+		}
 		Collections.shuffle(candidateFiles, random);
-		// Exhaustive search through all candidates, jigsaws, and valid rotations
 		for (String nbtFile : candidateFiles) {
 			NBTStructure.StructureData structureData = NBTStructureProvider.getInstance().load(pack, nbtFile);
 			if (structureData == null) {
 				continue;
 			}
-			// Shuffle for variety, so we don't always connect the same jigsaw if multiple are valid
 			List<JigsawData.JigsawBlock> shuffledJigsaws = new ArrayList<>(structureData.jigsawBlocks());
 			Collections.shuffle(shuffledJigsaws, random);
 			for (JigsawData.JigsawBlock childJigsaw : shuffledJigsaws) {
-				// A. Check if the names/targets match between the parent and potential child.
 				if (!JigsawConnection.matchesConnectionName(pending.getTargetName(), childJigsaw.info().name()) ||
 						!JigsawConnection.matchesConnectionName(childJigsaw.info().target(), pending.connection().info().name())) {
 					continue;
 				}
-				// Determine rotations to try based on joint type
 				List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
-				// Try each valid rotation
 				for (Rotation rotation : rotationsToTry) {
-					// Create a rotated version of the child jigsaw for alignment calculation
 					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(childJigsaw, rotation, structureData.size());
-					// Calculate alignment with the rotated jigsaw
 					PlacementTransform transform = TransformUtil.calculateAlignment(
 							pending.connection(),
 							rotatedChildJigsaw,
 							structureData.size());
-					// Apply the additional rotation to the transform
 					PlacementTransform finalTransform = new PlacementTransform(
 							transform.position(),
 							combineRotations(transform.rotation(), rotation));
-					// Check collision with existing pieces
 					AABB childBounds = AABB.fromPiece(
 							finalTransform.position(),
 							structureData.size(),
 							finalTransform.rotation());
 					if (!collides(childBounds)) {
-						// Transform jigsaw blocks to world space
 						List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 								structureData.jigsawBlocks(),
 								finalTransform.position(),
 								finalTransform.rotation(),
 								structureData.size());
-						// Track successful connection
 						successfulConnections++;
-						// Record usage before returning
 						usageTracker.recordPlacement(targetPoolId, nbtFile);
-						// Include sourcePoolId in PlacedJigsawPiece creation
 						return new PlacedJigsawPiece(
 								nbtFile,
 								finalTransform.position(),
@@ -241,10 +297,190 @@ public class JigsawGenerator {
 				}
 			}
 		}
-		return null; // Failed to place any piece
+		return null;
 	}
 
-	// Get rotations to try based on joint type
+	/**
+	 * Selects candidate files from a pool while respecting maximum count constraints updating exclusion
+	 * set dynamically as candidates are selected
+	 * 
+	 * @param pool
+	 *            The pool to select from
+	 * @param count
+	 *            Maximum number of candidates to return
+	 * @return List of eligible candidate file paths (may be fewer than count)
+	 */
+	private List<String> selectCandidateFilesRespectingMaxCounts(JigsawPool pool, int count) {
+		List<String> candidates = new ArrayList<>();
+		Set<String> selected = new HashSet<>();
+		int attempts = 0;
+		int maxAttempts = count * 3;
+		while (candidates.size() < count && attempts++ < maxAttempts) {
+			// Rebuild exclusion set on each iteration
+			Set<String> excludedFiles = new HashSet<>();
+			for (JigsawPool.WeightedElement element : pool.getElements()) {
+				int currentCount = usageTracker.getCount(pool.getId(), element.getFile());
+				// Account for already-selected candidates in this batch
+				int pendingCount = (int) candidates.stream()
+						.filter(c -> c.equals(element.getFile()))
+						.count();
+				// Check if CURRENT + PENDING + 1 (for this selection) would exceed max
+				if (currentCount + pendingCount >= element.getMaxCount()) {
+					excludedFiles.add(element.getFile());
+				}
+			}
+			// If all elements are maxed out, stop trying
+			if (excludedFiles.size() == pool.getElements().size()) {
+				LOGGER.fine("All elements in pool " + pool.getId() + " have reached max count");
+				break;
+			}
+			String file = pool.selectRandomElementWithExclusions(random, excludedFiles);
+			if (file == null) {
+				break;
+			}
+			if (!selected.contains(file)) {
+				candidates.add(file);
+				selected.add(file);
+			}
+		}
+		return candidates;
+	}
+
+	/**
+	 * Ensures minimum piece counts are met for all constrained elements marking parent connections as
+	 * consumed after forced placement
+	 * 
+	 * Enforcement behavior depends on the configured strategy:
+	 * - STRICT: Generation fails if minimums cannot be met
+	 * - BEST_EFFORT: Attempts forced placement but accepts partial success
+	 * - FLEXIBLE: Adjusts constraints based on what's achievable
+	 */
+	private void ensureMinimumPieceCounts() {
+		if (allConstraints.isEmpty()) {
+			return;
+		}
+		for (UsageConstraints constraint : allConstraints) {
+			if (!constraint.hasMinimum()) {
+				continue;
+			}
+			int currentCount = usageTracker.getCount(constraint.poolId(), constraint.elementFile());
+			if (currentCount < constraint.minCount()) {
+				switch (enforcementStrategy) {
+					case STRICT:
+						handleStrictEnforcement(constraint, currentCount);
+						break;
+					case BEST_EFFORT:
+						handleBestEffortEnforcement(constraint, currentCount);
+						break;
+					case FLEXIBLE:
+						handleFlexibleEnforcement(constraint, currentCount);
+						break;
+				}
+			}
+		}
+		if (!capturedViolations.isEmpty() && enforcementStrategy == EnforcementStrategy.STRICT) {
+			LOGGER.severe("Generation FAILED due to " + capturedViolations.size() + " constraint violations:");
+			for (ConstraintViolation violation : capturedViolations) {
+				LOGGER.severe("  - " + violation.getMessage());
+			}
+			pieces.clear();
+		}
+	}
+
+	/**
+	 * Handles STRICT enforcement using ForcedPlacementResult and marks connections as consumed
+	 */
+	private void handleStrictEnforcement(UsageConstraints constraint, int currentCount) {
+		ForcedPlacement.ForcedPlacementResult result = forcedPlacement.forcePlacementsForMinimum(
+				constraint,
+				currentCount,
+				pieces,
+				occupiedSpace);
+		int finalCount = currentCount + result.pieces().size();
+		if (finalCount < constraint.minCount()) {
+			capturedViolations.add(new ConstraintViolation(
+					constraint,
+					finalCount,
+					ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
+		} else {
+			// Success: add forced pieces and mark connections as consumed
+			pieces.addAll(result.pieces());
+			// Mark parent connections as consumed
+			for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
+				markConnectionAsConsumed(usage.parentPiece(), usage.connectionPosition());
+			}
+			// Update usage tracker
+			for (PlacedJigsawPiece piece : result.pieces()) {
+				usageTracker.recordPlacement(constraint.poolId(), piece.nbtFile());
+			}
+		}
+	}
+
+	/**
+	 * Handles BEST_EFFORT enforcement - attempts forced placement but accepts failure.
+	 */
+	private void handleBestEffortEnforcement(UsageConstraints constraint, int currentCount) {
+		ForcedPlacement.ForcedPlacementResult result = forcedPlacement.forcePlacementsForMinimum(
+				constraint,
+				currentCount,
+				pieces,
+				occupiedSpace);
+		if (!result.pieces().isEmpty()) {
+			pieces.addAll(result.pieces());
+			// Mark parent connections as consumed
+			for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
+				markConnectionAsConsumed(usage.parentPiece(), usage.connectionPosition());
+			}
+			for (PlacedJigsawPiece piece : result.pieces()) {
+				usageTracker.recordPlacement(constraint.poolId(), piece.nbtFile());
+			}
+		}
+		int finalCount = currentCount + result.pieces().size();
+		if (finalCount < constraint.minCount()) {
+			capturedViolations.add(new ConstraintViolation(
+					constraint,
+					finalCount,
+					ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
+			LOGGER.warning(String.format(
+					"Best-effort: %s minimum not fully met (achieved: %d/%d)",
+					constraint.elementFile(),
+					finalCount,
+					constraint.minCount()));
+		}
+	}
+
+	/**
+	 * Marks a connection as consumed on a specific parent piece.
+	 * Updates the piece in the main pieces list.
+	 */
+	private void markConnectionAsConsumed(PlacedJigsawPiece parentPiece, Vector3Int connectionPosition) {
+		for (int i = 0; i < pieces.size(); i++) {
+			if (pieces.get(i) == parentPiece) {
+				PlacedJigsawPiece updated = pieces.get(i).withConsumedConnection(connectionPosition);
+				pieces.set(i, updated);
+				break;
+			}
+		}
+	}
+
+	/**
+	 * Handles FLEXIBLE enforcement - adjusts constraints based on what's achievable.
+	 */
+	private void handleFlexibleEnforcement(UsageConstraints constraint, int currentCount) {
+		// Record violation even in flexible mode for statistics
+		if (currentCount < constraint.minCount()) {
+			capturedViolations.add(new ConstraintViolation(
+					constraint,
+					currentCount,
+					ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
+		}
+		LOGGER.fine(String.format(
+				"Flexible strategy: accepting %d pieces for %s (target was %d)",
+				currentCount,
+				constraint.elementFile(),
+				constraint.minCount()));
+	}
+
 	private List<Rotation> getRotationsForJoint(JigsawData.JointType jointType) {
 		if (jointType == JigsawData.JointType.ROLLABLE) {
 			// ROLLABLE joints can use any rotation
@@ -260,7 +496,6 @@ public class JigsawGenerator {
 		if (rotation == Rotation.NONE) {
 			return jigsaw;
 		}
-		// Rotate position
 		Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rotation, structureSize);
 		// Rotate orientation
 		String rotatedOrientation = TransformUtil.rotateOrientation(jigsaw.orientation(), rotation);
@@ -359,77 +594,37 @@ public class JigsawGenerator {
 		return false;
 	}
 
-	/**
-	 * Selects multiple candidate files from a pool for placement attempts.
-	 */
-	private List<String> selectCandidateFiles(JigsawPool pool, int count) {
-		List<String> candidates = new ArrayList<>();
-		Set<String> selected = new HashSet<>();
-		for (int i = 0; i < count; i++) {
-			String file = pool.selectRandomElement(random);
-			if (file != null && !selected.contains(file)) {
-				candidates.add(file);
-				selected.add(file);
-			}
-		}
-		return candidates;
-	}
-
-	/**
-	 * Selects a random rotation.
-	 */
 	private Rotation selectRandomRotation() {
 		Rotation[] rotations = Rotation.values();
 		return rotations[random.nextInt(rotations.length)];
 	}
 
 	/**
-	 * Ensures minimum piece counts for all pools are met.
-	 * This is called after the main generation pass.
-	 */
-	private void ensureMinimumPieceCounts() {
-		// Track which pools have been used and their counts
-		// Map<String, Integer> poolUsage = new HashMap<>();
-		// ADDED: This is a placeholder implementation
-		// A full implementation would need to:
-		// 1. Track which pool each piece came from (requires modifying PlacedJigsawPiece)
-		// 2. Check min-count requirements from JigsawPool.WeightedElement
-		// 3. Force-place additional pieces if requirements aren't met
-		// For now, just log that this step would happen
-		// LOGGER.fine("Minimum piece count enforcement would happen here");
-	}
-
-	// PHASE 1: ADDED - Method to get generation statistics
-	/**
 	 * Gets comprehensive statistics about the generation process.
 	 * 
 	 * @return GenerationStatistics containing all metrics
 	 */
 	public GenerationStatistics getStatistics() {
-		List<String> violations = new ArrayList<>();
-		// NOTE: Violations will be populated in Phase 2 with constraint checking
-
-		// Calculate generation time
+		// Convert capturedViolations to string messages
+		List<String> violationMessages = capturedViolations.stream()
+				.map(ConstraintViolation::getMessage)
+				.toList();
 		long generationTime = System.currentTimeMillis() - generationStartTime;
-
-		// Aggregate pool usage from tracker
 		Map<String, Integer> poolUsageSummary = usageTracker.getSnapshot().entrySet().stream()
 				.collect(Collectors.toMap(
 						Map.Entry::getKey,
 						e -> e.getValue().values().stream().mapToInt(Integer::intValue).sum()));
-
 		return new GenerationStatistics(
 				config.getID(),
 				pieces.size(),
 				pieces.stream().mapToInt(PlacedJigsawPiece::depth).max().orElse(0),
 				generationTime,
 				poolUsageSummary,
-				violations,
+				violationMessages,
 				attemptedConnections,
 				successfulConnections);
 	}
 
-	// PHASE 1: ADDED - Getter for usage tracker (needed for Phase 2)
 	/**
 	 * Gets the pool usage tracker for this generator.
 	 * 
