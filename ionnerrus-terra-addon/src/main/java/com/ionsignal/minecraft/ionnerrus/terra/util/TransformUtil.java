@@ -37,22 +37,18 @@ public final class TransformUtil {
 			Vector3Int structureWorldPos,
 			Rotation structureRotation,
 			Vector3Int structureSize) {
-
 		// Step 1: Rotate the jigsaw's position within the structure bounds
 		Vector3Int rotatedLocalPos = CoordinateConverter.rotate(
 				jigsawBlock.position(),
 				structureRotation,
 				structureSize);
-
 		// Step 2: Calculate world position
 		Vector3Int worldPos = Vector3Int.of(
 				structureWorldPos.getX() + rotatedLocalPos.getX(),
 				structureWorldPos.getY() + rotatedLocalPos.getY(),
 				structureWorldPos.getZ() + rotatedLocalPos.getZ());
-
 		// Step 3: Rotate the jigsaw's orientation
 		String rotatedOrientation = rotateOrientation(jigsawBlock.orientation(), structureRotation);
-
 		// Create the transformed jigsaw block
 		return new TransformedJigsawBlock(
 				worldPos,
@@ -77,30 +73,25 @@ public final class TransformUtil {
 			TransformedJigsawBlock parentConnection,
 			JigsawData.JigsawBlock childJigsaw,
 			Vector3Int childStructureSize) {
-
 		// Step 1: Determine the rotation needed to align the child's jigsaw with the parent's
 		Rotation requiredRotation = calculateRequiredRotation(
 				parentConnection.orientation(),
 				childJigsaw.orientation());
-
 		// Step 2: Rotate the child jigsaw's position within its structure
 		Vector3Int rotatedChildJigsawPos = CoordinateConverter.rotate(
 				childJigsaw.position(),
 				requiredRotation,
 				childStructureSize);
-
 		// Step 3: Calculate the offset needed to align the connection points
 		// The child's rotated jigsaw position should align with the parent's connection point
 		// We need to account for the face-to-face connection (jigsaws touch at their faces)
 		Vector3Int connectionOffset = getConnectionOffset(parentConnection.orientation());
-
 		// Step 4: Calculate the child structure's world position
 		// childWorldPos + rotatedChildJigsawPos = parentConnection.position() + connectionOffset
 		Vector3Int childWorldPos = Vector3Int.of(
 				parentConnection.position().getX() + connectionOffset.getX() - rotatedChildJigsawPos.getX(),
 				parentConnection.position().getY() + connectionOffset.getY() - rotatedChildJigsawPos.getY(),
 				parentConnection.position().getZ() + connectionOffset.getZ() - rotatedChildJigsawPos.getZ());
-
 		return new PlacementTransform(childWorldPos, requiredRotation);
 	}
 
@@ -118,21 +109,21 @@ public final class TransformUtil {
 		if (rotation == Rotation.NONE) {
 			return orientation;
 		}
-
 		// Parse compound orientations (e.g., "north_up")
 		String[] parts = orientation.toLowerCase().split("_");
 		String primaryDir = parts[0];
-		String secondaryDir = parts.length > 1 ? parts[1] : null;
-
-		// Rotate the primary direction (horizontal rotations don't affect up/down)
-		String rotatedPrimary = rotateHorizontalDirection(primaryDir, rotation);
-
-		// Reconstruct the orientation
-		if (secondaryDir != null) {
-			return rotatedPrimary + "_" + secondaryDir;
-		} else {
-			return rotatedPrimary;
+		// Default secondary to north if not present, crucial for consistent rotation logic.
+		String secondaryDir = parts.length > 1 ? parts[1] : "north";
+		// If primary is vertical, we rotate the secondary component.
+		if ("up".equals(primaryDir) || "down".equals(primaryDir)) {
+			String rotatedSecondary = rotateHorizontalDirection(secondaryDir, rotation);
+			return primaryDir + "_" + rotatedSecondary;
 		}
+		// If primary is horizontal, we rotate the primary and keep the secondary.
+		// The secondary part (like _up) is preserved relative to the piece, so it doesn't rotate.
+		// Example: "north_up" rotated 90 degrees becomes "east_up".
+		String rotatedPrimary = rotateHorizontalDirection(primaryDir, rotation);
+		return parts.length > 1 ? rotatedPrimary + "_" + parts[1] : rotatedPrimary;
 	}
 
 	/**
@@ -194,21 +185,23 @@ public final class TransformUtil {
 	 * @return The rotation to apply to the child structure
 	 */
 	private static Rotation calculateRequiredRotation(String parentOrientation, String childOrientation) {
-		// Extract primary directions
-		String parentDir = parentOrientation.toLowerCase().split("_")[0];
-		String childDir = childOrientation.toLowerCase().split("_")[0];
-
-		// Handle vertical connections (no horizontal rotation needed)
-		if ("up".equals(parentDir) || "down".equals(parentDir) ||
-				"up".equals(childDir) || "down".equals(childDir)) {
-			return Rotation.NONE; // Vertical connections don't require horizontal rotation
+		// Parse orientations into primary and secondary components, defaulting to "north" if unspecified.
+		String[] parentParts = parentOrientation.toLowerCase().split("_");
+		String parentPrimary = parentParts[0];
+		String parentSecondary = parentParts.length > 1 ? parentParts[1] : "north";
+		String[] childParts = childOrientation.toLowerCase().split("_");
+		String childPrimary = childParts[0];
+		String childSecondary = childParts.length > 1 ? childParts[1] : "north";
+		// If the connection is vertical (e.g., up <-> down), align the secondary orientations.
+		if ("up".equals(parentPrimary) || "down".equals(parentPrimary)) {
+			// The target for the child's secondary orientation is the parent's secondary orientation.
+			// This ensures an "up_north" aligns with a "down_north", not a "down_east".
+			return calculateRotationBetweenDirections(childSecondary, parentSecondary);
 		}
-
-		// Get the opposite of the parent's direction (what the child should face)
-		String targetDir = getOppositeDirection(parentDir);
-
-		// Calculate rotation needed to turn child's direction to target direction
-		return calculateRotationBetweenDirections(childDir, targetDir);
+		// If the connection is horizontal, the logic remains the same.
+		// The target for the child's primary orientation is the opposite of the parent's primary.
+		String targetPrimary = getOppositeDirection(parentPrimary);
+		return calculateRotationBetweenDirections(childPrimary, targetPrimary);
 	}
 
 	/**
