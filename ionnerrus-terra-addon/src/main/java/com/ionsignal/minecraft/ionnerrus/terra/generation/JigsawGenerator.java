@@ -135,7 +135,7 @@ public class JigsawGenerator {
 						return c1.elementFile().compareTo(c2.elementFile());
 					})
 					.toList();
-			LOGGER.fine(String.format(
+			LOGGER.info(String.format(
 					"Gathered and sorted %d constraints (deterministic order ensured)",
 					sorted.size()));
 			return sorted;
@@ -193,7 +193,7 @@ public class JigsawGenerator {
 		ensureMinimumPieceCounts();
 		// Log generation summary
 		long generationTime = System.currentTimeMillis() - generationStartTime;
-		LOGGER.fine(String.format(
+		LOGGER.info(String.format(
 				"Generation completed in %dms: %d pieces placed, %d/%d connections successful%s",
 				generationTime,
 				pieces.size(),
@@ -284,8 +284,7 @@ public class JigsawGenerator {
 					AABB childBounds = AABB.fromPiece(
 							alignmentTransform.position(),
 							structureData.size(),
-							geometricRotation // ← FIXED: Use geometric rotation for bounds
-					);
+							finalRotation);
 					// STEP 5: Check collision
 					if (!collides(childBounds)) {
 						// STEP 6: Transform all jigsaw connections to world space
@@ -315,10 +314,6 @@ public class JigsawGenerator {
 								pending.depth() + 1,
 								pending.sourcePiece(),
 								targetPoolId);
-					} else {
-						LOGGER.info(String.format("Collision detected: bounds=%s, rotation=%s",
-								childBounds, geometricRotation));
-
 					}
 				}
 			}
@@ -358,7 +353,7 @@ public class JigsawGenerator {
 			}
 			// If all elements are maxed out, stop trying
 			if (excludedFiles.size() == pool.getElements().size()) {
-				LOGGER.fine("All elements in pool " + pool.getId() + " have reached max count");
+				LOGGER.info("All elements in pool " + pool.getId() + " have reached max count");
 				break;
 			}
 			String file = pool.selectRandomElementWithExclusions(random, excludedFiles);
