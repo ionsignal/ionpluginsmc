@@ -98,10 +98,12 @@ public class NBTStructureProvider {
 					Vector3Int pos = Vector3Int.of(posList.get(0), posList.get(1), posList.get(2));
 					int state = ((Number) b.get("state")).intValue();
 					Map<String, Object> nbt = (Map<String, Object>) b.get("nbt");
-					// Check if this is a jigsaw block
+					// Ensure jigsaw blocks are included in the main block list for placement. Always add the block to
+					// the main list so it gets placed initially.
+					blocks.add(new NBTStructure.BlockEntry(pos, state, nbt));
+					// Check if this is a jigsaw block to also add it to the specialized list.
 					NBTStructure.PaletteEntry paletteEntry = palette.get(state);
 					if ("minecraft:jigsaw".equals(paletteEntry.name())) {
-						// Parse jigsaw block data
 						if (nbt != null) {
 							JigsawData.JigsawBlock jigsawBlock = parseJigsawBlock(pos, paletteEntry, nbt);
 							if (jigsawBlock != null) {
@@ -110,9 +112,6 @@ public class NBTStructureProvider {
 										jigsawBlock.info().target()));
 							}
 						}
-					} else {
-						// Regular block
-						blocks.add(new NBTStructure.BlockEntry(pos, state, nbt));
 					}
 				}
 				// Include jigsawBlocks in StructureData constructor
@@ -145,6 +144,7 @@ public class NBTStructureProvider {
 			String target = (String) nbt.get("target");
 			String pool = (String) nbt.get("pool");
 			String joint = (String) nbt.getOrDefault("joint", "aligned");
+			String finalState = (String) nbt.getOrDefault("final_state", "minecraft:air");
 			// Priority is stored as "selection_priority" in newer versions
 			int priority = 0;
 			if (nbt.containsKey("selection_priority")) {
@@ -160,8 +160,8 @@ public class NBTStructureProvider {
 					target != null ? target : "minecraft:empty",
 					pool != null ? pool : "minecraft:empty",
 					JigsawData.JointType.fromNbt(joint),
-					priority);
-
+					priority,
+					finalState);
 			return new JigsawData.JigsawBlock(pos, orientation, info);
 		} catch (Exception e) {
 			LOGGER.warning("Failed to parse jigsaw block at " + pos + ": " + e.getMessage());

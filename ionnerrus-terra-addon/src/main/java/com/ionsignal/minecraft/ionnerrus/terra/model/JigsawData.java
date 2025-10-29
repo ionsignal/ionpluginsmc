@@ -25,13 +25,16 @@ public final class JigsawData {
 	 *            The type of joint ("rollable" allows rotation, "aligned" preserves orientation)
 	 * @param placementPriority
 	 *            Priority for processing this connection (higher = earlier)
+	 * @param finalState
+	 *            // CHANGED: ADDED - The block state to place after connection (e.g., "minecraft:air")
 	 */
 	public record JigsawInfo(
 			String name,
 			String target,
 			String pool,
 			JointType jointType,
-			int placementPriority) {
+			int placementPriority,
+			String finalState) {
 		public JigsawInfo {
 			// Validate required fields
 			if (name == null || name.isEmpty()) {
@@ -39,6 +42,9 @@ public final class JigsawData {
 			}
 			if (target == null || target.isEmpty()) {
 				throw new IllegalArgumentException("Jigsaw target cannot be null or empty");
+			}
+			if (finalState == null || finalState.isEmpty()) {
+				throw new IllegalArgumentException("Jigsaw finalState cannot be null or empty");
 			}
 		}
 	}

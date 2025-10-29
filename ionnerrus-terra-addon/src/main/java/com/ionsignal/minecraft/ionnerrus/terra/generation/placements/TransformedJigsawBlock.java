@@ -60,7 +60,8 @@ public record TransformedJigsawBlock(
 						"minecraft:empty", // Mark as consumed
 						info.pool(),
 						info.jointType(),
-						info.placementPriority()));
+						info.placementPriority(),
+						info.finalState()));
 	}
 
 	/**
