@@ -4,6 +4,7 @@ import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawPoolTemplate;
 import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawPoolType;
 import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureType;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.debug.DebugCommand;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.debug.DebugRenderTask;
 
 import com.dfsek.terra.addons.manifest.api.AddonInitializer;
 import com.dfsek.terra.api.Platform;
@@ -29,14 +30,14 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 /**
- * This is the entry point for the IonNerrus Terra addon. The initialize() method is called after
- * Terra has set up its event system but before it starts to load in its config packs.
+ * Entry point for the IonNerrus Terra addon.
  */
 public class NerrusTerraAddon implements AddonInitializer, Listener {
 	private static final Logger LOGGER = LoggerFactory.getLogger(NerrusTerraAddon.class);
 	private final DebugCommand debugCommand = new DebugCommand();
 	private static Plugin terraPlugin;
 	private Command registeredCommand;
+	private DebugRenderTask renderTask;
 
 	@Inject
 	private Platform platform;
@@ -47,7 +48,6 @@ public class NerrusTerraAddon implements AddonInitializer, Listener {
 	@Override
 	public void initialize() {
 		LOGGER.info("Initializing IonNerrus Terra Addon v{}", addon.getVersion().getFormatted());
-		// Locate the Terra plugin instance, which is required for Bukkit API integration.
 		Plugin plugin = Bukkit.getPluginManager().getPlugin("Terra");
 		if (plugin != null) {
 			NerrusTerraAddon.terraPlugin = plugin;
@@ -55,7 +55,6 @@ public class NerrusTerraAddon implements AddonInitializer, Listener {
 			LOGGER.info("Registered Bukkit event listeners for session lifecycle management.");
 		} else {
 			LOGGER.error("Could not find the Terra plugin instance! The IonNerrus addon will not function correctly.");
-			// Prevent further initialization as the addon is in a non-functional state.
 			return;
 		}
 		// Command registration
@@ -69,6 +68,10 @@ public class NerrusTerraAddon implements AddonInitializer, Listener {
 		registeredCommand.setPermission("ionnerrus.debug");
 		getCommandMap().register("ionnerrus", registeredCommand);
 		LOGGER.info("Registered /ionnerrus:debug command.");
+		// Start the debug render task
+		renderTask = new DebugRenderTask(DebugCommand.getActiveDebugTasksReference());
+		renderTask.runTaskTimer(terraPlugin, 0L, 1L);
+		LOGGER.info("Started debug render task for visualization updates.");
 		// Register our custom ConfigTypes with each pack as it loads
 		FunctionalEventHandler eventHandler = platform.getEventManager().getHandler(FunctionalEventHandler.class);
 		eventHandler.register(addon, ConfigPackPreLoadEvent.class)
@@ -95,10 +98,12 @@ public class NerrusTerraAddon implements AddonInitializer, Listener {
 
 	@EventHandler
 	public void onPluginDisable(PluginDisableEvent event) {
-		// Compare plugin instances directly for a more robust check.
 		if (event.getPlugin().equals(terraPlugin)) {
 			LOGGER.info("Terra is disabling. Cleaning up all debug sessions and commands...");
 			DebugCommand.clearAllSessions();
+			if (renderTask != null) {
+				renderTask.cancel();
+			}
 			unregisterCommand();
 		}
 	}
@@ -108,7 +113,6 @@ public class NerrusTerraAddon implements AddonInitializer, Listener {
 	 */
 	private void unregisterCommand() {
 		if (registeredCommand != null) {
-			// Use the standard Command API to unregister from the server's command map.
 			if (registeredCommand.unregister(getCommandMap())) {
 				LOGGER.info("Successfully unregistered /ionnerrus:debug command.");
 			} else {
