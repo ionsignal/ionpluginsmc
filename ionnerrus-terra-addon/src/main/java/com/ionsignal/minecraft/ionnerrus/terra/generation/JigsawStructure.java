@@ -44,7 +44,7 @@ public class JigsawStructure implements Structure {
 	public boolean generate(Vector3Int location, WritableWorld world, Random random, Rotation terraRotation) {
 		try {
 			boolean isWorldgenContext = (world instanceof ProtoWorld);
-			// CHANGED: The logic for finding a debug context is now robust and correct.
+			// The logic for finding a debug context is now robust and correct.
 			// It no longer relies on a Player object, which is unavailable in this method.
 			if (!isWorldgenContext) {
 				// Use the generation task's own parameters to look up a matching debug session.
@@ -132,27 +132,40 @@ public class JigsawStructure implements Structure {
 		new BukkitRunnable() {
 			@Override
 			public void run() {
-				long structureSeed = location.getX() ^ ((long) location.getZ() << 32) ^ world.getSeed();
-				JigsawPlacement placement = generateFullPlacement(location, structureSeed, debugContext);
-				if (placement == null || placement.isEmpty()) {
-					LOGGER.warning("Debug generation resulted in an empty placement.");
-					return;
-				}
-				new BukkitRunnable() {
-					@Override
-					public void run() {
-						LOGGER.info("Placing debug-generated structure on main thread...");
-						int placedBlocks = 0;
-						for (PlacedJigsawPiece piece : placement.pieces()) {
-							placedBlocks += placePieceBlocks(piece, world);
-						}
-						LOGGER.info("Finished placing " + placedBlocks + " blocks.");
-						// CHANGED: Safely send message to player if they are still online.
-						debugContext.getPlayer().ifPresent(p -> p.sendMessage("Debug generation and placement complete."));
-						// CHANGED: Correctly clear the session using the player's UUID.
-						DebugCommand.clearActiveSession(debugContext.getPlayerId());
+				try {
+					long structureSeed = location.getX() ^ ((long) location.getZ() << 32) ^ world.getSeed();
+					JigsawPlacement placement = generateFullPlacement(location, structureSeed, debugContext);
+					if (placement == null || placement.isEmpty()) {
+						LOGGER.warning("Debug generation resulted in an empty placement.");
+						return; // Don't continue if generation was cancelled or failed.
 					}
-				}.runTask(plugin);
+					new BukkitRunnable() {
+						@Override
+						public void run() {
+							LOGGER.info("Placing debug-generated structure on main thread...");
+							int placedBlocks = 0;
+							for (PlacedJigsawPiece piece : placement.pieces()) {
+								placedBlocks += placePieceBlocks(piece, world);
+							}
+							LOGGER.info("Finished placing " + placedBlocks + " blocks.");
+							// CHANGED: Safely send message to player if they are still online.
+							debugContext.getPlayer().ifPresent(p -> p.sendMessage("Debug generation and placement complete."));
+							// CHANGED: Correctly clear the session using the player's UUID.
+							DebugCommand.clearActiveSession(debugContext.getPlayerId());
+						}
+					}.runTask(plugin);
+				} catch (DebugContext.GenerationCancelledException e) {
+					// This catch block handles the case where the user cancels the generation.
+					LOGGER.info("Debug generation was cancelled by the user.");
+					// Schedule a task to notify the player and clean up the session on the main thread.
+					new BukkitRunnable() {
+						@Override
+						public void run() {
+							debugContext.getPlayer().ifPresent(p -> p.sendMessage("Debug generation cancelled."));
+							DebugCommand.clearActiveSession(debugContext.getPlayerId());
+						}
+					}.runTask(plugin);
+				}
 			}
 		}.runTaskAsynchronously(plugin);
 	}
@@ -175,6 +188,8 @@ public class JigsawStructure implements Structure {
 			JigsawPlacement placement = generator.generate(config.getStartPool());
 			LOGGER.info(placement.getSummary());
 			return placement;
+		} catch (DebugContext.GenerationCancelledException e) {
+			throw e;
 		} catch (Exception e) {
 			LOGGER.log(Level.SEVERE, String.format(
 					"Failed to generate jigsaw placement for structure '%s'",

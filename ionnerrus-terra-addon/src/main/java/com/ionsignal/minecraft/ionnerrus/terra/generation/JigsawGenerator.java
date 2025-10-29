@@ -178,6 +178,9 @@ public class JigsawGenerator {
 		usageTracker.recordPlacement(startPiece.sourcePoolId(), startPiece.nbtFile());
 		queueConnections(startPiece, 0);
 		while (!connectionQueue.isEmpty()) {
+			if (debugContext != null && debugContext.isCancelled()) {
+				throw new DebugContext.GenerationCancelledException();
+			}
 			PendingJigsawConnection pending = connectionQueue.poll();
 			if (pending.exceedsDepth(config.getMaxDepth())) {
 				continue;
@@ -246,7 +249,6 @@ public class JigsawGenerator {
 			this.debugContext.setCurrentPiece(pending.sourcePiece());
 			this.debugContext.setCurrentPoolId(pending.getTargetPoolId());
 			this.debugContext.setActiveConnectionPoint(pending.connection().position());
-			this.debugContext.pause("ATTEMPT_CONNECTION", "Attempting to place piece from pool: " + pending.getTargetPoolId());
 		}
 		String targetPoolId = pending.getTargetPoolId();
 		JigsawPool pool = poolRegistry.getPool(targetPoolId);
@@ -293,8 +295,6 @@ public class JigsawGenerator {
 						this.debugContext.setCurrentStructure(structureData);
 						this.debugContext.setCurrentPosition(finalPosition);
 						this.debugContext.setHasCollision(false);
-						this.debugContext.pause("PRE_COLLISION_CHECK",
-								"Geometric: " + geometricRotation + ", Alignment: " + alignmentTransform.rotation());
 					}
 					AABB childBounds = AABB.fromPiece(
 							finalPosition,
@@ -323,7 +323,6 @@ public class JigsawGenerator {
 								childBounds));
 						if (this.debugContext != null && this.debugContext.isRunning()) {
 							this.debugContext.setActiveConnectionPoint(null);
-							this.debugContext.pause("PLACEMENT_SUCCESS", "Successfully placed: " + nbtFile);
 						}
 						return new PlacedJigsawPiece(
 								nbtFile,

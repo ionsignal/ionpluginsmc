@@ -32,6 +32,8 @@ public class DebugContext {
 	private volatile boolean running = false;
 	private volatile String currentPhase = "";
 	private volatile String phaseInfo = "";
+	private volatile boolean continueToEnd = false;
+	private volatile boolean cancelled = false;
 
 	// Visualization data (written by async thread, read by main thread)
 	private volatile PlacedJigsawPiece currentPiece;
@@ -50,6 +52,12 @@ public class DebugContext {
 
 	private final List<DebugStep> stepHistory = new ArrayList<>();
 	private int currentStepIndex = -1;
+
+	/**
+	 * Custom exception to cleanly abort generation from the async thread.
+	 */
+	public static class GenerationCancelledException extends RuntimeException {
+	}
 
 	public DebugContext(UUID playerId, String structureId, Vector3Int origin) {
 		this.playerId = playerId;
@@ -73,8 +81,12 @@ public class DebugContext {
 	 * Pauses generation at a checkpoint.
 	 */
 	public void pause(String phase, String info) {
-		if (!running)
+		if (cancelled) {
+			throw new GenerationCancelledException();
+		}
+		if (!running || continueToEnd) {
 			return;
+		}
 		currentPhase = phase;
 		phaseInfo = info;
 		visualizationDirty = true; // Mark for main thread to update visuals
@@ -108,6 +120,16 @@ public class DebugContext {
 	}
 
 	/**
+	 * Signals the generator to run to completion without further pauses.
+	 */
+	public void continueToEnd() {
+		if (running) {
+			this.continueToEnd = true;
+			stepForward(); // Release the current latch to resume execution.
+		}
+	}
+
+	/**
 	 * Resumes from current pause.
 	 */
 	public void stepForward() {
@@ -122,6 +144,7 @@ public class DebugContext {
 	 */
 	public void stop() {
 		running = false;
+		cancelled = true;
 		CountDownLatch current = stepLatch;
 		if (current != null && current.getCount() > 0) {
 			current.countDown();
@@ -166,7 +189,6 @@ public class DebugContext {
 	// ============================================
 	// Getters for readonly state
 	// ============================================
-
 	public UUID getPlayerId() {
 		return playerId;
 	}
@@ -187,12 +209,20 @@ public class DebugContext {
 		return running;
 	}
 
+	public boolean isCancelled() {
+		return cancelled;
+	}
+
 	public String getCurrentPhase() {
 		return currentPhase;
 	}
 
 	public String getPhaseInfo() {
 		return phaseInfo;
+	}
+
+	public int getActiveDisplaysSize() {
+		return this.activeDisplays.size();
 	}
 
 	// ============================================

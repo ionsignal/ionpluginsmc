@@ -141,8 +141,8 @@ public class DebugCommand implements CommandExecutor {
 		if (contextOpt.isEmpty() || !contextOpt.get().isRunning()) {
 			return true;
 		}
-		contextOpt.get().stepForward();
-		player.sendMessage(Component.text("Continuing generation...", NamedTextColor.GRAY));
+		contextOpt.get().continueToEnd();
+		player.sendMessage(Component.text("Continuing generation to completion...", NamedTextColor.GRAY));
 		return true;
 	}
 
