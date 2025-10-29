@@ -158,7 +158,6 @@ public class ForcedPlacement {
 			UsageConstraints constraint,
 			Set<AABB> occupiedSpace) {
 		TransformedJigsawBlock parentConnection = candidate.connection();
-		// Find compatible jigsaws in the structure
 		JigsawData.JigsawBlock parentJigsaw = parentConnection.toJigsawBlock();
 		List<JigsawData.JigsawBlock> compatibleJigsaws = structureData.jigsawBlocks().stream()
 				.filter(childJigsaw -> JigsawConnection.canConnect(parentJigsaw, childJigsaw))
@@ -166,95 +165,113 @@ public class ForcedPlacement {
 		if (compatibleJigsaws.isEmpty()) {
 			return null;
 		}
-		// Try each compatible jigsaw
 		for (JigsawData.JigsawBlock childJigsaw : compatibleJigsaws) {
 			JigsawData.JointType jointType = childJigsaw.info().jointType();
 			if (jointType == JigsawData.JointType.ROLLABLE) {
-				// ROLLABLE: Try all 4 rotations of the child jigsaw BEFORE alignment
-				for (Rotation preRotation : ALL_ROTATIONS) {
+				// ROLLABLE: Try all 4 rotations
+				for (Rotation geometricRotation : ALL_ROTATIONS) {
 					// Step 1: Pre-rotate the child jigsaw
 					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(
 							childJigsaw,
-							preRotation,
+							geometricRotation,
 							structureData.size());
 					// Step 2: Calculate alignment with the pre-rotated jigsaw
-					// This gives us the CORRECT position and rotation in one calculation
-					PlacementTransform transform = TransformUtil.calculateAlignment(
+					PlacementTransform alignmentTransform = TransformUtil.calculateAlignment(
 							parentConnection,
 							rotatedChildJigsaw,
 							structureData.size());
-					// Step 3: The final rotation is just the alignment rotation
-					// (no additional rotation needed - pre-rotation is baked into alignment)
-					PlacementTransform finalTransform = new PlacementTransform(
-							transform.position(),
-							transform.rotation());
-					// Check collision and attempt placement
-					if (tryPlaceWithTransform(
-							finalTransform,
-							structureData,
-							constraint,
-							candidate,
-							occupiedSpace) instanceof PlacedJigsawPiece placed) {
-						return placed;
+					// Step 3: Combine rotations properly
+					Rotation finalRotation = combineRotations(geometricRotation, alignmentTransform.rotation());
+					// Step 4: Check collision using GEOMETRIC rotation for bounds
+					AABB childBounds = AABB.fromPiece(
+							alignmentTransform.position(),
+							structureData.size(),
+							geometricRotation // ← Use geometric rotation for collision bounds
+					);
+					if (collides(childBounds, occupiedSpace)) {
+						continue;
 					}
+					// Step 5: Transform connections using FINAL rotation
+					List<TransformedJigsawBlock> connections = transformJigsawBlocks(
+							structureData.jigsawBlocks(),
+							alignmentTransform.position(),
+							finalRotation, // ← Use combined rotation
+							structureData.size());
+					// Step 6: Create placed piece with FINAL rotation
+					int depth = candidate.parentPiece().depth() + 1;
+					return new PlacedJigsawPiece(
+							constraint.elementFile(),
+							alignmentTransform.position(),
+							finalRotation, // ← Store final rotation
+							structureData,
+							connections,
+							depth,
+							candidate.parentPiece(),
+							constraint.poolId());
 				}
 			} else {
-				// For ALIGNED: Use alignment directly with no pre-rotation
-				PlacementTransform transform = TransformUtil.calculateAlignment(
+				// ALIGNED: No pre-rotation, use alignment directly
+				PlacementTransform alignmentTransform = TransformUtil.calculateAlignment(
 						parentConnection,
 						childJigsaw,
 						structureData.size());
-				PlacementTransform finalTransform = new PlacementTransform(
-						transform.position(),
-						transform.rotation());
-				if (tryPlaceWithTransform(
-						finalTransform,
-						structureData,
-						constraint,
-						candidate,
-						occupiedSpace) instanceof PlacedJigsawPiece placed) {
-					return placed;
+				// For ALIGNED joints, the alignment rotation IS the final rotation
+				Rotation finalRotation = alignmentTransform.rotation();
+				AABB childBounds = AABB.fromPiece(
+						alignmentTransform.position(),
+						structureData.size(),
+						Rotation.NONE // ← ALIGNED joints have no geometric rotation
+				);
+				if (!collides(childBounds, occupiedSpace)) {
+					List<TransformedJigsawBlock> connections = transformJigsawBlocks(
+							structureData.jigsawBlocks(),
+							alignmentTransform.position(),
+							finalRotation,
+							structureData.size());
+
+					int depth = candidate.parentPiece().depth() + 1;
+					return new PlacedJigsawPiece(
+							constraint.elementFile(),
+							alignmentTransform.position(),
+							finalRotation,
+							structureData,
+							connections,
+							depth,
+							candidate.parentPiece(),
+							constraint.poolId());
 				}
 			}
 		}
+
 		return null;
 	}
 
-	/**
-	 * Helper method to attempt placement with a given transform.
-	 * Returns the placed piece if successful, null otherwise.
-	 */
-	private PlacedJigsawPiece tryPlaceWithTransform(
-			PlacementTransform transform,
-			NBTStructure.StructureData structureData,
-			UsageConstraints constraint,
-			ConnectionCandidate candidate,
-			Set<AABB> occupiedSpace) {
-		// Check collision
-		AABB childBounds = AABB.fromPiece(
-				transform.position(),
-				structureData.size(),
-				transform.rotation());
-		if (collides(childBounds, occupiedSpace)) {
-			return null; // Collision detected
-		}
-		// Success! Transform jigsaw blocks to world space
-		List<TransformedJigsawBlock> connections = transformJigsawBlocks(
-				structureData.jigsawBlocks(),
-				transform.position(),
-				transform.rotation(),
-				structureData.size());
-		// Calculate depth (parent depth + 1)
-		int depth = candidate.parentPiece().depth() + 1;
-		return new PlacedJigsawPiece(
-				constraint.elementFile(),
-				transform.position(),
-				transform.rotation(),
-				structureData,
-				connections,
-				depth,
-				candidate.parentPiece(),
-				constraint.poolId());
+	private static Rotation combineRotations(Rotation first, Rotation second) {
+		if (first == Rotation.NONE)
+			return second;
+		if (second == Rotation.NONE)
+			return first;
+		int totalSteps = (rotationToSteps(first) + rotationToSteps(second)) % 4;
+		return stepsToRotation(totalSteps);
+	}
+
+	private static int rotationToSteps(Rotation rotation) {
+		return switch (rotation) {
+			case NONE -> 0;
+			case CW_90 -> 1;
+			case CW_180 -> 2;
+			case CCW_90 -> 3;
+		};
+	}
+
+	private static Rotation stepsToRotation(int steps) {
+		return switch (steps % 4) {
+			case 0 -> Rotation.NONE;
+			case 1 -> Rotation.CW_90;
+			case 2 -> Rotation.CW_180;
+			case 3 -> Rotation.CCW_90;
+			default -> Rotation.NONE;
+		};
 	}
 
 	private boolean collides(AABB bounds, Set<AABB> occupiedSpace) {

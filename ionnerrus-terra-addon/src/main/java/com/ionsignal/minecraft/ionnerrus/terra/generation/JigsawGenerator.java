@@ -244,7 +244,6 @@ public class JigsawGenerator {
 		}
 		// Respect max count constraints
 		List<String> candidateFiles = selectCandidateFilesRespectingMaxCounts(pool, 10);
-		// Check if selection returned candidates
 		if (candidateFiles.isEmpty()) {
 			LOGGER.fine("No eligible candidates from pool " + targetPoolId + " (all elements may have reached max count)");
 			return null;
@@ -258,46 +257,74 @@ public class JigsawGenerator {
 			List<JigsawData.JigsawBlock> shuffledJigsaws = new ArrayList<>(structureData.jigsawBlocks());
 			Collections.shuffle(shuffledJigsaws, random);
 			for (JigsawData.JigsawBlock childJigsaw : shuffledJigsaws) {
+				// Check name compatibility
 				if (!JigsawConnection.matchesConnectionName(pending.getTargetName(), childJigsaw.info().name()) ||
 						!JigsawConnection.matchesConnectionName(childJigsaw.info().target(), pending.connection().info().name())) {
 					continue;
 				}
+				// Get rotations to try based on joint type
 				List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
-				for (Rotation rotation : rotationsToTry) {
-					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(childJigsaw, rotation, structureData.size());
-					PlacementTransform transform = TransformUtil.calculateAlignment(
+				for (Rotation geometricRotation : rotationsToTry) {
+					// STEP 1: Pre-rotate the child jigsaw for ROLLABLE joints
+					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(
+							childJigsaw,
+							geometricRotation,
+							structureData.size());
+					// STEP 2: Calculate alignment (position and orientation rotation)
+					PlacementTransform alignmentTransform = TransformUtil.calculateAlignment(
 							pending.connection(),
 							rotatedChildJigsaw,
 							structureData.size());
-					PlacementTransform finalTransform = new PlacementTransform(
-							transform.position(),
-							combineRotations(transform.rotation(), rotation));
+					// STEP 3: The final rotation is the combination of geometric and alignment rotations
+					// For ALIGNED joints, geometricRotation is NONE, so this equals alignmentTransform.rotation()
+					// For ROLLABLE joints, we need BOTH rotations combined
+					Rotation finalRotation = combineRotations(geometricRotation, alignmentTransform.rotation());
+					// STEP 4: Calculate bounds using the GEOMETRIC rotation (not alignment)
+					// The geometric rotation affects the piece's actual shape in world space
 					AABB childBounds = AABB.fromPiece(
-							finalTransform.position(),
+							alignmentTransform.position(),
 							structureData.size(),
-							finalTransform.rotation());
+							geometricRotation // ← FIXED: Use geometric rotation for bounds
+					);
+					// STEP 5: Check collision
 					if (!collides(childBounds)) {
+						// STEP 6: Transform all jigsaw connections to world space
+						// Use the FINAL rotation here to properly orient all connections
 						List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 								structureData.jigsawBlocks(),
-								finalTransform.position(),
-								finalTransform.rotation(),
+								alignmentTransform.position(),
+								finalRotation, // ← Use combined rotation for connections
 								structureData.size());
 						successfulConnections++;
 						usageTracker.recordPlacement(targetPoolId, nbtFile);
+						// STEP 7: Create the placed piece with the FINAL rotation
+						LOGGER.info(String.format(
+								"Placed piece: file=%s, pos=%s, geoRot=%s, alignRot=%s, finalRot=%s, bounds=%s",
+								nbtFile,
+								alignmentTransform.position(),
+								geometricRotation,
+								alignmentTransform.rotation(),
+								finalRotation,
+								childBounds));
 						return new PlacedJigsawPiece(
 								nbtFile,
-								finalTransform.position(),
-								finalTransform.rotation(),
+								alignmentTransform.position(),
+								finalRotation, // ← Store the final combined rotation
 								structureData,
 								connections,
 								pending.depth() + 1,
 								pending.sourcePiece(),
 								targetPoolId);
+					} else {
+						LOGGER.info(String.format("Collision detected: bounds=%s, rotation=%s",
+								childBounds, geometricRotation));
+
 					}
 				}
 			}
 		}
 		return null;
+
 	}
 
 	/**

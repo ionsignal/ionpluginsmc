@@ -13,6 +13,7 @@ import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
 import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureTemplate;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.JigsawPlacement;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
 import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
 import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
@@ -231,6 +232,24 @@ public class JigsawStructure implements Structure {
 				LOGGER.warning(String.format(
 						"Failed to place block at index %d for piece %s: %s",
 						block.state(), piece.nbtFile(), e.getMessage()));
+			}
+		}
+		for (TransformedJigsawBlock connection : piece.connections()) {
+			if (connection.isConsumed()) {
+				try {
+					String finalStateStr = connection.info().finalState();
+					BlockState finalBlockState = platform.getWorldHandle().createBlockState(finalStateStr);
+					if (finalBlockState == null) {
+						LOGGER.warning("Failed to parse final_state: " + finalStateStr);
+						continue;
+					}
+					BlockState rotatedFinalState = BlockStateRotator.rotate(finalBlockState, piece.rotation(), platform);
+					Vector3Int finalPos = connection.position(); // Position is already in world space
+					world.setBlockState(finalPos.getX(), finalPos.getY(), finalPos.getZ(), rotatedFinalState);
+				} catch (Exception e) {
+					// This can fail if the block is outside the writable region or if the state string is invalid.
+					LOGGER.log(Level.WARNING, "Failed to place final_state for connection at " + connection.position(), e);
+				}
 			}
 		}
 		return blocksPlaced;
