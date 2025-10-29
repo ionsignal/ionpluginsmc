@@ -61,23 +61,43 @@ public final class TransformUtil {
 	 * point.
 	 * This is the core algorithm for connecting jigsaw pieces together.
 	 * 
+	 * CRITICAL: The childJigsaw MUST be in its ORIGINAL, UNROTATED state (local coordinates).
+	 * This method calculates only the alignment rotation needed to make the two jigsaws face each
+	 * other.
+	 * Any geometric rotation (for ROLLABLE joints) must be handled by the caller AFTER this method
+	 * returns.
+	 * 
 	 * @param parentConnection
 	 *            The connection point on the already-placed parent structure (in world space)
 	 * @param childJigsaw
-	 *            The jigsaw block in the child structure to connect (in structure-local space)
+	 *            The jigsaw block in the child structure to connect (in structure-local space,
+	 *            UNROTATED)
 	 * @param childStructureSize
-	 *            The size of the child structure
+	 *            The size of the child structure (in its UNROTATED state)
 	 * @return A PlacementTransform containing the world position and rotation for the child structure
 	 */
 	public static PlacementTransform calculateAlignment(
 			TransformedJigsawBlock parentConnection,
 			JigsawData.JigsawBlock childJigsaw,
 			Vector3Int childStructureSize) {
+		// CHANGED: Added explicit validation to catch frame-of-reference errors early
+		if (parentConnection == null) {
+			throw new IllegalArgumentException("parentConnection cannot be null");
+		}
+		if (childJigsaw == null) {
+			throw new IllegalArgumentException("childJigsaw cannot be null");
+		}
+		if (childStructureSize == null) {
+			throw new IllegalArgumentException("childStructureSize cannot be null");
+		}
 		// Step 1: Determine the rotation needed to align the child's jigsaw with the parent's
+		// This calculates the alignment rotation assuming the child is in its ORIGINAL, UNROTATED state
 		Rotation requiredRotation = calculateRequiredRotation(
 				parentConnection.orientation(),
 				childJigsaw.orientation());
 		// Step 2: Rotate the child jigsaw's position within its structure
+		// CRITICAL: We use childStructureSize here, which is the UNROTATED size
+		// This is correct because childJigsaw.position() is in UNROTATED local space
 		Vector3Int rotatedChildJigsawPos = CoordinateConverter.rotate(
 				childJigsaw.position(),
 				requiredRotation,
@@ -88,6 +108,7 @@ public final class TransformUtil {
 		Vector3Int connectionOffset = getConnectionOffset(parentConnection.orientation());
 		// Step 4: Calculate the child structure's world position
 		// childWorldPos + rotatedChildJigsawPos = parentConnection.position() + connectionOffset
+		// Solving for childWorldPos:
 		Vector3Int childWorldPos = Vector3Int.of(
 				parentConnection.position().getX() + connectionOffset.getX() - rotatedChildJigsawPos.getX(),
 				parentConnection.position().getY() + connectionOffset.getY() - rotatedChildJigsawPos.getY(),
