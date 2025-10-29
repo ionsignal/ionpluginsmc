@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
 
-import com.dfsek.terra.api.util.vector.Vector3Int;
 import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
+import com.dfsek.terra.api.util.vector.Vector3Int;
 
 import java.util.Collections;
 import java.util.List;
