@@ -47,6 +47,7 @@ import java.util.stream.Collectors;
  */
 public class JigsawGenerator {
 	private static final Logger LOGGER = Logger.getLogger(JigsawGenerator.class.getName());
+	private static final boolean DEBUG_CONNECTIONS = true; // Toggle for detailed connection debugging
 
 	private final ConfigPack pack;
 	private final Random random;
@@ -234,15 +235,34 @@ public class JigsawGenerator {
 			Rotation rotation,
 			Vector3Int structureSize) {
 		Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rotation, structureSize);
-		return Vector3Int.of(
+		Vector3Int worldPos = Vector3Int.of(
 				worldPosition.getX() + rotatedPos.getX(),
 				worldPosition.getY() + rotatedPos.getY(),
 				worldPosition.getZ() + rotatedPos.getZ());
+		if (DEBUG_CONNECTIONS) {
+			LOGGER.info(String.format(
+					"  Transform jigsaw: local=(xyz=%s,%s,%s) -> rotated=(xyz=%s,%s,%s) (rot=%s, size=(xyz=%s,%s,%s)) -> world=(xyz=%s,%s,%s) (base=(xyz=%s,%s,%s))",
+					jigsaw.position().getX(),
+					jigsaw.position().getY(),
+					jigsaw.position().getZ(),
+					rotatedPos.getX(),
+					rotatedPos.getY(),
+					rotatedPos.getZ(),
+					rotation.getDegrees(),
+					structureSize.getX(),
+					structureSize.getY(),
+					structureSize.getZ(),
+					worldPos.getX(),
+					worldPos.getY(),
+					worldPos.getZ(),
+					worldPosition.getX(),
+					worldPosition.getY(),
+					worldPosition.getZ()));
+		}
+		return worldPos;
 	}
 
 	/**
-	 * 
-	 * /**
 	 * Selects and places the starting piece.
 	 */
 	private PlacedJigsawPiece selectAndPlaceStartPiece(String startPoolId) {
@@ -269,6 +289,23 @@ public class JigsawGenerator {
 				structureData.size());
 		PlacedJigsawPiece startPiece = PlacedJigsawPiece.createStartPiece(nbtFile, origin, rotation, structureData, connections,
 				startPoolId);
+		if (DEBUG_CONNECTIONS) {
+			LOGGER.info(String.format("START PIECE placed: file=%s, pos=(xyz=%s,%s,%s), rot=%s",
+					nbtFile,
+					origin.getX(),
+					origin.getY(),
+					origin.getZ(),
+					rotation.getDegrees()));
+			LOGGER.info("  Start piece jigsaws after placement:");
+			for (TransformedJigsawBlock conn : connections) {
+				LOGGER.info(String.format("    pos=(xyz=%s%s%s), orientation=%s, target=%s",
+						conn.position().getX(),
+						conn.position().getY(),
+						conn.position().getZ(),
+						conn.orientation(),
+						conn.info().target()));
+			}
+		}
 		if (this.debugContext != null && this.debugContext.isRunning()) {
 			World world = this.debugContext.getWorld();
 			if (world != null) {
@@ -285,6 +322,18 @@ public class JigsawGenerator {
 	 */
 	private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
 		attemptedConnections++;
+		if (DEBUG_CONNECTIONS) {
+			LOGGER.info(String.format("ATTEMPTING CONNECTION from parent at (xyz=%s,%s,%s:)",
+					pending.sourcePiece().worldPosition().getX(),
+					pending.sourcePiece().worldPosition().getY(),
+					pending.sourcePiece().worldPosition().getZ()));
+			LOGGER.info(String.format("  Parent connection: pos=(xyz=%s,%s,%s), orientation=%s, target=%s",
+					pending.connection().position().getX(),
+					pending.connection().position().getY(),
+					pending.connection().position().getZ(),
+					pending.connection().orientation(),
+					pending.getTargetName()));
+		}
 		if (this.debugContext != null && this.debugContext.isRunning()) {
 			this.debugContext.setCurrentPiece(pending.sourcePiece());
 			this.debugContext.setCurrentPoolId(pending.getTargetPoolId());
@@ -316,30 +365,57 @@ public class JigsawGenerator {
 				}
 				List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
 				for (Rotation geometricRotation : rotationsToTry) {
-					if (this.debugContext != null && this.debugContext.isRunning()) {
-						this.debugContext.setGeometricRotation(geometricRotation);
-						this.debugContext.setCurrentElementFile(nbtFile);
+					JigsawData.JigsawBlock rotatedChildJigsaw = childJigsaw;
+					if (childJigsaw.info().jointType() == JigsawData.JointType.ROLLABLE && geometricRotation != Rotation.NONE) {
+						rotatedChildJigsaw = rotateJigsawBlock(
+								childJigsaw,
+								geometricRotation,
+								structureData.size());
+						if (DEBUG_CONNECTIONS) {
+							LOGGER.info(String.format("  ROLLABLE: Pre-rotated child jigsaw from (xyz=%s%s%s) to (xyz=%s%s%s) (geoRot=%s)",
+									childJigsaw.position().getX(),
+									childJigsaw.position().getY(),
+									childJigsaw.position().getZ(),
+									rotatedChildJigsaw.position().getX(),
+									rotatedChildJigsaw.position().getY(),
+									rotatedChildJigsaw.position().getZ(),
+									geometricRotation.getDegrees()));
+						}
 					}
-					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(
-							childJigsaw,
-							geometricRotation,
-							structureData.size());
 					PlacementTransform alignmentTransform = TransformUtil.calculateAlignment(
 							pending.connection(),
 							rotatedChildJigsaw,
 							structureData.size());
-					Rotation finalRotation = combineRotations(geometricRotation, alignmentTransform.rotation());
-					Vector3Int finalPosition = alignmentTransform.position();
+					Vector3Int basePosition = alignmentTransform.position();
+					Rotation alignmentRotation = alignmentTransform.rotation();
+					Rotation finalRotation = combineRotations(geometricRotation, alignmentRotation);
+					if (DEBUG_CONNECTIONS) {
+						LOGGER.info(String.format("  Testing placement: pos=(xyz=%s%s%s), geoRot=%s, alignRot=%s, finalRot=%s",
+								basePosition.getX(),
+								basePosition.getY(),
+								basePosition.getZ(),
+								geometricRotation.getDegrees(),
+								alignmentRotation.getDegrees(),
+								finalRotation.getDegrees()));
+					}
 					if (this.debugContext != null && this.debugContext.isRunning()) {
-						this.debugContext.setAlignmentRotation(alignmentTransform.rotation());
+						this.debugContext.setGeometricRotation(geometricRotation);
+						this.debugContext.setAlignmentRotation(alignmentRotation);
 						this.debugContext.setCurrentStructure(structureData);
-						this.debugContext.setCurrentPosition(finalPosition);
+						this.debugContext.setCurrentPosition(basePosition);
+						this.debugContext.setCurrentElementFile(nbtFile);
 						this.debugContext.setHasCollision(false);
 					}
 					AABB childBounds = AABB.fromPiece(
-							finalPosition,
+							basePosition,
 							structureData.size(),
 							finalRotation);
+					if (DEBUG_CONNECTIONS) {
+						LOGGER.info(String.format("  Bounds check: AABB=(size xyz=%s%s%s)",
+								childBounds.getSize().getX(),
+								childBounds.getSize().getY(),
+								childBounds.getSize().getZ()));
+					}
 					boolean hasCollision = collides(childBounds);
 					if (this.debugContext != null && this.debugContext.isRunning()) {
 						this.debugContext.setHasCollision(hasCollision);
@@ -348,22 +424,37 @@ public class JigsawGenerator {
 					if (!hasCollision) {
 						List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 								structureData.jigsawBlocks(),
-								finalPosition,
+								basePosition,
 								finalRotation,
 								structureData.size());
-						Vector3Int consumedChildPosition = calculateTransformedJigsawPosition(childJigsaw,
-								finalPosition,
+						Vector3Int consumedChildPosition = calculateTransformedJigsawPosition(
+								childJigsaw, // NOTE: Using original childJigsaw, not rotatedChildJigsaw
+								basePosition,
 								finalRotation,
 								structureData.size());
+						if (DEBUG_CONNECTIONS) {
+							LOGGER.info(String.format("  Marking child jigsaw as consumed at world pos: %s", consumedChildPosition));
+							LOGGER.info("  Child piece jigsaws BEFORE queueing:");
+							for (TransformedJigsawBlock conn : connections) {
+								LOGGER.info(String.format("    pos=(xyz=%s,%s,%s), orientation=%s, target=%s, consumed=%s",
+										conn.position().getX(),
+										conn.position().getY(),
+										conn.position().getZ(),
+										conn.orientation(),
+										conn.info().target(),
+										conn.position().equals(consumedChildPosition)));
+							}
+						}
 						connections = connections.stream()
-								.map(conn -> conn.position()
-										.equals(consumedChildPosition) ? conn.asConsumed() : conn)
+								.map(conn -> vectorEquals(conn.position(), consumedChildPosition)
+										? conn.asConsumed()
+										: conn)
 								.toList();
 						successfulConnections++;
 						usageTracker.recordPlacement(targetPoolId, nbtFile);
 						PlacedJigsawPiece childPiece = new PlacedJigsawPiece(
 								nbtFile,
-								finalPosition,
+								basePosition,
 								finalRotation,
 								structureData,
 								connections,
@@ -378,19 +469,43 @@ public class JigsawGenerator {
 							this.debugContext.setActiveConnectionPoint(null);
 						}
 						LOGGER.info(String.format(
-								"Placed piece: file=%s, pos=%s, geoRot=%s, alignRot=%s, finalRot=%s, bounds=%s",
+								"PLACED piece: file=%s, pos=(xyz=%s,%s,%s), geoRot=%s, alignRot=%s, finalRot=%s, bounds=%s",
 								nbtFile,
-								finalPosition,
-								geometricRotation,
-								alignmentTransform.rotation(),
-								finalRotation,
+								basePosition.getX(),
+								basePosition.getY(),
+								basePosition.getZ(),
+								geometricRotation.getDegrees(),
+								alignmentRotation.getDegrees(),
+								finalRotation.getDegrees(),
 								childBounds));
 						return childPiece;
+					} else {
+						if (DEBUG_CONNECTIONS) {
+							LOGGER.info("  COLLISION - trying next rotation or piece");
+						}
 					}
 				}
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Compares two Vector3Int instances by their coordinate values.
+	 * Terra's Vector3Int.equals() may not work reliably across different implementations.
+	 * 
+	 * @param v1
+	 *            First vector
+	 * @param v2
+	 *            Second vector
+	 * @return true if X, Y, Z coordinates match
+	 */
+	private static boolean vectorEquals(Vector3Int v1, Vector3Int v2) {
+		if (v1 == null || v2 == null)
+			return false;
+		return v1.getX() == v2.getX() &&
+				v1.getY() == v2.getY() &&
+				v1.getZ() == v2.getZ();
 	}
 
 	/**
@@ -587,8 +702,10 @@ public class JigsawGenerator {
 	}
 
 	private void queueConnections(PlacedJigsawPiece piece, int depth) {
-		// Only queue unconsumed connections to avoid redundant processing
-		// The child's connection point is pre-marked as consumed during placement
+		if (DEBUG_CONNECTIONS) {
+			LOGGER.info(String.format("QUEUEING connections from piece at %s (depth=%d, file=%s)",
+					piece.worldPosition(), depth, piece.nbtFile()));
+		}
 		for (TransformedJigsawBlock connection : piece.connections()) {
 			if (!connection.isConsumed()) {
 				PendingJigsawConnection pending = PendingJigsawConnection.create(
@@ -596,6 +713,22 @@ public class JigsawGenerator {
 						piece,
 						depth);
 				connectionQueue.offer(pending);
+				if (DEBUG_CONNECTIONS) {
+					LOGGER.info(String.format("  Queued: pos=(xyz=%s,%s,%s), orientation=%s, target=%s, priority=%d",
+							connection.position().getX(),
+							connection.position().getY(),
+							connection.position().getZ(),
+							connection.orientation(),
+							connection.info().target(),
+							pending.priority()));
+				}
+			} else {
+				if (DEBUG_CONNECTIONS) {
+					LOGGER.info(String.format("  Skipped (consumed): pos=(xyz=%s,%s,%s)",
+							connection.position().getX(),
+							connection.position().getY(),
+							connection.position().getZ()));
+				}
 			}
 		}
 	}
@@ -606,6 +739,10 @@ public class JigsawGenerator {
 				PlacedJigsawPiece updated = pieces.get(i).withConsumedConnection(
 						pending.connection().position());
 				pieces.set(i, updated);
+				if (DEBUG_CONNECTIONS) {
+					LOGGER.info(String.format("Marked parent connection as consumed at %s",
+							pending.connection().position()));
+				}
 				break;
 			}
 		}
@@ -616,12 +753,35 @@ public class JigsawGenerator {
 			Vector3Int worldPosition,
 			Rotation rotation,
 			Vector3Int structureSize) {
+		if (DEBUG_CONNECTIONS) {
+			LOGGER.info(String.format("Transforming %d jigsaws: worldPos=(xyz=%s,%s,%s), rotation=%s, size=%s",
+					jigsawBlocks.size(),
+					worldPosition.getX(),
+					worldPosition.getY(),
+					worldPosition.getZ(),
+					rotation.getDegrees(),
+					structureSize));
+		}
 		return jigsawBlocks.stream()
-				.map(jigsaw -> TransformUtil.transformJigsawConnection(
-						jigsaw,
-						worldPosition,
-						rotation,
-						structureSize))
+				.map(jigsaw -> {
+					TransformedJigsawBlock transformed = TransformUtil.transformJigsawConnection(
+							jigsaw,
+							worldPosition,
+							rotation,
+							structureSize);
+					if (DEBUG_CONNECTIONS) {
+						LOGGER.info(String.format("  Transformed: local=(xyz=%s,%s,%s) -> world=(xyz=%s,%s,%s), orientation=%s -> %s",
+								jigsaw.position().getX(),
+								jigsaw.position().getY(),
+								jigsaw.position().getZ(),
+								transformed.position().getX(),
+								transformed.position().getY(),
+								transformed.position().getZ(),
+								jigsaw.orientation(),
+								transformed.orientation()));
+					}
+					return transformed;
+				})
 				.collect(Collectors.toList());
 	}
 

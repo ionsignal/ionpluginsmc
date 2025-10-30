@@ -58,15 +58,27 @@ public record PendingJigsawConnection(
 		if (priorityCompare != 0) {
 			return priorityCompare;
 		}
-
 		// Then by depth (shallower first for breadth-first tendency)
 		int depthCompare = Integer.compare(this.depth, other.depth);
 		if (depthCompare != 0) {
 			return depthCompare;
 		}
-
-		// Finally by connection name for deterministic ordering
-		return this.connection.info().name().compareTo(other.connection.info().name());
+		// Then by connection name
+		int nameCompare = this.connection.info().name().compareTo(other.connection.info().name());
+		if (nameCompare != 0) {
+			return nameCompare;
+		}
+		// Finally, by world position for guaranteed deterministic ordering
+		// Order: X (west to east), then Y (bottom to top), then Z (north to south)
+		Vector3Int thisPos = this.connection.position();
+		Vector3Int otherPos = other.connection.position();
+		int xCompare = Integer.compare(thisPos.getX(), otherPos.getX());
+		if (xCompare != 0)
+			return xCompare;
+		int yCompare = Integer.compare(thisPos.getY(), otherPos.getY());
+		if (yCompare != 0)
+			return yCompare;
+		return Integer.compare(thisPos.getZ(), otherPos.getZ());
 	}
 
 	/**
