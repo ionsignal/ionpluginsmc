@@ -3,6 +3,7 @@ package com.ionsignal.minecraft.ionnerrus.terra.generation;
 import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureTemplate;
 import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.debug.DebugContext;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.debug.DebugVisualizer;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ConstraintViolation;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.EnforcementStrategy;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ForcedPlacement;
@@ -25,6 +26,8 @@ import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.util.Rotation;
 import com.dfsek.terra.api.util.vector.Vector3Int;
+
+import org.bukkit.World;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -236,7 +239,16 @@ public class JigsawGenerator {
 				origin,
 				rotation,
 				structureData.size());
-		return PlacedJigsawPiece.createStartPiece(nbtFile, origin, rotation, structureData, connections, startPoolId);
+		PlacedJigsawPiece startPiece = PlacedJigsawPiece.createStartPiece(nbtFile, origin, rotation, structureData, connections,
+				startPoolId);
+		if (this.debugContext != null && this.debugContext.isRunning()) {
+			World world = this.debugContext.getWorld();
+			if (world != null) {
+				DebugVisualizer.visualizePlacedPiece(world, this.debugContext, startPiece);
+				LOGGER.fine("Visualized start piece in permanent layer: " + nbtFile);
+			}
+		}
+		return startPiece;
 	}
 
 	/**
@@ -313,18 +325,7 @@ public class JigsawGenerator {
 								structureData.size());
 						successfulConnections++;
 						usageTracker.recordPlacement(targetPoolId, nbtFile);
-						LOGGER.info(String.format(
-								"Placed piece: file=%s, pos=%s, geoRot=%s, alignRot=%s, finalRot=%s, bounds=%s",
-								nbtFile,
-								finalPosition,
-								geometricRotation,
-								alignmentTransform.rotation(),
-								finalRotation,
-								childBounds));
-						if (this.debugContext != null && this.debugContext.isRunning()) {
-							this.debugContext.setActiveConnectionPoint(null);
-						}
-						return new PlacedJigsawPiece(
+						PlacedJigsawPiece childPiece = new PlacedJigsawPiece(
 								nbtFile,
 								finalPosition,
 								finalRotation,
@@ -333,6 +334,22 @@ public class JigsawGenerator {
 								pending.depth() + 1,
 								pending.sourcePiece(),
 								targetPoolId);
+						if (this.debugContext != null && this.debugContext.isRunning()) {
+							World world = this.debugContext.getWorld();
+							if (world != null) {
+								DebugVisualizer.visualizePlacedPiece(world, this.debugContext, childPiece);
+							}
+							this.debugContext.setActiveConnectionPoint(null);
+						}
+						LOGGER.info(String.format(
+								"Placed piece: file=%s, pos=%s, geoRot=%s, alignRot=%s, finalRot=%s, bounds=%s",
+								nbtFile,
+								finalPosition,
+								geometricRotation,
+								alignmentTransform.rotation(),
+								finalRotation,
+								childBounds));
+						return childPiece;
 					}
 				}
 			}
