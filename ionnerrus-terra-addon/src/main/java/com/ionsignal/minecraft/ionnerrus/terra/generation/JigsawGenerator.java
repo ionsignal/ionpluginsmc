@@ -178,7 +178,7 @@ public class JigsawGenerator {
 		}
 		pieces.add(startPiece);
 		occupiedSpace.add(startPiece.getWorldBounds());
-		usageTracker.recordPlacement(startPiece.sourcePoolId(), startPiece.nbtFile());
+		// usageTracker.recordPlacement(startPiece.sourcePoolId(), startPiece.nbtFile());
 		queueConnections(startPiece, 0);
 		while (!connectionQueue.isEmpty()) {
 			if (debugContext != null && debugContext.isCancelled()) {
@@ -274,8 +274,13 @@ public class JigsawGenerator {
 				origin,
 				rotation,
 				structureData.size());
-		PlacedJigsawPiece startPiece = PlacedJigsawPiece.createStartPiece(nbtFile, origin, rotation, structureData, connections,
-				startPoolId);
+		usageTracker.recordPlacement(startPool.getId(), nbtFile);
+		PlacedJigsawPiece startPiece = PlacedJigsawPiece.createStartPiece(nbtFile,
+				origin,
+				rotation,
+				structureData,
+				connections,
+				startPool.getId());
 		if (DEBUG_CONNECTIONS) {
 			LOGGER.info(String.format("START PIECE placed: file=%s, pos=(xyz=%s,%s,%s), rot=%s",
 					nbtFile,
@@ -321,12 +326,12 @@ public class JigsawGenerator {
 					pending.connection().orientation(),
 					pending.getTargetName()));
 		}
+		String targetPoolId = pending.getTargetPoolId();
 		if (this.debugContext != null && this.debugContext.isRunning()) {
 			this.debugContext.setCurrentPiece(pending.sourcePiece());
-			this.debugContext.setCurrentPoolId(pending.getTargetPoolId());
+			this.debugContext.setCurrentPoolId(targetPoolId);
 			this.debugContext.setActiveConnectionPoint(pending.connection().position());
 		}
-		String targetPoolId = pending.getTargetPoolId();
 		JigsawPool pool = poolRegistry.getPool(targetPoolId);
 		if (pool == null) {
 			LOGGER.warning("Target pool not found: " + targetPoolId);
@@ -346,8 +351,7 @@ public class JigsawGenerator {
 			List<JigsawData.JigsawBlock> shuffledJigsaws = new ArrayList<>(structureData.jigsawBlocks());
 			Collections.shuffle(shuffledJigsaws, random);
 			for (JigsawData.JigsawBlock childJigsaw : shuffledJigsaws) {
-				if (!JigsawConnection.matchesConnectionName(pending.getTargetName(), childJigsaw.info().name()) ||
-						!JigsawConnection.matchesConnectionName(childJigsaw.info().target(), pending.connection().info().name())) {
+				if (!JigsawConnection.canConnect(pending.connection().toJigsawBlock(), childJigsaw)) {
 					continue;
 				}
 				List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
@@ -425,7 +429,7 @@ public class JigsawGenerator {
 						// Mark the consumed child connection in the registry
 						connectionRegistry.markConsumed(consumedChildPosition);
 						successfulConnections++;
-						usageTracker.recordPlacement(targetPoolId, nbtFile);
+						usageTracker.recordPlacement(pool.getId(), nbtFile);
 						PlacedJigsawPiece childPiece = new PlacedJigsawPiece(
 								nbtFile,
 								basePosition,
@@ -434,7 +438,7 @@ public class JigsawGenerator {
 								connections,
 								pending.depth() + 1,
 								pending.sourcePiece(),
-								targetPoolId);
+								pool.getId());
 						if (this.debugContext != null && this.debugContext.isRunning()) {
 							World world = this.debugContext.getWorld();
 							if (world != null) {

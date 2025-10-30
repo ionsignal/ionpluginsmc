@@ -29,9 +29,11 @@ public final class JigsawConnection {
 		if (!matchesConnectionName(source.info().target(), target.info().name())) {
 			return false;
 		}
-		// Check if target's target matches source's name (bidirectional check)
-		if (!matchesConnectionName(target.info().target(), source.info().name())) {
-			return false;
+		// If the target piece is a regular piece (not a terminator), enforce bidirectional connection.
+		if (!"minecraft:empty".equals(target.info().target())) {
+			if (!matchesConnectionName(target.info().target(), source.info().name())) {
+				return false;
+			}
 		}
 		// Joint types must be compatible
 		return areJointTypesCompatible(source.info().jointType(), target.info().jointType());
