@@ -214,7 +214,35 @@ public class JigsawGenerator {
 		return new JigsawPlacement(pieces, origin, config.getID());
 	}
 
+	/*
+	 * Calculates the world position of a specific jigsaw block after transformation.
+	 * Used to identify which connection should be marked as consumed.
+	 * 
+	 * @param jigsaw The jigsaw in local structure coordinates
+	 * 
+	 * @param worldPosition The structure's world position
+	 * 
+	 * @param rotation The structure's rotation
+	 * 
+	 * @param structureSize The structure's size
+	 * 
+	 * @return The world position of the transformed jigsaw
+	 */
+	private Vector3Int calculateTransformedJigsawPosition(
+			JigsawData.JigsawBlock jigsaw,
+			Vector3Int worldPosition,
+			Rotation rotation,
+			Vector3Int structureSize) {
+		Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rotation, structureSize);
+		return Vector3Int.of(
+				worldPosition.getX() + rotatedPos.getX(),
+				worldPosition.getY() + rotatedPos.getY(),
+				worldPosition.getZ() + rotatedPos.getZ());
+	}
+
 	/**
+	 * 
+	 * /**
 	 * Selects and places the starting piece.
 	 */
 	private PlacedJigsawPiece selectAndPlaceStartPiece(String startPoolId) {
@@ -323,6 +351,14 @@ public class JigsawGenerator {
 								finalPosition,
 								finalRotation,
 								structureData.size());
+						Vector3Int consumedChildPosition = calculateTransformedJigsawPosition(childJigsaw,
+								finalPosition,
+								finalRotation,
+								structureData.size());
+						connections = connections.stream()
+								.map(conn -> conn.position()
+										.equals(consumedChildPosition) ? conn.asConsumed() : conn)
+								.toList();
 						successfulConnections++;
 						usageTracker.recordPlacement(targetPoolId, nbtFile);
 						PlacedJigsawPiece childPiece = new PlacedJigsawPiece(
@@ -551,6 +587,8 @@ public class JigsawGenerator {
 	}
 
 	private void queueConnections(PlacedJigsawPiece piece, int depth) {
+		// Only queue unconsumed connections to avoid redundant processing
+		// The child's connection point is pre-marked as consumed during placement
 		for (TransformedJigsawBlock connection : piece.connections()) {
 			if (!connection.isConsumed()) {
 				PendingJigsawConnection pending = PendingJigsawConnection.create(

@@ -26,13 +26,11 @@ public final class DebugInfoFormatter {
 		if (context == null || !context.isRunning()) {
 			return Component.text("No active debug session");
 		}
-
 		String phase = context.getCurrentPhase();
 		Rotation geoRot = context.getGeometricRotation();
 		Rotation alignRot = context.getAlignmentRotation();
 		boolean collision = context.hasCollision();
 		String file = context.getCurrentElementFile() != null ? context.getCurrentElementFile() : "?";
-
 		// PHASE 3: ADDED - Build actionbar with current state
 		return Component.text()
 				.append(Component.text("[", NamedTextColor.GRAY))
@@ -57,13 +55,11 @@ public final class DebugInfoFormatter {
 		if (context == null || !context.isRunning()) {
 			return Component.text("No active debug session", NamedTextColor.RED);
 		}
-
 		Vector3Int position = context.getCurrentPosition();
 		Rotation geoRot = context.getGeometricRotation();
 		Rotation alignRot = context.getAlignmentRotation();
 		String file = context.getCurrentElementFile() != null ? context.getCurrentElementFile() : "unknown";
 		String pool = context.getCurrentPoolId() != null ? context.getCurrentPoolId() : "unknown";
-
 		// PHASE 3: ADDED - Build detailed info
 		return Component.text()
 				.append(Component.text("=== Debug Step " + (context.getCurrentStepIndex() + 1) + " ===\n", NamedTextColor.BLUE))
