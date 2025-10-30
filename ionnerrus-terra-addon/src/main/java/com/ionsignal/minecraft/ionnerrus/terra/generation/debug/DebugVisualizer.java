@@ -134,49 +134,6 @@ public final class DebugVisualizer {
 	}
 
 	/**
-	 * Shows a placed piece's blocks using BlockDisplay entities.
-	 */
-	private static void showPiece(World world, DebugContext context, PlacedJigsawPiece piece, boolean isColliding) {
-		if (piece == null || piece.structureData() == null) {
-			return;
-		}
-		NBTStructure.StructureData structureData = piece.structureData();
-		Material material = isColliding ? TEST_COLLISION_MATERIAL : TEST_CLEAR_MATERIAL;
-		for (NBTStructure.BlockEntry block : structureData.blocks()) {
-			NBTStructure.PaletteEntry paletteEntry = structureData.palette().get(block.state());
-			if ("minecraft:air".equals(paletteEntry.name())) {
-				continue;
-			}
-			Vector3Int rotatedPos = CoordinateConverter.rotate(
-					block.pos(),
-					piece.rotation(),
-					structureData.size());
-			Vector3Int worldPos = Vector3Int.of(
-					piece.worldPosition().getX() + rotatedPos.getX(),
-					piece.worldPosition().getY() + rotatedPos.getY(),
-					piece.worldPosition().getZ() + rotatedPos.getZ());
-			Location loc = new Location(world,
-					worldPos.getX() + 0.5,
-					worldPos.getY() + 0.5,
-					worldPos.getZ() + 0.5);
-			BlockDisplay display = world.spawn(loc, BlockDisplay.class);
-			display.setBlock(Bukkit.createBlockData(material));
-			display.setTransformation(new Transformation(
-					new Vector3f(-0.4f, -0.4f, -0.4f),
-					new org.joml.Quaternionf(),
-					new Vector3f(0.8f, 0.8f, 0.8f),
-					new org.joml.Quaternionf()));
-			display.setGlowing(true);
-			display.setViewRange(64);
-			display.setBrightness(new Display.Brightness(15, 15));
-			context.addTransientDisplay(display);
-		}
-		LOGGER.fine(String.format("Visualized test piece at %s: %d blocks (transient layer)",
-				piece.worldPosition(),
-				structureData.blocks().size()));
-	}
-
-	/**
 	 * Shows the structure currently being tested (not yet placed).
 	 * PHASE 4: CHANGED - Uses test materials and transient layer.
 	 */
