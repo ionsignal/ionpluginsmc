@@ -1,8 +1,10 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation.debug;
 
 import com.dfsek.terra.api.util.vector.Vector3Int;
+
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -232,7 +234,7 @@ public class DebugCommand implements CommandExecutor {
 			DebugContext context = activeDebugTasks.remove(taskKey);
 			if (context != null) {
 				context.stop();
-				context.clearVisualization(); // Clean up BlockDisplay entities
+				context.clearAllVisualization();
 				LOGGER.info("Cleared active debug session for player " + playerId);
 			}
 		}

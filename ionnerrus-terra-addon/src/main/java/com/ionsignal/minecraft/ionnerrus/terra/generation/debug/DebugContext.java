@@ -5,6 +5,7 @@ import com.dfsek.terra.api.util.vector.Vector3Int;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Player;
 
@@ -28,6 +29,10 @@ public class DebugContext {
 	private final String structureId;
 	private final Vector3Int origin;
 
+	private final List<BlockDisplay> placedPieceDisplays = new ArrayList<>();
+	private final List<BlockDisplay> transientDisplays = new ArrayList<>();
+	private final List<DebugStep> stepHistory = new ArrayList<>();
+
 	private volatile CountDownLatch stepLatch;
 	private volatile boolean running = false;
 	private volatile String currentPhase = "";
@@ -36,21 +41,18 @@ public class DebugContext {
 	private volatile boolean cancelled = false;
 
 	// Visualization data (written by async thread, read by main thread)
-	private volatile PlacedJigsawPiece currentPiece;
+	private volatile PlacedJigsawPiece currentPiece; // rendered via permanent layer, not transient
 	private volatile NBTStructure.StructureData currentStructure;
 	private volatile Vector3Int currentPosition;
+	private volatile boolean visualizationDirty = false;
 	private volatile boolean hasCollision = false;
 	private volatile Rotation geometricRotation = Rotation.NONE;
 	private volatile Rotation alignmentRotation = Rotation.NONE;
 	private volatile String currentElementFile;
 	private volatile String currentPoolId;
 	private volatile Vector3Int activeConnectionPoint;
+	private volatile World world;
 
-	// Visualization state (accessed only from main thread)
-	private final List<BlockDisplay> activeDisplays = new ArrayList<>();
-	private volatile boolean visualizationDirty = false;
-
-	private final List<DebugStep> stepHistory = new ArrayList<>();
 	private int currentStepIndex = -1;
 
 	/**
@@ -73,6 +75,10 @@ public class DebugContext {
 		running = true;
 		currentPhase = "INITIALIZED";
 		phaseInfo = "Debug session started at " + origin;
+		Optional<Player> player = getPlayer();
+		if (player.isPresent()) {
+			this.world = player.get().getWorld();
+		}
 		stepLatch.countDown(); // Allow generation to start
 		LOGGER.info("Debug session started for player " + playerId);
 	}
@@ -153,23 +159,46 @@ public class DebugContext {
 	}
 
 	/**
-	 * Clears all visualization entities (main thread only).
+	 * Only clears transient visualization (test pieces, markers) and placed pieces remain visible.
 	 */
-	public void clearVisualization() {
-		for (BlockDisplay display : activeDisplays) {
+	public void clearTransientVisualization() {
+		for (BlockDisplay display : transientDisplays) {
 			if (display != null && display.isValid()) {
 				display.remove();
 			}
 		}
-		activeDisplays.clear();
+		transientDisplays.clear();
 		visualizationDirty = false;
 	}
 
 	/**
-	 * Adds a display entity to track (main thread only).
+	 * Clears ALL visualization entities (including placed pieces) used during session cleanup/shutdown.
 	 */
-	public void addDisplay(BlockDisplay display) {
-		activeDisplays.add(display);
+	public void clearAllVisualization() {
+		// Clear placed pieces
+		for (BlockDisplay display : placedPieceDisplays) {
+			if (display != null && display.isValid()) {
+				display.remove();
+			}
+		}
+		placedPieceDisplays.clear();
+		// Clear transient displays
+		clearTransientVisualization();
+		LOGGER.info("Cleared all visualization displays for debug session");
+	}
+
+	/**
+	 * Adds to transient displays (cleared on each update).
+	 */
+	public void addTransientDisplay(BlockDisplay display) {
+		transientDisplays.add(display);
+	}
+
+	/**
+	 * Adds to permanent placed piece displays (not cleared until session ends).
+	 */
+	public void addPlacedPieceDisplay(BlockDisplay display) {
+		placedPieceDisplays.add(display);
 	}
 
 	/**
@@ -221,8 +250,25 @@ public class DebugContext {
 		return phaseInfo;
 	}
 
-	public int getActiveDisplaysSize() {
-		return this.activeDisplays.size();
+	/**
+	 * Returns count of transient displays only.
+	 */
+	public int getTransientDisplaysSize() {
+		return this.transientDisplays.size();
+	}
+
+	/**
+	 * Returns count of placed piece displays.
+	 */
+	public int getPlacedPieceDisplaysSize() {
+		return this.placedPieceDisplays.size();
+	}
+
+	/**
+	 * Gets the world reference for visualization.
+	 */
+	public World getWorld() {
+		return world;
 	}
 
 	// ============================================

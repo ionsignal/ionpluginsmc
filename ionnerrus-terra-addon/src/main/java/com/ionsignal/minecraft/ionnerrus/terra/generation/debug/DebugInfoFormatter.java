@@ -5,14 +5,14 @@ import com.dfsek.terra.api.util.vector.Vector3Int;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
-import java.util.logging.Logger;
+// import java.util.logging.Logger;
 
 /**
  * PHASE 3: NEW - Formats debug information for display to players.
  * Shows current generation state in actionbar/chat.
  */
 public final class DebugInfoFormatter {
-	private static final Logger LOGGER = Logger.getLogger(DebugInfoFormatter.class.getName());
+	// private static final Logger LOGGER = Logger.getLogger(DebugInfoFormatter.class.getName());
 
 	private DebugInfoFormatter() {
 		// Static utility class
