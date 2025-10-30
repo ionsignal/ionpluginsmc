@@ -57,7 +57,7 @@ public final class DebugVisualizer {
 				AABB testBounds = AABB.fromPiece(
 						context.getCurrentPosition(),
 						context.getCurrentStructure().size(),
-						context.getGeometricRotation());
+						context.getFinalRotation());
 				showTestStructure(world, context);
 				showAABB(world, context, testBounds, context.hasCollision());
 			}
@@ -66,9 +66,20 @@ public final class DebugVisualizer {
 				showConnection(world, context, context.getActiveConnectionPoint());
 			}
 			context.markVisualizationClean();
-			LOGGER.fine(String.format("Updated visuals: %d transient, %d placed",
+			LOGGER.info(String.format("Updated visuals: %d transient, %d placed",
 					context.getTransientDisplaysSize(),
 					context.getPlacedPieceDisplaysSize()));
+			LOGGER.info(String.format(
+					"Debug AABB: pos=(%s,%s,%s), size=(%s,%s,%s), geoRot=%s, alignRot=%s, finalRot=%s",
+					context.getCurrentPosition().getX(),
+					context.getCurrentPosition().getY(),
+					context.getCurrentPosition().getZ(),
+					context.getCurrentStructure().size().getX(),
+					context.getCurrentStructure().size().getY(),
+					context.getCurrentStructure().size().getZ(),
+					context.getGeometricRotation().getDegrees(),
+					context.getAlignmentRotation().getDegrees(),
+					context.getFinalRotation().getDegrees()));
 		});
 	}
 
@@ -135,7 +146,6 @@ public final class DebugVisualizer {
 
 	/**
 	 * Shows the structure currently being tested (not yet placed).
-	 * PHASE 4: CHANGED - Uses test materials and transient layer.
 	 */
 	private static void showTestStructure(World world, DebugContext context) {
 		NBTStructure.StructureData structureData = context.getCurrentStructure();

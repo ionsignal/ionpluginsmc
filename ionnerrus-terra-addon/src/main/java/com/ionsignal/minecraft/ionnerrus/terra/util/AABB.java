@@ -61,9 +61,12 @@ public record AABB(Vector3Int min, Vector3Int max) {
 	/**
 	 * Creates an AABB for a structure piece at a given position with rotation.
 	 * This correctly accounts for how rotation affects the bounding box by:
-	 * 1. Generating all 8 corners of the unrotated bounding box
-	 * 2. Rotating each corner around the structure's pivot point
-	 * 3. Finding the min/max coordinates of all transformed corners
+	 * 
+	 * Algorithm:
+	 * 1. Generate all 8 corners of the unrotated bounding box in structure-local space
+	 * 2. Rotate each corner using CoordinateConverter.rotate() (single source of truth)
+	 * 3. Transform each rotated corner to world space by adding the structure's world position
+	 * 4. Find the min/max coordinates of all 8 transformed corners
 	 * 
 	 * @param position
 	 *            The world position of the structure's origin (pivot point for rotation)
@@ -82,33 +85,30 @@ public record AABB(Vector3Int min, Vector3Int max) {
 					position.getZ() + size.getZ() - 1);
 			return new AABB(position, max);
 		}
-		// For rotated pieces, we must compute all 8 corners and find their bounds
-		// Step 1: Generate the 8 corners of the unrotated bounding box in local space
-		// (relative to position, with size defining the extent)
-		int[][] localCorners = {
-				{ 0, 0, 0 },
-				{ size.getX() - 1, 0, 0 },
-				{ 0, size.getY() - 1, 0 },
-				{ size.getX() - 1, size.getY() - 1, 0 },
-				{ 0, 0, size.getZ() - 1 },
-				{ size.getX() - 1, 0, size.getZ() - 1 },
-				{ 0, size.getY() - 1, size.getZ() - 1 },
-				{ size.getX() - 1, size.getY() - 1, size.getZ() - 1 }
-		};
-		// Step 2: Rotate each corner and transform to world space
+		// For rotated pieces, we must compute all 8 corners of the bounding box
+		// and find their extents after rotation.
 		int minX = Integer.MAX_VALUE;
 		int maxX = Integer.MIN_VALUE;
 		int minY = Integer.MAX_VALUE;
 		int maxY = Integer.MIN_VALUE;
 		int minZ = Integer.MAX_VALUE;
 		int maxZ = Integer.MIN_VALUE;
-		for (int[] corner : localCorners) {
-			// Rotate the corner (only X and Z are affected by horizontal rotations)
-			int[] rotatedCorner = rotateCorner(corner, rotation, size);
-			// Transform to world space
-			int worldX = position.getX() + rotatedCorner[0];
-			int worldY = position.getY() + rotatedCorner[1];
-			int worldZ = position.getZ() + rotatedCorner[2];
+		// Generate and process all 8 corners of the unrotated bounding box
+		// Corner indices: 000, 001, 010, 011, 100, 101, 110, 111 (binary: XYZ)
+		for (int cornerIndex = 0; cornerIndex < 8; cornerIndex++) {
+			// Decode corner index into coordinates (0 or size-1 for each axis)
+			int localX = ((cornerIndex & 0b100) != 0) ? size.getX() - 1 : 0;
+			int localY = ((cornerIndex & 0b010) != 0) ? size.getY() - 1 : 0;
+			int localZ = ((cornerIndex & 0b001) != 0) ? size.getZ() - 1 : 0;
+			// Create a position vector for this corner in structure-local space
+			Vector3Int localCorner = Vector3Int.of(localX, localY, localZ);
+			// Rotate using the SAME logic as block placement
+			// This is the critical fix - we now use CoordinateConverter as the single source of truth
+			Vector3Int rotatedCorner = CoordinateConverter.rotate(localCorner, rotation, size);
+			// Transform the rotated corner to world space
+			int worldX = position.getX() + rotatedCorner.getX();
+			int worldY = position.getY() + rotatedCorner.getY();
+			int worldZ = position.getZ() + rotatedCorner.getZ();
 			// Update bounds
 			minX = Math.min(minX, worldX);
 			maxX = Math.max(maxX, worldX);
@@ -120,38 +120,6 @@ public record AABB(Vector3Int min, Vector3Int max) {
 		return new AABB(
 				Vector3Int.of(minX, minY, minZ),
 				Vector3Int.of(maxX, maxY, maxZ));
-	}
-
-	/**
-	 * Rotates a single corner point around the structure's pivot (0, 0, 0).
-	 * Only X and Z are affected by horizontal rotations; Y is preserved.
-	 * 
-	 * @param corner
-	 *            The corner coordinates in local space [x, y, z]
-	 * @param rotation
-	 *            The rotation to apply
-	 * @param size
-	 *            The structure size (needed for rotation calculations)
-	 * @return The rotated corner coordinates in local space
-	 */
-	private static int[] rotateCorner(int[] corner, Rotation rotation, Vector3Int size) {
-		int x = corner[0];
-		int y = corner[1];
-		int z = corner[2];
-		// Y is never affected by horizontal rotations
-		// Only X and Z rotate around the Y axis
-		return switch (rotation) {
-			case NONE -> new int[] { x, y, z };
-			// CW_90: (x, y, z) -> (z, y, size.x - 1 - x)
-			// The structure rotates 90° clockwise when viewed from above
-			case CW_90 -> new int[] { z, y, size.getX() - 1 - x };
-			// CW_180: (x, y, z) -> (size.x - 1 - x, y, size.z - 1 - z)
-			// The structure rotates 180°
-			case CW_180 -> new int[] { size.getX() - 1 - x, y, size.getZ() - 1 - z };
-			// CCW_90: (x, y, z) -> (size.z - 1 - z, y, x)
-			// The structure rotates 90° counter-clockwise when viewed from above
-			case CCW_90 -> new int[] { size.getZ() - 1 - z, y, x };
-		};
 	}
 
 	/**
