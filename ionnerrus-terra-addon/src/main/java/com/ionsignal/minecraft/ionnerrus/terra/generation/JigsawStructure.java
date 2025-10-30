@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.terra.generation.debug.DebugContext;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.JigsawPlacement;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import com.ionsignal.minecraft.ionnerrus.terra.provider.NBTStructureProvider;
 import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
@@ -53,7 +54,7 @@ public class JigsawStructure implements Structure {
 					// A matching debug session was found. We will handle generation asynchronously.
 					LOGGER.info("Debug session detected. Starting asynchronous generation for " + config.getID());
 					runAsynchronousDebugGeneration(location, world, debugContext);
-					return true; // Signal that generation is being handled.
+					return true;
 				}
 			}
 			JigsawPlacement placement;
@@ -87,6 +88,7 @@ public class JigsawStructure implements Structure {
 			int chunkRadius = 1;
 			int placedPieces = 0;
 			int placedBlocks = 0;
+			ConnectionRegistry registry = placement.connectionRegistry();
 			for (PlacedJigsawPiece piece : placement.pieces()) {
 				boolean intersectsRegion = false;
 				for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
@@ -102,7 +104,7 @@ public class JigsawStructure implements Structure {
 				if (!intersectsRegion) {
 					continue;
 				}
-				int blocksPlaced = placePieceBlocks(piece, world);
+				int blocksPlaced = placePieceBlocks(piece, world, registry);
 				if (blocksPlaced > 0) {
 					placedPieces++;
 					placedBlocks += blocksPlaced;
@@ -137,27 +139,24 @@ public class JigsawStructure implements Structure {
 					JigsawPlacement placement = generateFullPlacement(location, structureSeed, debugContext);
 					if (placement == null || placement.isEmpty()) {
 						LOGGER.warning("Debug generation resulted in an empty placement.");
-						return; // Don't continue if generation was cancelled or failed.
+						return;
 					}
 					new BukkitRunnable() {
 						@Override
 						public void run() {
 							LOGGER.info("Placing debug-generated structure on main thread...");
 							int placedBlocks = 0;
+							ConnectionRegistry registry = placement.connectionRegistry();
 							for (PlacedJigsawPiece piece : placement.pieces()) {
-								placedBlocks += placePieceBlocks(piece, world);
+								placedBlocks += placePieceBlocks(piece, world, registry);
 							}
 							LOGGER.info("Finished placing " + placedBlocks + " blocks.");
-							// CHANGED: Safely send message to player if they are still online.
 							debugContext.getPlayer().ifPresent(p -> p.sendMessage("Debug generation and placement complete."));
-							// CHANGED: Correctly clear the session using the player's UUID.
 							DebugCommand.clearActiveSession(debugContext.getPlayerId());
 						}
 					}.runTask(plugin);
 				} catch (DebugContext.GenerationCancelledException e) {
-					// This catch block handles the case where the user cancels the generation.
 					LOGGER.info("Debug generation was cancelled by the user.");
-					// Schedule a task to notify the player and clean up the session on the main thread.
 					new BukkitRunnable() {
 						@Override
 						public void run() {
@@ -194,13 +193,13 @@ public class JigsawStructure implements Structure {
 			LOGGER.log(Level.SEVERE, String.format(
 					"Failed to generate jigsaw placement for structure '%s'",
 					config.getID()), e);
-			return JigsawPlacement.empty(origin, config.getID());
+			return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
 		}
 	}
 
 	private JigsawPlacement generateSimplePlacement(Vector3Int origin, long structureSeed) {
 		if (config.getFile() == null || config.getFile().isEmpty()) {
-			return JigsawPlacement.empty(origin, config.getID());
+			return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
 		}
 		NBTStructure.StructureData structureData = NBTStructureProvider.getInstance()
 				.load(pack, config.getFile());
@@ -208,7 +207,7 @@ public class JigsawStructure implements Structure {
 			LOGGER.warning(String.format(
 					"Failed to load NBT data for structure '%s' from file '%s'",
 					config.getID(), config.getFile()));
-			return JigsawPlacement.empty(origin, config.getID());
+			return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
 		}
 		Random random = new Random(structureSeed);
 		Rotation[] rotations = Rotation.values();
@@ -223,10 +222,11 @@ public class JigsawStructure implements Structure {
 		return new JigsawPlacement(
 				java.util.List.of(singlePiece),
 				origin,
-				config.getID());
+				config.getID(),
+				new ConnectionRegistry());
 	}
 
-	private int placePieceBlocks(PlacedJigsawPiece piece, WritableWorld world) {
+	private int placePieceBlocks(PlacedJigsawPiece piece, WritableWorld world, ConnectionRegistry registry) {
 		int blocksPlaced = 0;
 		NBTStructure.StructureData structureData = piece.structureData();
 		for (NBTStructure.BlockEntry block : structureData.blocks()) {
@@ -261,8 +261,9 @@ public class JigsawStructure implements Structure {
 						block.state(), piece.nbtFile(), e.getMessage()));
 			}
 		}
+		// Use registry to check consumed state
 		for (TransformedJigsawBlock connection : piece.connections()) {
-			if (connection.isConsumed()) {
+			if (registry.isConsumed(connection.position())) {
 				try {
 					String finalStateStr = connection.info().finalState();
 					BlockState finalBlockState = platform.getWorldHandle().createBlockState(finalStateStr);
@@ -274,7 +275,6 @@ public class JigsawStructure implements Structure {
 					Vector3Int finalPos = connection.position();
 					world.setBlockState(finalPos.getX(), finalPos.getY(), finalPos.getZ(), rotatedFinalState);
 				} catch (Exception e) {
-					// This can fail if the block is outside the writable region or if the state string is invalid.
 					LOGGER.log(Level.WARNING, "Failed to place final_state for connection at " + connection.position(), e);
 				}
 			}

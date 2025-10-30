@@ -12,6 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PendingJigs
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacementTransform;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
+import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.GenerationStatistics;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.PoolUsageTracker;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
@@ -47,29 +48,26 @@ import java.util.stream.Collectors;
  */
 public class JigsawGenerator {
 	private static final Logger LOGGER = Logger.getLogger(JigsawGenerator.class.getName());
-	private static final boolean DEBUG_CONNECTIONS = true; // Toggle for detailed connection debugging
+	private static final boolean DEBUG_CONNECTIONS = true;
 
 	private final ConfigPack pack;
+	private final Platform platform;
 	private final Random random;
 	private final JigsawStructureTemplate config;
 	private final Vector3Int origin;
 	private final PoolRegistry poolRegistry;
-
-	@SuppressWarnings("unused")
-	private final Platform platform;
-
 	private final List<PlacedJigsawPiece> pieces;
 	private final PriorityQueue<PendingJigsawConnection> connectionQueue;
 	private final Set<AABB> occupiedSpace;
-
 	private final PoolUsageTracker usageTracker;
-	private int attemptedConnections;
-	private int successfulConnections;
-	private long generationStartTime;
-
+	private final ConnectionRegistry connectionRegistry;
 	private final EnforcementStrategy enforcementStrategy;
 	private final List<UsageConstraints> allConstraints;
 	private final ForcedPlacement forcedPlacement;
+
+	private int attemptedConnections;
+	private int successfulConnections;
+	private long generationStartTime;
 
 	private final DebugContext debugContext;
 
@@ -107,6 +105,7 @@ public class JigsawGenerator {
 		this.connectionQueue = new PriorityQueue<>();
 		this.occupiedSpace = new HashSet<>();
 		this.usageTracker = new PoolUsageTracker();
+		this.connectionRegistry = new ConnectionRegistry();
 		this.attemptedConnections = 0;
 		this.successfulConnections = 0;
 		this.enforcementStrategy = EnforcementStrategy.fromConfig(config.getEnforcementStrategy());
@@ -175,7 +174,7 @@ public class JigsawGenerator {
 		PlacedJigsawPiece startPiece = selectAndPlaceStartPiece(startPoolId);
 		if (startPiece == null) {
 			LOGGER.warning("Failed to place start piece from pool: " + startPoolId);
-			return JigsawPlacement.empty(origin, config.getID());
+			return JigsawPlacement.empty(origin, config.getID(), connectionRegistry);
 		}
 		pieces.add(startPiece);
 		occupiedSpace.add(startPiece.getWorldBounds());
@@ -200,35 +199,23 @@ public class JigsawGenerator {
 				pieces.add(childPiece);
 				occupiedSpace.add(childPiece.getWorldBounds());
 				queueConnections(childPiece, pending.depth() + 1);
-				updateConnectionAsConsumed(pending);
+				// Mark parent connection as consumed in registry
+				connectionRegistry.markConsumed(pending.connection().position());
 			}
 		}
 		ensureMinimumPieceCounts();
 		long generationTime = System.currentTimeMillis() - generationStartTime;
 		LOGGER.info(String.format(
-				"Generation completed in %dms: %d pieces placed, %d/%d connections successful%s",
+				"Generation completed on platform %s in %dms: %d pieces placed, %d/%d connections successful%s",
+				platform.platformName(),
 				generationTime,
 				pieces.size(),
 				successfulConnections,
 				attemptedConnections,
 				capturedViolations.isEmpty() ? "" : " (" + capturedViolations.size() + " violations)"));
-		return new JigsawPlacement(pieces, origin, config.getID());
+		return new JigsawPlacement(pieces, origin, config.getID(), connectionRegistry);
 	}
 
-	/*
-	 * Calculates the world position of a specific jigsaw block after transformation.
-	 * Used to identify which connection should be marked as consumed.
-	 * 
-	 * @param jigsaw The jigsaw in local structure coordinates
-	 * 
-	 * @param worldPosition The structure's world position
-	 * 
-	 * @param rotation The structure's rotation
-	 * 
-	 * @param structureSize The structure's size
-	 * 
-	 * @return The world position of the transformed jigsaw
-	 */
 	private Vector3Int calculateTransformedJigsawPosition(
 			JigsawData.JigsawBlock jigsaw,
 			Vector3Int worldPosition,
@@ -428,28 +415,15 @@ public class JigsawGenerator {
 								finalRotation,
 								structureData.size());
 						Vector3Int consumedChildPosition = calculateTransformedJigsawPosition(
-								childJigsaw, // NOTE: Using original childJigsaw, not rotatedChildJigsaw
+								childJigsaw,
 								basePosition,
 								finalRotation,
 								structureData.size());
 						if (DEBUG_CONNECTIONS) {
 							LOGGER.info(String.format("  Marking child jigsaw as consumed at world pos: %s", consumedChildPosition));
-							LOGGER.info("  Child piece jigsaws BEFORE queueing:");
-							for (TransformedJigsawBlock conn : connections) {
-								LOGGER.info(String.format("    pos=(xyz=%s,%s,%s), orientation=%s, target=%s, consumed=%s",
-										conn.position().getX(),
-										conn.position().getY(),
-										conn.position().getZ(),
-										conn.orientation(),
-										conn.info().target(),
-										conn.position().equals(consumedChildPosition)));
-							}
 						}
-						connections = connections.stream()
-								.map(conn -> vectorEquals(conn.position(), consumedChildPosition)
-										? conn.asConsumed()
-										: conn)
-								.toList();
+						// Mark the consumed child connection in the registry
+						connectionRegistry.markConsumed(consumedChildPosition);
 						successfulConnections++;
 						usageTracker.recordPlacement(targetPoolId, nbtFile);
 						PlacedJigsawPiece childPiece = new PlacedJigsawPiece(
@@ -488,24 +462,6 @@ public class JigsawGenerator {
 			}
 		}
 		return null;
-	}
-
-	/**
-	 * Compares two Vector3Int instances by their coordinate values.
-	 * Terra's Vector3Int.equals() may not work reliably across different implementations.
-	 * 
-	 * @param v1
-	 *            First vector
-	 * @param v2
-	 *            Second vector
-	 * @return true if X, Y, Z coordinates match
-	 */
-	private static boolean vectorEquals(Vector3Int v1, Vector3Int v2) {
-		if (v1 == null || v2 == null)
-			return false;
-		return v1.getX() == v2.getX() &&
-				v1.getY() == v2.getY() &&
-				v1.getZ() == v2.getZ();
 	}
 
 	/**
@@ -592,8 +548,9 @@ public class JigsawGenerator {
 					ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
 		} else {
 			pieces.addAll(result.pieces());
+			// Mark consumed connections in registry instead of mutating pieces
 			for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
-				markConnectionAsConsumed(usage.parentPiece(), usage.connectionPosition());
+				connectionRegistry.markConsumed(usage.connectionPosition());
 			}
 			for (PlacedJigsawPiece piece : result.pieces()) {
 				usageTracker.recordPlacement(constraint.poolId(), piece.nbtFile());
@@ -609,8 +566,9 @@ public class JigsawGenerator {
 				occupiedSpace);
 		if (!result.pieces().isEmpty()) {
 			pieces.addAll(result.pieces());
+			// Mark consumed connections in registry
 			for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
-				markConnectionAsConsumed(usage.parentPiece(), usage.connectionPosition());
+				connectionRegistry.markConsumed(usage.connectionPosition());
 			}
 			for (PlacedJigsawPiece piece : result.pieces()) {
 				usageTracker.recordPlacement(constraint.poolId(), piece.nbtFile());
@@ -627,16 +585,6 @@ public class JigsawGenerator {
 					constraint.elementFile(),
 					finalCount,
 					constraint.minCount()));
-		}
-	}
-
-	private void markConnectionAsConsumed(PlacedJigsawPiece parentPiece, Vector3Int connectionPosition) {
-		for (int i = 0; i < pieces.size(); i++) {
-			if (pieces.get(i) == parentPiece) {
-				PlacedJigsawPiece updated = pieces.get(i).withConsumedConnection(connectionPosition);
-				pieces.set(i, updated);
-				break;
-			}
 		}
 	}
 
@@ -707,7 +655,8 @@ public class JigsawGenerator {
 					piece.worldPosition(), depth, piece.nbtFile()));
 		}
 		for (TransformedJigsawBlock connection : piece.connections()) {
-			if (!connection.isConsumed()) {
+			// Check registry instead of connection.isConsumed()
+			if (!connectionRegistry.isConsumed(connection.position())) {
 				PendingJigsawConnection pending = PendingJigsawConnection.create(
 						connection,
 						piece,
@@ -729,21 +678,6 @@ public class JigsawGenerator {
 							connection.position().getY(),
 							connection.position().getZ()));
 				}
-			}
-		}
-	}
-
-	private void updateConnectionAsConsumed(PendingJigsawConnection pending) {
-		for (int i = 0; i < pieces.size(); i++) {
-			if (pieces.get(i) == pending.sourcePiece()) {
-				PlacedJigsawPiece updated = pieces.get(i).withConsumedConnection(
-						pending.connection().position());
-				pieces.set(i, updated);
-				if (DEBUG_CONNECTIONS) {
-					LOGGER.info(String.format("Marked parent connection as consumed at %s",
-							pending.connection().position()));
-				}
-				break;
 			}
 		}
 	}

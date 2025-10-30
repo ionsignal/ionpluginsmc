@@ -1,21 +1,70 @@
 package com.ionsignal.minecraft.ionnerrus.terra.util;
 
-import com.dfsek.terra.api.util.vector.Vector3Int;
 import com.dfsek.terra.api.util.Rotation;
+import com.dfsek.terra.api.util.vector.Vector3Int;
+
+import java.util.Objects;
 
 /**
  * Axis-Aligned Bounding Box for spatial calculations and collision detection.
  * This immutable record represents a 3D rectangular region in world space.
  */
-public record AABB(Vector3Int min, Vector3Int max) {
+
+public final class AABB {
+	private final Vector3Int min;
+	private final Vector3Int max;
+
 	/**
 	 * Creates an AABB with validation to ensure min <= max on all axes.
 	 */
-	public AABB {
+	public AABB(Vector3Int min, Vector3Int max) {
+		this.min = min;
+		this.max = max;
 		if (min.getX() > max.getX() || min.getY() > max.getY() || min.getZ() > max.getZ()) {
 			throw new IllegalArgumentException(
 					String.format("Invalid AABB: min %s must be <= max %s", min, max));
 		}
+	}
+
+	/**
+	 * Return min
+	 */
+	public Vector3Int min() {
+		return min;
+	}
+
+	/**
+	 * Return max
+	 */
+	public Vector3Int max() {
+		return max;
+	}
+
+	/**
+	 * Checks if this AABB intersects with another AABB.
+	 * Two AABBs intersect if they overlap on all three axes.
+	 *
+	 * @param other
+	 *            The other AABB to check intersection with
+	 */
+	@Override
+	public boolean equals(Object other) {
+		if (this == other)
+			return true;
+		if (other == null || getClass() != other.getClass())
+			return false;
+		AABB aabb = (AABB) other;
+		// Use Vector3 for value-based equality.
+		return min.toVector3().equals(aabb.min.toVector3()) && max.toVector3().equals(aabb.max.toVector3());
+	}
+
+	/**
+	 * Override the hashCode generation to that of Vector3
+	 */
+	@Override
+	public int hashCode() {
+		// Use Vector3 for value-based hashing.
+		return Objects.hash(min.toVector3(), max.toVector3());
 	}
 
 	/**

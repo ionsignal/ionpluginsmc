@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
 
+import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
 import com.dfsek.terra.api.util.vector.Vector3Int;
 
@@ -21,22 +22,28 @@ import java.util.stream.Stream;
  *            The ID of the structure configuration
  * @param totalBounds
  *            The combined AABB of all pieces
+ * @param connectionRegistry
+ *            Includes the ConnectionRegistry that tracks which connections were consumed during
+ *            generation.
  */
 public record JigsawPlacement(
 		List<PlacedJigsawPiece> pieces,
 		Vector3Int origin,
 		String structureId,
-		AABB totalBounds) {
+		AABB totalBounds,
+		ConnectionRegistry connectionRegistry) {
 
 	/**
 	 * Creates a JigsawPlacement with validation and automatic bounds calculation.
 	 */
-	public JigsawPlacement(List<PlacedJigsawPiece> pieces, Vector3Int origin, String structureId) {
+	public JigsawPlacement(List<PlacedJigsawPiece> pieces, Vector3Int origin, String structureId,
+			ConnectionRegistry connectionRegistry) {
 		this(
 				pieces != null ? List.copyOf(pieces) : Collections.emptyList(),
 				origin,
 				structureId,
-				calculateTotalBounds(pieces));
+				calculateTotalBounds(pieces),
+				connectionRegistry != null ? connectionRegistry : new ConnectionRegistry());
 	}
 
 	/**
@@ -46,13 +53,16 @@ public record JigsawPlacement(
 		if (pieces == null) {
 			pieces = Collections.emptyList();
 		} else {
-			pieces = List.copyOf(pieces); // Ensure immutability
+			pieces = List.copyOf(pieces);
 		}
 		if (origin == null) {
 			throw new IllegalArgumentException("Origin cannot be null");
 		}
 		if (structureId == null || structureId.isEmpty()) {
 			throw new IllegalArgumentException("Structure ID cannot be null or empty");
+		}
+		if (connectionRegistry == null) {
+			throw new IllegalArgumentException("ConnectionRegistry cannot be null");
 		}
 	}
 
@@ -74,12 +84,13 @@ public record JigsawPlacement(
 	/**
 	 * Creates an empty placement (no pieces).
 	 */
-	public static JigsawPlacement empty(Vector3Int origin, String structureId) {
+	public static JigsawPlacement empty(Vector3Int origin, String structureId, ConnectionRegistry connectionRegistry) {
 		return new JigsawPlacement(
 				Collections.emptyList(),
 				origin,
 				structureId,
-				new AABB(origin, origin));
+				new AABB(origin, origin),
+				connectionRegistry != null ? connectionRegistry : new ConnectionRegistry());
 	}
 
 	/**
@@ -96,7 +107,6 @@ public record JigsawPlacement(
 		if (!totalBounds.intersectsChunkRegion(chunkX, chunkZ)) {
 			return Stream.empty();
 		}
-
 		return pieces.stream()
 				.filter(piece -> piece.intersectsChunk(chunkX, chunkZ));
 	}
@@ -167,7 +177,7 @@ public record JigsawPlacement(
 	 */
 	public Map<String, Integer> getPoolUsageBreakdown() {
 		return pieces.stream()
-				.filter(piece -> piece.sourcePoolId() != null) // PHASE 1: Handle null for simple structures
+				.filter(piece -> piece.sourcePoolId() != null)
 				.collect(Collectors.groupingBy(
 						PlacedJigsawPiece::sourcePoolId,
 						Collectors.summingInt(p -> 1)));
@@ -195,12 +205,13 @@ public record JigsawPlacement(
 				: poolUsage.toString();
 
 		return String.format(
-				"JigsawPlacement[id=%s, pieces=%d, maxDepth=%d, bounds=%s, blocks=%d, pools=%s]",
+				"JigsawPlacement[id=%s, pieces=%d, maxDepth=%d, bounds=%s, blocks=%d, pools=%s, consumedConnections=%d]",
 				structureId,
 				getPieceCount(),
 				getMaxDepth(),
 				totalBounds,
 				getTotalBlockCount(),
-				poolSummary);
+				poolSummary,
+				connectionRegistry.getConsumedCount());
 	}
 }
