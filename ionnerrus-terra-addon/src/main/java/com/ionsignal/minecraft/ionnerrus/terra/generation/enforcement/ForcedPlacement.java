@@ -128,17 +128,15 @@ public class ForcedPlacement {
 		List<ConnectionCandidate> candidates = new ArrayList<>();
 		for (PlacedJigsawPiece piece : pieces) {
 			for (TransformedJigsawBlock connection : piece.connections()) {
-				if (connection.isConsumed()) {
-					continue;
-				}
-				// Convert TransformedJigsawBlock to JigsawBlock for validation
+				// Note: Consumption check now happens in generator via registry
+				// Here we just find potentially compatible connections
 				JigsawData.JigsawBlock parentJigsaw = connection.toJigsawBlock();
 				// Check against ALL jigsaws in the required structure
 				for (JigsawData.JigsawBlock childJigsaw : requiredStructure.jigsawBlocks()) {
 					// Use bidirectional validation
 					if (JigsawConnection.canConnect(parentJigsaw, childJigsaw)) {
 						candidates.add(new ConnectionCandidate(piece, connection));
-						break; // Only need to know ONE jigsaw can connect
+						break;
 					}
 				}
 			}
@@ -186,8 +184,7 @@ public class ForcedPlacement {
 					AABB childBounds = AABB.fromPiece(
 							alignmentTransform.position(),
 							structureData.size(),
-							geometricRotation // ← Use geometric rotation for collision bounds
-					);
+							geometricRotation);
 					if (collides(childBounds, occupiedSpace)) {
 						continue;
 					}
@@ -195,14 +192,14 @@ public class ForcedPlacement {
 					List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 							structureData.jigsawBlocks(),
 							alignmentTransform.position(),
-							finalRotation, // ← Use combined rotation
+							finalRotation,
 							structureData.size());
 					// Step 6: Create placed piece with FINAL rotation
 					int depth = candidate.parentPiece().depth() + 1;
 					return new PlacedJigsawPiece(
 							constraint.elementFile(),
 							alignmentTransform.position(),
-							finalRotation, // ← Store final rotation
+							finalRotation,
 							structureData,
 							connections,
 							depth,
@@ -220,8 +217,7 @@ public class ForcedPlacement {
 				AABB childBounds = AABB.fromPiece(
 						alignmentTransform.position(),
 						structureData.size(),
-						Rotation.NONE // ← ALIGNED joints have no geometric rotation
-				);
+						Rotation.NONE);
 				if (!collides(childBounds, occupiedSpace)) {
 					List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 							structureData.jigsawBlocks(),
@@ -242,7 +238,6 @@ public class ForcedPlacement {
 				}
 			}
 		}
-
 		return null;
 	}
 

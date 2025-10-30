@@ -12,6 +12,9 @@ import java.util.List;
  * Represents a single structure piece that has been placed in the world during jigsaw generation.
  * This immutable record contains all information needed to render the piece into the world.
  * 
+ * Connection consumption state is tracked externally via ConnectionRegistry, ensuring true
+ * immutability.
+ *
  * @param nbtFile
  *            The path to the NBT file containing the structure data
  * @param worldPosition
@@ -27,7 +30,7 @@ import java.util.List;
  * @param parent
  *            The piece that spawned this one (null for start piece)
  * @param sourcePoolId
- *            PHASE 3 ADDED: The ID of the pool this piece was selected from
+ *            The ID of the pool this piece was selected from
  */
 public record PlacedJigsawPiece(
 		String nbtFile,
@@ -37,7 +40,7 @@ public record PlacedJigsawPiece(
 		List<TransformedJigsawBlock> connections,
 		int depth,
 		PlacedJigsawPiece parent,
-		String sourcePoolId) { // PHASE 3 CHANGE: Added sourcePoolId field
+		String sourcePoolId) {
 
 	/**
 	 * Creates a PlacedJigsawPiece with validation.
@@ -50,7 +53,7 @@ public record PlacedJigsawPiece(
 			throw new IllegalArgumentException("World position cannot be null");
 		}
 		if (rotation == null) {
-			rotation = Rotation.NONE; // Default to no rotation
+			rotation = Rotation.NONE;
 		}
 		if (structureData == null) {
 			throw new IllegalArgumentException("Structure data cannot be null");
@@ -61,8 +64,6 @@ public record PlacedJigsawPiece(
 		if (depth < 0) {
 			throw new IllegalArgumentException("Depth cannot be negative");
 		}
-		// Parent can be null for the start piece
-		// PHASE 3: sourcePoolId can be null for simple (non-jigsaw) structures
 	}
 
 	/**
@@ -89,17 +90,6 @@ public record PlacedJigsawPiece(
 	}
 
 	/**
-	 * Gets the number of available (unconsumed) connection points.
-	 * 
-	 * @return The count of connections that haven't been used yet
-	 */
-	public int getAvailableConnectionCount() {
-		return (int) connections.stream()
-				.filter(conn -> !conn.isConsumed())
-				.count();
-	}
-
-	/**
 	 * Finds a connection by its world position.
 	 * 
 	 * @param position
@@ -108,34 +98,9 @@ public record PlacedJigsawPiece(
 	 */
 	public TransformedJigsawBlock findConnectionAt(Vector3Int position) {
 		return connections.stream()
-				.filter(conn -> conn.position().equals(position))
+				.filter(conn -> conn.position().toVector3().equals(position.toVector3()))
 				.findFirst()
 				.orElse(null);
-	}
-
-	/**
-	 * Creates a copy of this piece with a connection marked as consumed.
-	 * Since records are immutable, this creates a new instance.
-	 * 
-	 * @param connectionPosition
-	 *            The position of the connection to mark as consumed
-	 * @return A new PlacedJigsawPiece with the updated connection list
-	 */
-	public PlacedJigsawPiece withConsumedConnection(Vector3Int connectionPosition) {
-		List<TransformedJigsawBlock> updatedConnections = connections.stream()
-				.map(conn -> conn.position().equals(connectionPosition) ? conn.asConsumed() : conn)
-				.toList();
-
-		// PHASE 3 CHANGE: Include sourcePoolId when creating new instance
-		return new PlacedJigsawPiece(
-				nbtFile,
-				worldPosition,
-				rotation,
-				structureData,
-				updatedConnections,
-				depth,
-				parent,
-				sourcePoolId); // ADDED: Preserve sourcePoolId
 	}
 
 	/**
@@ -148,15 +113,15 @@ public record PlacedJigsawPiece(
 			Rotation rotation,
 			NBTStructure.StructureData structureData,
 			List<TransformedJigsawBlock> connections,
-			String sourcePoolId) { // PHASE 3 CHANGE: Added parameter
+			String sourcePoolId) {
 		return new PlacedJigsawPiece(
 				nbtFile,
 				worldPosition,
 				rotation,
 				structureData,
 				connections,
-				0, // Start pieces have depth 0
-				null, // No parent
-				sourcePoolId); // PHASE 3: Include sourcePoolId
+				0,
+				null,
+				sourcePoolId);
 	}
 }

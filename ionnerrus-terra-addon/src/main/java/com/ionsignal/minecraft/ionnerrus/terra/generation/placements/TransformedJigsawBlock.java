@@ -35,54 +35,16 @@ public record TransformedJigsawBlock(
 		}
 	}
 
-	/**
-	 * Checks if this jigsaw block has been consumed (connected to another piece).
-	 * This is determined by checking if the target is "minecraft:empty".
-	 * 
-	 * @return true if this connection has been used
-	 */
-	public boolean isConsumed() {
-		return "minecraft:empty".equals(info.target());
-	}
-
-	/**
-	 * Creates a consumed version of this jigsaw block.
-	 * Used after a connection has been made to prevent reuse.
-	 * 
-	 * @return A new TransformedJigsawBlock marked as consumed
-	 */
-	public TransformedJigsawBlock asConsumed() {
-		return new TransformedJigsawBlock(
-				position,
-				orientation,
-				new JigsawData.JigsawInfo(
-						info.name(),
-						"minecraft:empty", // Mark as consumed
-						info.pool(),
-						info.jointType(),
-						info.placementPriority(),
-						info.finalState()));
-	}
-
-	/**
-	 * Gets the priority for processing this connection.
-	 * Higher values mean this connection should be processed earlier.
-	 * 
-	 * @return The processing priority
-	 */
 	public int getPriority() {
 		int basePriority = info.placementPriority();
-
 		// Boost priority for vertical connections as they often define structure height
 		if ("up".equals(orientation) || "down".equals(orientation)) {
 			basePriority += 10;
 		}
-
 		// Boost priority for connections with specific (non-wildcard) targets
 		if (!info.target().contains("*") && !info.target().endsWith(":empty")) {
 			basePriority += 5;
 		}
-
 		return basePriority;
 	}
 
@@ -97,18 +59,15 @@ public record TransformedJigsawBlock(
 		if ("minecraft:empty".equals(info.target())) {
 			return false;
 		}
-
 		// Exact match
 		if (info.target().equals(targetName)) {
 			return true;
 		}
-
 		// Wildcard matching
 		if (info.target().contains("*")) {
 			String pattern = info.target().replace("*", ".*");
 			return targetName.matches(pattern);
 		}
-
 		// Prefix matching (e.g., "village:street" matches "village:street_01")
 		if (targetName.startsWith(info.target() + "_")) {
 			return true;
