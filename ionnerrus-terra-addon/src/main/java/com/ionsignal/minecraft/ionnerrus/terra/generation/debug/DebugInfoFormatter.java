@@ -30,7 +30,7 @@ public final class DebugInfoFormatter {
 		Rotation geoRot = context.getGeometricRotation();
 		Rotation alignRot = context.getAlignmentRotation();
 		boolean collision = context.hasCollision();
-		String file = context.getCurrentElementFile() != null ? context.getCurrentElementFile() : "?";
+		// String file = context.getCurrentElementFile() != null ? context.getCurrentElementFile() : "?";
 		// PHASE 3: ADDED - Build actionbar with current state
 		return Component.text()
 				.append(Component.text("[", NamedTextColor.GRAY))
