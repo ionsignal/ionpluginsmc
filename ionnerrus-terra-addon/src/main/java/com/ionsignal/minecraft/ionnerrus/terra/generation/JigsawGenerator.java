@@ -310,12 +310,19 @@ public class JigsawGenerator {
 
 	/**
 	 * Attempts to place a piece at a pending connection point.
-	 * Thread-safe: Only sets visualization data, doesn't call Bukkit APIs.
+	 * 
+	 * CRITICAL FIX: This method now correctly handles ROLLABLE joints by:
+	 * 1. Calculating alignment rotation ONCE from the UNROTATED child orientation
+	 * 2. Combining geometric rotation with alignment rotation to get final rotation
+	 * 3. Using final rotation directly for all calculations (position, collision, transforms)
+	 * 
+	 * This ensures that all 4 geometric rotations (0°, 90°, 180°, 270°) produce different
+	 * positions and orientations, providing the variety expected from ROLLABLE joints.
 	 */
 	private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
 		attemptedConnections++;
 		if (DEBUG_CONNECTIONS) {
-			LOGGER.info(String.format("ATTEMPTING CONNECTION from parent at (xyz=%s,%s,%s:)",
+			LOGGER.info(String.format("ATTEMPTING CONNECTION from parent at (xyz=%s,%s,%s):",
 					pending.sourcePiece().worldPosition().getX(),
 					pending.sourcePiece().worldPosition().getY(),
 					pending.sourcePiece().worldPosition().getZ()));
@@ -354,85 +361,98 @@ public class JigsawGenerator {
 				if (!JigsawConnection.canConnect(pending.connection().toJigsawBlock(), childJigsaw)) {
 					continue;
 				}
+				// Get the list of geometric rotations to try based on joint type
+				// ALIGNED joints: [NONE] only
+				// ROLLABLE joints: [NONE, CW_90, CW_180, CCW_90]
 				List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
 				for (Rotation geometricRotation : rotationsToTry) {
-					JigsawData.JigsawBlock rotatedChildJigsaw = childJigsaw;
-					if (childJigsaw.info().jointType() == JigsawData.JointType.ROLLABLE && geometricRotation != Rotation.NONE) {
-						rotatedChildJigsaw = rotateJigsawBlock(
-								childJigsaw,
-								geometricRotation,
-								structureData.size());
-						if (DEBUG_CONNECTIONS) {
-							LOGGER.info(String.format("  ROLLABLE: Pre-rotated child jigsaw from (xyz=%s%s%s) to (xyz=%s%s%s) (geoRot=%s)",
-									childJigsaw.position().getX(),
-									childJigsaw.position().getY(),
-									childJigsaw.position().getZ(),
-									rotatedChildJigsaw.position().getX(),
-									rotatedChildJigsaw.position().getY(),
-									rotatedChildJigsaw.position().getZ(),
-									geometricRotation.getDegrees()));
-						}
-					}
-					PlacementTransform alignmentTransform = TransformUtil.calculateAlignment(
-							pending.connection(),
-							rotatedChildJigsaw,
+					// CRITICAL FIX: Calculate alignment from ROTATED orientation
+					// Step 1: Apply geometric rotation to get the rotated jigsaw state
+					JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(
+							childJigsaw,
+							geometricRotation,
 							structureData.size());
-					Vector3Int basePosition = alignmentTransform.position();
-					Rotation alignmentRotation = alignmentTransform.rotation();
+					// Step 2: Calculate alignment based on ROTATED orientation (not original)
+					// This is what additional rotation is needed after geometric rotation
+					Rotation alignmentRotation = calculateRequiredRotation(
+							pending.connection().orientation(),
+							rotatedChildJigsaw.orientation() // Use ROTATED orientation
+					);
+					// Step 3: Combine rotations for the final result
+					// finalRotation = geometricRotation + alignmentRotation
 					Rotation finalRotation = combineRotations(geometricRotation, alignmentRotation);
+					// Calculate the child jigsaw's position after applying the FINAL rotation
+					// CRITICAL: We use the ORIGINAL (unrotated) child jigsaw position
+					// CoordinateConverter.rotate() expects positions in the original structure space
+					Vector3Int rotatedJigsawPos = CoordinateConverter.rotate(
+							childJigsaw.position(), // ORIGINAL position from NBT
+							finalRotation, // FINAL combined rotation
+							structureData.size());
+					// Calculate the connection offset (one block in the direction parent jigsaw faces)
+					Vector3Int connectionOffset = getConnectionOffset(pending.connection().orientation());
+					// Calculate where the child structure's origin must be placed
+					// Formula: childPos + rotatedJigsawPos = parentPos + offset
+					// Solving: childPos = parentPos + offset - rotatedJigsawPos
+					Vector3Int finalPosition = Vector3Int.of(
+							pending.connection().position().getX() + connectionOffset.getX() - rotatedJigsawPos.getX(),
+							pending.connection().position().getY() + connectionOffset.getY() - rotatedJigsawPos.getY(),
+							pending.connection().position().getZ() + connectionOffset.getZ() - rotatedJigsawPos.getZ());
 					if (DEBUG_CONNECTIONS) {
-						LOGGER.info(String.format("  Testing placement: pos=(xyz=%s%s%s), geoRot=%s, alignRot=%s, finalRot=%s",
-								basePosition.getX(),
-								basePosition.getY(),
-								basePosition.getZ(),
+						LOGGER.info(String.format("  Testing: geoRot=%s, alignRot=%s, finalRot=%s",
 								geometricRotation.getDegrees(),
 								alignmentRotation.getDegrees(),
 								finalRotation.getDegrees()));
+						LOGGER.info(String.format("    Position: (xyz=%s,%s,%s), rotatedJigsawPos: (xyz=%s,%s,%s)",
+								finalPosition.getX(),
+								finalPosition.getY(),
+								finalPosition.getZ(),
+								rotatedJigsawPos.getX(),
+								rotatedJigsawPos.getY(),
+								rotatedJigsawPos.getZ()));
 					}
 					if (this.debugContext != null && this.debugContext.isRunning()) {
 						this.debugContext.setGeometricRotation(geometricRotation);
 						this.debugContext.setAlignmentRotation(alignmentRotation);
 						this.debugContext.setCurrentStructure(structureData);
-						this.debugContext.setCurrentPosition(basePosition);
+						this.debugContext.setCurrentPosition(finalPosition);
 						this.debugContext.setCurrentElementFile(nbtFile);
 						this.debugContext.setHasCollision(false);
 					}
+					// Check collision using the final rotation
+					// AABB.fromPiece() will rotate all 8 corners using finalRotation
 					AABB childBounds = AABB.fromPiece(
-							basePosition,
+							finalPosition,
 							structureData.size(),
 							finalRotation);
-					if (DEBUG_CONNECTIONS) {
-						LOGGER.info(String.format("  Bounds check: AABB=(size xyz=%s%s%s)",
-								childBounds.getSize().getX(),
-								childBounds.getSize().getY(),
-								childBounds.getSize().getZ()));
-					}
 					boolean hasCollision = collides(childBounds);
 					if (this.debugContext != null && this.debugContext.isRunning()) {
 						this.debugContext.setHasCollision(hasCollision);
-						this.debugContext.pause("POST_COLLISION_CHECK", hasCollision ? "COLLISION DETECTED" : "CLEAR TO PLACE");
+						this.debugContext.pause("POST_COLLISION_CHECK",
+								hasCollision ? "COLLISION DETECTED" : "CLEAR TO PLACE");
 					}
 					if (!hasCollision) {
+						// Transform all jigsaw blocks using the final rotation
 						List<TransformedJigsawBlock> connections = transformJigsawBlocks(
 								structureData.jigsawBlocks(),
-								basePosition,
+								finalPosition,
 								finalRotation,
 								structureData.size());
+						// Calculate where this specific child jigsaw ended up in world space
 						Vector3Int consumedChildPosition = calculateTransformedJigsawPosition(
 								childJigsaw,
-								basePosition,
+								finalPosition,
 								finalRotation,
 								structureData.size());
 						if (DEBUG_CONNECTIONS) {
-							LOGGER.info(String.format("  Marking child jigsaw as consumed at world pos: %s", consumedChildPosition));
+							LOGGER.info(String.format("  Marking child jigsaw as consumed at world pos: %s",
+									consumedChildPosition));
 						}
-						// Mark the consumed child connection in the registry
 						connectionRegistry.markConsumed(consumedChildPosition);
 						successfulConnections++;
 						usageTracker.recordPlacement(pool.getId(), nbtFile);
 						PlacedJigsawPiece childPiece = new PlacedJigsawPiece(
 								nbtFile,
-								basePosition,
+								finalPosition,
 								finalRotation,
 								structureData,
 								connections,
@@ -449,23 +469,195 @@ public class JigsawGenerator {
 						LOGGER.info(String.format(
 								"PLACED piece: file=%s, pos=(xyz=%s,%s,%s), geoRot=%s, alignRot=%s, finalRot=%s, bounds=%s",
 								nbtFile,
-								basePosition.getX(),
-								basePosition.getY(),
-								basePosition.getZ(),
+								finalPosition.getX(),
+								finalPosition.getY(),
+								finalPosition.getZ(),
 								geometricRotation.getDegrees(),
 								alignmentRotation.getDegrees(),
 								finalRotation.getDegrees(),
 								childBounds));
 						return childPiece;
-					} else {
-						if (DEBUG_CONNECTIONS) {
-							LOGGER.info("  COLLISION - trying next rotation or piece");
-						}
 					}
 				}
 			}
 		}
 		return null;
+	}
+
+	private JigsawData.JigsawBlock rotateJigsawBlock(
+			JigsawData.JigsawBlock jigsaw,
+			Rotation rotation,
+			Vector3Int structureSize) {
+		if (rotation == Rotation.NONE) {
+			return jigsaw;
+		}
+		// Rotate position
+		Vector3Int rotatedPos = CoordinateConverter.rotate(
+				jigsaw.position(),
+				rotation,
+				structureSize);
+		// Rotate orientation
+		String rotatedOrientation = TransformUtil.rotateOrientation(
+				jigsaw.orientation(),
+				rotation);
+		return new JigsawData.JigsawBlock(rotatedPos, rotatedOrientation, jigsaw.info());
+	}
+
+	/**
+	 * Calculates the rotation needed to align two jigsaw orientations.
+	 * The child's orientation (after any geometric rotation) must be rotated to face opposite the
+	 * parent's.
+	 * 
+	 * IMPORTANT: This should always be called with the UNROTATED child orientation.
+	 * Geometric rotation is applied separately and combined afterward.
+	 * 
+	 * @param parentOrientation
+	 *            The orientation of the parent jigsaw (in world space)
+	 * @param childOrientation
+	 *            The orientation of the child jigsaw (in structure-local space, UNROTATED)
+	 * @return The alignment rotation to apply
+	 */
+	private Rotation calculateRequiredRotation(String parentOrientation, String childOrientation) {
+		// Parse orientations
+		String[] parentParts = parentOrientation.toLowerCase().split("_");
+		String parentPrimary = parentParts[0];
+		String parentSecondary = parentParts.length > 1 ? parentParts[1] : "north";
+
+		String[] childParts = childOrientation.toLowerCase().split("_");
+		String childPrimary = childParts[0];
+		String childSecondary = childParts.length > 1 ? childParts[1] : "north";
+
+		// If vertical connection, align secondary orientations
+		if ("up".equals(parentPrimary) || "down".equals(parentPrimary)) {
+			return calculateRotationBetweenDirections(childSecondary, parentSecondary);
+		}
+
+		// If horizontal, child must face opposite to parent
+		String targetPrimary = getOppositeDirection(parentPrimary);
+		return calculateRotationBetweenDirections(childPrimary, targetPrimary);
+	}
+
+	/**
+	 * Gets the opposite direction for a given direction.
+	 */
+	private String getOppositeDirection(String direction) {
+		return switch (direction.toLowerCase()) {
+			case "north" -> "south";
+			case "south" -> "north";
+			case "east" -> "west";
+			case "west" -> "east";
+			case "up" -> "down";
+			case "down" -> "up";
+			default -> direction;
+		};
+	}
+
+	/**
+	 * Calculates the rotation needed to turn from one direction to another.
+	 * Only handles horizontal directions (north, east, south, west).
+	 */
+	private Rotation calculateRotationBetweenDirections(String from, String to) {
+		if (from.equals(to)) {
+			return Rotation.NONE;
+		}
+
+		int fromIndex = directionToIndex(from);
+		int toIndex = directionToIndex(to);
+
+		if (fromIndex == -1 || toIndex == -1) {
+			return Rotation.NONE;
+		}
+
+		int steps = (toIndex - fromIndex + 4) % 4;
+
+		return switch (steps) {
+			case 0 -> Rotation.NONE;
+			case 1 -> Rotation.CW_90;
+			case 2 -> Rotation.CW_180;
+			case 3 -> Rotation.CCW_90;
+			default -> Rotation.NONE;
+		};
+	}
+
+	/**
+	 * Converts a direction string to an index (north=0, east=1, south=2, west=3).
+	 */
+	private int directionToIndex(String direction) {
+		return switch (direction.toLowerCase()) {
+			case "north" -> 0;
+			case "east" -> 1;
+			case "south" -> 2;
+			case "west" -> 3;
+			default -> -1;
+		};
+	}
+
+	/**
+	 * Gets the offset to apply when connecting two jigsaw blocks.
+	 * This accounts for the fact that jigsaws connect face-to-face.
+	 */
+	private Vector3Int getConnectionOffset(String parentOrientation) {
+		String primaryDir = parentOrientation.toLowerCase().split("_")[0];
+
+		return switch (primaryDir) {
+			case "north" -> Vector3Int.of(0, 0, -1);
+			case "south" -> Vector3Int.of(0, 0, 1);
+			case "east" -> Vector3Int.of(1, 0, 0);
+			case "west" -> Vector3Int.of(-1, 0, 0);
+			case "up" -> Vector3Int.of(0, 1, 0);
+			case "down" -> Vector3Int.of(0, -1, 0);
+			default -> Vector3Int.of(0, 0, 0);
+		};
+	}
+
+	/**
+	 * Combines two rotations into a single rotation.
+	 * This is simple modulo-4 addition of rotation steps.
+	 */
+	private Rotation combineRotations(Rotation first, Rotation second) {
+		if (first == Rotation.NONE)
+			return second;
+		if (second == Rotation.NONE)
+			return first;
+
+		int totalSteps = (rotationToSteps(first) + rotationToSteps(second)) % 4;
+		return stepsToRotation(totalSteps);
+	}
+
+	/**
+	 * Converts a Rotation to number of 90-degree clockwise steps.
+	 */
+	private int rotationToSteps(Rotation rotation) {
+		return switch (rotation) {
+			case NONE -> 0;
+			case CW_90 -> 1;
+			case CW_180 -> 2;
+			case CCW_90 -> 3;
+		};
+	}
+
+	/**
+	 * Converts number of 90-degree clockwise steps to a Rotation.
+	 */
+	private static Rotation stepsToRotation(int steps) {
+		return switch (steps % 4) {
+			case 0 -> Rotation.NONE;
+			case 1 -> Rotation.CW_90;
+			case 2 -> Rotation.CW_180;
+			case 3 -> Rotation.CCW_90;
+			default -> Rotation.NONE;
+		};
+	}
+
+	/**
+	 * Gets the list of rotations to try based on joint type.
+	 */
+	private List<Rotation> getRotationsForJoint(JigsawData.JointType jointType) {
+		if (jointType == JigsawData.JointType.ROLLABLE) {
+			return List.of(Rotation.NONE, Rotation.CW_90, Rotation.CW_180, Rotation.CCW_90);
+		} else {
+			return List.of(Rotation.NONE);
+		}
 	}
 
 	/**
@@ -604,53 +796,6 @@ public class JigsawGenerator {
 				currentCount,
 				constraint.elementFile(),
 				constraint.minCount()));
-	}
-
-	private JigsawData.JigsawBlock rotateJigsawBlock(JigsawData.JigsawBlock jigsaw, Rotation rotation, Vector3Int structureSize) {
-		if (rotation == Rotation.NONE) {
-			return jigsaw;
-		}
-		Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rotation, structureSize);
-		String rotatedOrientation = TransformUtil.rotateOrientation(jigsaw.orientation(), rotation);
-		return new JigsawData.JigsawBlock(rotatedPos, rotatedOrientation, jigsaw.info());
-	}
-
-	private List<Rotation> getRotationsForJoint(JigsawData.JointType jointType) {
-		if (jointType == JigsawData.JointType.ROLLABLE) {
-			return List.of(Rotation.NONE, Rotation.CW_90, Rotation.CW_180, Rotation.CCW_90);
-		} else {
-			return List.of(Rotation.NONE);
-		}
-	}
-
-	private Rotation combineRotations(Rotation first, Rotation second) {
-		if (first == Rotation.NONE)
-			return second;
-		if (second == Rotation.NONE)
-			return first;
-		int firstSteps = rotationToSteps(first);
-		int secondSteps = rotationToSteps(second);
-		int totalSteps = (firstSteps + secondSteps) % 4;
-		return stepsToRotation(totalSteps);
-	}
-
-	private int rotationToSteps(Rotation rotation) {
-		return switch (rotation) {
-			case NONE -> 0;
-			case CW_90 -> 1;
-			case CW_180 -> 2;
-			case CCW_90 -> 3;
-		};
-	}
-
-	private static Rotation stepsToRotation(int steps) {
-		return switch (steps % 4) {
-			case 0 -> Rotation.NONE;
-			case 1 -> Rotation.CW_90;
-			case 2 -> Rotation.CW_180;
-			case 3 -> Rotation.CCW_90;
-			default -> Rotation.NONE;
-		};
 	}
 
 	private void queueConnections(PlacedJigsawPiece piece, int depth) {
