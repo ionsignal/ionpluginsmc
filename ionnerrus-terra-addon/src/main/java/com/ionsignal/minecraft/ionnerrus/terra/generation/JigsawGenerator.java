@@ -10,7 +10,6 @@ import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ForcedPlac
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.JigsawPlacement;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PendingJigsawConnection;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacementTransform;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.GenerationStatistics;
