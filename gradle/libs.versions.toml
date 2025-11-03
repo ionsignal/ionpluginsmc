@@ -1,0 +1,39 @@
+[versions]
+minecraft = "1.21.8"
+paperweight = "2.0.0-beta.18"
+shadow = "9.2.2"
+
+# Terra
+terra = "6.6.6-BETA+fb5e597a1"
+terra-manifest = "1.0.0-BETA+fb5e597a1"
+tectonic = "4.3.0"
+bluenbt = "3.0.3"
+
+# IonNerrus
+simple-openai = "3.22.1"
+okhttp = "5.1.0"
+classgraph = "4.8.184"
+
+[plugins]
+standardConvention = { id = "standard-conventions" }
+paperweightConvention = { id = "paperweight-conventions" }
+shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
+
+[libraries]
+# Paper API (for reference)
+paper-api = { module = "io.papermc.paper:paper-api", version.ref = "minecraft" }
+paperweight = { module = "io.papermc.paperweight.userdev:io.papermc.paperweight.userdev.gradle.plugin", version.ref = "paperweight" }
+
+# Terra, Tectonic
+terra-api = { group = "com.dfsek.terra", name = "api", version.ref = "terra" }
+terra-manifest-loader = { group = "com.dfsek.terra", name = "manifest-addon-loader", version.ref = "terra-manifest" }
+tectonic-common = { group = "com.dfsek.tectonic", name = "common", version.ref = "tectonic" }
+tectonic-yaml = { group = "com.dfsek.tectonic", name = "yaml", version.ref = "tectonic" }
+
+# BlueNBT
+bluenbt = { group = "de.bluecolored", name = "bluenbt", version.ref = "bluenbt" }
+
+# IonNerrus
+simple-openai = { group = "io.github.sashirestela", name = "simple-openai", version.ref = "simple-openai" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+classgraph = { group = "io.github.classgraph", name = "classgraph", version.ref = "classgraph" }

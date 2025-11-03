@@ -2,7 +2,7 @@
 # Terra addon manifest for
 schema-version: 1
 id: ionnerrus-terra
-version: 0.0.9-alpha.1
+version: "${version}"
 entrypoints:
   - com.ionsignal.minecraft.ionnerrus.terra.NerrusTerraAddon
 contributors:
