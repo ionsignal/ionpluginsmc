@@ -12,6 +12,7 @@ plugins {
 rootProject.name = "ionpluginsmc"
 
 include(
+    "ioncore",
     "ionnerrus",
     "ionnerrus-terra-addon"
 )
