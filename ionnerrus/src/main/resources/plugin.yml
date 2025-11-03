@@ -1,9 +1,9 @@
 main: com.ionsignal.minecraft.ionnerrus.IonNerrus
 name: IonNerrus
-version: 0.0.9-alpha.1
-api-version: "1.21.8"
+version: "${version}"
+api-version: "${api}"
 author: Ion Signal
-description: An LLM powered NPC decision engine
+description: "${description}"
 depend: []
 softdepend: [FancyHolograms, Terra]
 commands:

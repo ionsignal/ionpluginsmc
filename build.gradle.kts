@@ -1,98 +1,125 @@
 plugins {
-  `java-library`
-  id("io.papermc.paperweight.userdev") version "2.0.0-beta.18"
-  id("xyz.jpenilla.run-paper") version "3.0.2"
-  id("com.gradleup.shadow") version "9.2.2"
-  id("com.github.ben-manes.versions") version "0.53.0" 
-  id("eclipse") 
+    `java-base`
+    id("xyz.jpenilla.run-paper") version "3.0.2"
+    id("com.github.ben-manes.versions") version "0.53.0"
+    id("eclipse") 
 }
 
-group = "com.ionsignal.minecraft.ionnerrus"
-version = "0.0.9-alpha.1-SNAPSHOT"
-description = "An LLM powered NPC decision engine"
-
-java {
-  // Configure the java toolchain. This allows gradle to auto-provision JDK 21 on systems that only have JDK 11 installed for example.
-  toolchain.languageVersion = JavaLanguageVersion.of(21)
+allprojects {
+    group = "com.ionsignal.minecraft"
+    version = property("version").toString()
+    
+    repositories {
+        mavenCentral()
+        maven("https://repo.papermc.io/repository/maven-public/") // PaperMC
+        maven("https://repo.codemc.io/repository/maven-public/") // Terra
+        maven("https://maven.solo-studios.ca/releases") // Tectonic
+        maven("https://repo.bluecolored.de/releases") // BlueNBT
+    }
 }
 
-dependencies {
-  compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
-  paperweight.paperDevBundle("1.21.8-R0.1-SNAPSHOT")
-  // FancyHolograms v2
-  compileOnly(files("libs/fancyholograms-3.0.0.jar"))
-  // Simple OpenAI API Layer
-  implementation("io.github.sashirestela:simple-openai:3.22.1")
-  // HTTP Client for future LLM integration
-  implementation("com.squareup.okhttp3:okhttp:5.1.0")
-  implementation("io.github.classgraph:classgraph:4.8.184")
+subprojects {
+    apply(plugin = "java-library")
+
+    // Only configure java extension when the plugin is actually applied
+    plugins.withType<JavaLibraryPlugin> {
+        configure<JavaPluginExtension> {
+            toolchain {
+                languageVersion.set(JavaLanguageVersion.of(21))
+                vendor.set(JvmVendorSpec.ADOPTIUM)
+            }
+        }
+        tasks.withType<JavaCompile> {
+            options.encoding = "UTF-8"
+            options.release.set(21)
+        }
+    }
 }
 
-repositories {
-  mavenCentral()
-  maven {
-    name = "alessiodp"
-    url = uri("https://repo.alessiodp.com/releases/")
-  }
-  maven {
-    name = "papermc"
-    url = uri("https://repo.papermc.io/repository/maven-public/")
-  }
+val minecraftVersion: Provider<String> = providers.gradleProperty("minecraft_version")
+val projectVersion: Provider<String> = provider { version.toString() }
+val ionnerrus = project(":ionnerrus")
+val terraAddon = project(":ionnerrus-terra-addon")
+
+abstract class CopyTerraAddonTask : DefaultTask() {
+    @get:InputFile
+    abstract val addonJar: RegularFileProperty
+    
+    @get:OutputDirectory
+    abstract val targetDirectory: DirectoryProperty
+    
+    @TaskAction
+    fun copy() {
+        val source = addonJar.asFile.get()
+        val targetDir = targetDirectory.asFile.get()
+        val target = targetDir.resolve(source.name)
+        try {
+            // Skip if already up-to-date
+            if (target.exists() && target.lastModified() >= source.lastModified()) {
+                logger.info("Terra addon already up-to-date, skipping copy")
+                return
+            }
+            logger.lifecycle("Copying Terra addon: ${source.name} -> ${targetDir.absolutePath}")
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+            source.copyTo(target, overwrite = true)
+            logger.info("Successfully copied ${source.name}")
+        } catch (e: Exception) {
+            throw GradleException("Failed to copy Terra addon: ${e.message}", e)
+        }
+    }
+}
+
+val copyTerraAddon = tasks.register<CopyTerraAddonTask>("copyTerraAddon") {
+    // Input: Terra addon's reobfJar output (declared lazily with Provider)
+    addonJar.set(
+        terraAddon.tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
+            .flatMap { it.outputJar }
+    )
+    // Output: Terra's addons directory
+    targetDirectory.set(layout.projectDirectory.dir("run/plugins/Terra/addons"))
+    // Ensure addon is built before copying
+    dependsOn(terraAddon.tasks.named("reobfJar"))
 }
 
 tasks {
-  compileJava {
-    // Set the release flag. This configures what version bytecode the compiler will emit, as well as what JDK APIs are usable.
-    // See https://openjdk.java.net/jeps/247 for more information.
-    options.release = 21
-  }
-  javadoc {
-    options.encoding = Charsets.UTF_8.name() // We want UTF-8 for everything
-  }
-  named("eclipse") {
-    dependsOn(named("cleanEclipse"))
-  }
-  runServer {
-    val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
-    javaLauncher.set(toolchains.launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(21))
-        vendor.set(JvmVendorSpec.JETBRAINS)
-    })
-    jvmArgs(
-      "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005",
-      "-XX:+AllowEnhancedClassRedefinition"
-    )
-    minecraftVersion("1.21.8")
-    // Explicit dependency on the addon's build task
-    dependsOn(":ionnerrus-terra-addon:build")
-    // Copy the Terra addon JAR to the addons directory before starting
-    doFirst {
-      val addonProject = project(":ionnerrus-terra-addon")
-      val addonJar = addonProject.tasks.named("shadowJar").get().outputs.files.singleFile
-      val terraAddonsDir = file("run/plugins/Terra/addons")
-      terraAddonsDir.mkdirs()
-      copy {
-        from(addonJar)
-        into(terraAddonsDir)
-      }
-      logger.lifecycle("Copied Terra addon to: ${terraAddonsDir}/${addonJar.name}")
+    named("eclipse") {
+        dependsOn("cleanEclipse")
     }
-  }
+        
+    runServer {
+        // Use the default toolchain or specify directly
+        javaLauncher.set(
+            project.extensions.getByType<JavaToolchainService>().launcherFor {
+                languageVersion.set(JavaLanguageVersion.of(21))
+                vendor.set(JvmVendorSpec.JETBRAINS)
+            }
+        )
 
-  shadowJar {
-    // Add relocation rules for dependencies
-    relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
-    relocate("io.github.classgraph", "com.ionsignal.minecraft.ionnerrus.lib.classgraph")
-    relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3")
-    relocate("io.github.sashirestela.openai", "com.ionsignal.minecraft.ionnerrus.lib.openai")
-    relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ionnerrus.lib.jackson")
-    // single, shaded JAR without a classifier
-    archiveClassifier.set("")
-  }
+        // Enable debugger with suspend (port 5005)
+        // jvmArgs("-Xmx4G", "-Xms2G", "-XX:+UseG1GC")
+        jvmArgs(
+            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005",
+            "-XX:+AllowEnhancedClassRedefinition",
+            "-Xmx4G", "-Xms2G", "-XX:+UseG1GC"
+        )
 
-  build {
-    dependsOn(shadowJar)
-    // Build the addon before building the main plugin
-    dependsOn(":ionnerrus-terra-addon:build")
-  }
+        minecraftVersion(minecraftVersion.get())
+        runDirectory.set(layout.projectDirectory.dir("run"))
+        
+        // Use Provider for ionnerrus plugin JAR
+        pluginJars(
+            ionnerrus.tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
+                .flatMap { it.outputJar }
+        )
+        
+        downloadPlugins {
+            modrinth("terra", "6.6.6-BETA-bukkit")
+        }
+
+        // Ensure Terra addon is copied before server starts
+        dependsOn(copyTerraAddon)
+        dependsOn(ionnerrus.tasks.named("reobfJar"))
+    }
 }
