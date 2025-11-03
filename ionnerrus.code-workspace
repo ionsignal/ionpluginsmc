@@ -14,7 +14,7 @@
 			// Stop VSCode from trying to guess the indentation style.
 			"editor.detectIndentation": false,
 			// Tell the editor to insert a tab character when you press the Tab key.
-			"editor.insertSpaces": false,
+			"editor.insertSpaces": true,
 			// Ensure the visual width of a tab character matches your project's 4-space standard.
 			"editor.tabSize": 4
 		}

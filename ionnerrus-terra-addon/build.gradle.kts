@@ -6,6 +6,8 @@ plugins {
 description = "Terra addon for IonNerrus jigsaw integration"
 
 dependencies {
+    // IonCore 
+    implementation(project(":ioncore"))
     // Paper API is provided by paperweight-conventions
     // compileOnly(project(":ionnerrus"))
     // Terra API and dependencies (compileOnly - provided by Terra at runtime)
@@ -32,6 +34,7 @@ tasks {
         archiveClassifier.set("dev-mojmap-all")
         
         // Relocate BlueNBT to a private package within our addon
+        relocate( "com.ionsignal.minecraft.ioncore", "com.ionsignal.minecraft.ionnerrus.terra.lib.ioncore")
         relocate("de.bluecolored.bluenbt", "com.ionsignal.minecraft.ionnerrus.terra.lib.bluenbt")
         
         exclude("META-INF/maven/**")
