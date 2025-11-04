@@ -10,7 +10,9 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleListener;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
+import com.ionsignal.minecraft.ionnerrus.commands.NerrusCognitiveDebugCommand;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCommand;
+import com.ionsignal.minecraft.ionnerrus.commands.NerrusDebugCommand;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
@@ -49,6 +51,19 @@ public class IonNerrus extends JavaPlugin {
         load();
 
         NerrusCommand nerrusCommand = new NerrusCommand(this, this.agentService, this.blockTagManager, this.goalFactory, this.goalRegistry);
+
+        NerrusDebugCommand nerrusDebugCommand = new NerrusDebugCommand(this);
+        PluginCommand debugCmd = getCommand("nerrusdebug");
+        Objects.requireNonNull(debugCmd, "The 'nerrusdebug' command is not registered in plugin.yml");
+        debugCmd.setExecutor(nerrusDebugCommand);
+        debugCmd.setTabCompleter(nerrusDebugCommand);
+
+        NerrusCognitiveDebugCommand ugCommand = new NerrusCognitiveDebugCommand(this);
+        PluginCommand cognitiveDebugCmd = getCommand("cognitivedebug");
+        Objects.requireNonNull(cognitiveDebugCmd, "The 'cognitivedebug' command is not registered in plugin.yml");
+        cognitiveDebugCmd.setExecutor(ugCommand);
+        cognitiveDebugCmd.setTabCompleter(ugCommand);
+
         PluginCommand command = getCommand("nerrus");
         Objects.requireNonNull(command, "The 'nerrus' command is not registered in plugin.yml");
         command.setExecutor(nerrusCommand);

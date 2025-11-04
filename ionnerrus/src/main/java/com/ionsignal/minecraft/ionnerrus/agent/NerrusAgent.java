@@ -324,6 +324,17 @@ public class NerrusAgent {
     }
 
     /**
+     * Gets the simple class name of the next message in the queue providing safe access to message
+     * queue state for debug visualization.
+     * 
+     * @return The simple class name of the next message, or null if queue is empty.
+     */
+    public String getNextMessageType() {
+        Object nextMessage = messages.peek();
+        return nextMessage != null ? nextMessage.getClass().getSimpleName() : null;
+    }
+
+    /**
      * Retrieves the agent's recent action history.
      * 
      * @return An unmodifiable list of the last few action outcomes.

@@ -7,7 +7,7 @@ description = "An LLM powered NPC decision engine"
 
 dependencies {
     // IonCore 
-    compileOnly(project(":ioncore"))
+    compileOnly(project(":ioncore", configuration = "devJar"))
     // Add your dependencies here
     // LLM and HTTP dependencies (will be shaded)
     implementation(libs.simple.openai)
