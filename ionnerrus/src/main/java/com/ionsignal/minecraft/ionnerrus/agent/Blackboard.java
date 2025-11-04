@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent;
 
 import org.bukkit.Location;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +40,10 @@ public class Blackboard {
 
     public <T extends Enum<T>> Optional<T> getEnum(String key, Class<T> enumType) {
         return get(key, enumType);
+    }
+
+    public Map<String, Object> getAllData() {
+        return Collections.unmodifiableMap(new HashMap<>(data));
     }
 
     public boolean has(String key) {

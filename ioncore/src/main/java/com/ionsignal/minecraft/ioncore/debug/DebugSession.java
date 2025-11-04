@@ -197,6 +197,18 @@ public class DebugSession<TState> {
     }
 
     /**
+     * Updates the session state with a new snapshot. This method is thread-safe and automatically
+     * marks the visualization as dirty.
+     *
+     * @param newState
+     *            The new state to set.
+     */
+    public void setState(TState newState) {
+        state.set(newState);
+        markVisualizationDirty();
+    }
+
+    /**
      * Updates the session status. This method is intended for use by execution controllers and should
      * not be called directly by consumers. Use {@link #transitionTo(SessionStatus)} for validated
      * transitions.

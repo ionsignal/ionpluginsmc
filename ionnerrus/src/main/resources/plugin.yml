@@ -12,6 +12,16 @@ commands:
     usage: "/<command> <spawn|remove|stop|getblock|follow|give|ask|do|list> ..."
     aliases: [ionnerrus]
     permission: ionnerrus.admin
+  nerrusdebug:
+    description: "Debug agent execution step-by-step"
+    usage: "/nerrusdebug <start|step|continue|stop|status> <agentName>"
+    permission: ionnerrus.admin
+    aliases: [ndebug]
+  cognitivedebug:
+    description: "Debug agent cognitive reasoning step-by-step"
+    usage: "/cognitivedebug <start|step|continue|stop|history> <agentName>"
+    permission: ionnerrus.admin
+    aliases: [cdebug]
 permissions:
   ionnerrus.admin:
     description: Allows usage of all IonNerrus commands.

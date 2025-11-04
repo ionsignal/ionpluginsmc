@@ -5,9 +5,11 @@
 		}
 	],
 	"settings": {
-		"java.configuration.updateBuildConfiguration": "interactive",
+		"java.configuration.updateBuildConfiguration": "automatic",
 		"java.format.settings.url": "eclipse-formatter.xml",
 		"java.compile.nullAnalysis.mode": "automatic",
+		"java.import.gradle.enabled": true,
+        "java.import.gradle.wrapper.enabled": true,
 		"[java]": {
 			// Use redhat as the formatter.
 			"editor.defaultFormatter": "redhat.java",

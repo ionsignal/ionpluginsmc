@@ -1,5 +1,7 @@
 package com.ionsignal.minecraft.ioncore.debug;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Controls execution flow for debug sessions, providing pause/resume/cancel functionality.
  * Implementations determine how
@@ -17,6 +19,23 @@ public interface ExecutionController {
      *            Additional context information for this phase (e.g., "Block 5/20").
      */
     void pause(String phase, String info);
+
+    /**
+     * Pauses execution asynchronously, returning a {@link CompletableFuture} that completes when
+     * {@link #resume()} is called.
+     * This method is intended for use with async callback chains (e.g.,
+     * {@code CompletableFuture.thenCompose()}).
+     * The returned future will block on an offload thread, not the calling thread.
+     *
+     * @param phase
+     *            A human-readable description of the current phase.
+     * @param info
+     *            Additional context information for this phase.
+     * @return A {@link CompletableFuture} that completes when execution is resumed.
+     */
+    default CompletableFuture<Void> pauseAsync(String phase, String info) {
+        throw new UnsupportedOperationException("This controller does not support async pauses");
+    }
 
     /**
      * Resumes execution after a pause. Unblocks any threads waiting in {@link #pause(String, String)}.

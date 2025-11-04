@@ -2,7 +2,7 @@ plugins {
     `java-base`
     id("xyz.jpenilla.run-paper") version "3.0.2"
     id("com.github.ben-manes.versions") version "0.53.0"
-    id("eclipse") 
+    // id("eclipse") 
 }
 
 allprojects {
@@ -85,9 +85,9 @@ val copyTerraAddon = tasks.register<CopyTerraAddonTask>("copyTerraAddon") {
 }
 
 tasks {
-    named("eclipse") {
-        dependsOn("cleanEclipse")
-    }
+    // named("eclipse") {
+    //     dependsOn("cleanEclipse")
+    // }
         
     runServer {
         // Use the default toolchain or specify directly
