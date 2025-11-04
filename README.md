@@ -169,6 +169,9 @@ jar -xf mappedServerJar.jar
 
 ### Refresh Task Dependencies
 
+Clean Gradle caches and rebuild
+
 ```bash
+./gradlew clean build --refresh-dependencies
 ./gradlew runServer --refresh-dependencies
 ```
