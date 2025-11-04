@@ -4,7 +4,7 @@ version: "${version}"
 api-version: "${api}"
 author: Ion Signal
 description: "${description}"
-depend: []
+depend: [IonCore]
 softdepend: [FancyHolograms, Terra]
 commands:
   nerrus:

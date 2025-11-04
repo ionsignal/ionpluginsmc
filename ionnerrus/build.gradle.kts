@@ -7,7 +7,7 @@ description = "An LLM powered NPC decision engine"
 
 dependencies {
     // IonCore 
-    implementation(project(":ioncore"))
+    compileOnly(project(":ioncore"))
     // Add your dependencies here
     // LLM and HTTP dependencies (will be shaded)
     implementation(libs.simple.openai)
@@ -31,7 +31,6 @@ tasks {
         archiveClassifier.set("dev-mojmap-all") // This becomes the primary artifact
         
         // Relocate dependencies to avoid conflicts
-        relocate("com.ionsignal.minecraft.ioncore", "com.ionsignal.minecraft.ionnerrus.lib.ioncore")
         relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ionnerrus.lib.classgraph")
         relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3")
