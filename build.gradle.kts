@@ -38,6 +38,7 @@ subprojects {
 
 val minecraftVersion: Provider<String> = providers.gradleProperty("minecraft_version")
 val projectVersion: Provider<String> = provider { version.toString() }
+val ioncore = project(":ioncore")
 val ionnerrus = project(":ionnerrus")
 val terraAddon = project(":ionnerrus-terra-addon")
 
@@ -107,6 +108,12 @@ tasks {
 
         minecraftVersion(minecraftVersion.get())
         runDirectory.set(layout.projectDirectory.dir("run"))
+
+        // Load IonCore first (dependency order)
+        pluginJars(
+            ioncore.tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
+                .flatMap { it.outputJar }
+        )
         
         // Use Provider for ionnerrus plugin JAR
         pluginJars(

@@ -1,24 +1,25 @@
 plugins {
-    `java-library`
+    id("paperweight-conventions")
 }
 
-description = "Core debug framework for Ion Signal plugins"
+description = "Core framework for Ion Signal plugins"
 
 dependencies {
-    // Paper API is compileOnly - provided by runtime environment
-    compileOnly("io.papermc.paper:paper-api:1.21.8-R0.1-SNAPSHOT")
-}
-
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-        vendor.set(JvmVendorSpec.ADOPTIUM)
-    }
+    // No additional dependencies needed
 }
 
 tasks {
-    compileJava {
-        options.encoding = "UTF-8"
-        options.release.set(21)
+    // Process plugin.yml with version substitution
+    processResources {
+        val props = mapOf("version" to project.version)
+        inputs.properties(props)
+        filesMatching("plugin.yml") {
+            expand(props)
+        }
+    }
+
+    // Ensure reobfJar task runs for plugin JAR
+    assemble {
+        dependsOn(reobfJar)
     }
 }
