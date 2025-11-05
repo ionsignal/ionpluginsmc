@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
 public class NerrusAgent {
     private static final int MAX_MEMORY_ENTRIES = 5;
 
-    private final LinkedList<String> actionHistory = new LinkedList<>();
     private final Persona persona;
     private final IonNerrus plugin;
     private final GoalRegistry goalRegistry;
@@ -43,6 +42,7 @@ public class NerrusAgent {
     private final LLMService llmService;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ArrayDeque<>();
+    private final LinkedList<String> actionHistory = new LinkedList<>();
 
     private Task currentTask = null;
     private CompletableFuture<GoalResult> topLevelGoalFuture;
@@ -56,6 +56,16 @@ public class NerrusAgent {
      * Each goal gets its own isolated blackboard.
      */
     private record GoalContext(Goal goal, Object parameters, Blackboard blackboard) {
+    }
+
+    /**
+     * A message sent from an async operation to the current goal which enables async callbacks to
+     * communicate with goals without directly mutating state.
+     * 
+     * @param payload
+     *            The message payload to be dispatched to the goal's onMessage() handler.
+     */
+    private record GoalMessage(Object payload) {
     }
 
     public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
@@ -77,6 +87,7 @@ public class NerrusAgent {
             case AssignDirective cmd -> handleAssignDirective(cmd.directive(), cmd.requester());
             case SetBusyWithDirective cmd -> handleSetBusyWithDirective(cmd.isBusy());
             case TaskCompleted event -> handleTaskCompleted(event.error());
+            case GoalMessage goalMsg -> handleGoalMessage(goalMsg.payload());
             default -> plugin.getLogger().warning("Unknown message type in agent " + getName() + ": " + message.getClass().getSimpleName());
         }
     }
@@ -95,7 +106,6 @@ public class NerrusAgent {
         messages.offer(new SetBusyWithDirective(isBusy));
     }
 
-    // Goal assignment to handle only top-level goals and clear the stack.
     private void handleAssignGoal(Goal goal, Object parameters, CompletableFuture<GoalResult> resultFuture) {
         String goalName = goal != null ? goal.getClass().getSimpleName() : "null";
         plugin.getLogger().info(String.format("[%s] Received AssignGoal: %s", getName(), goalName));
@@ -176,6 +186,20 @@ public class NerrusAgent {
         }
     }
 
+    /**
+     * Handles a message dispatched to the current goal. This method is always called on the main server
+     * thread, ensuring thread-safe state mutation.
+     *
+     * @param payload
+     *            The message payload to be dispatched to the goal.
+     */
+    private void handleGoalMessage(Object payload) {
+        Goal currentGoal = getCurrentGoal();
+        if (currentGoal != null) {
+            currentGoal.onMessage(this, payload);
+        }
+    }
+
     public void setCurrentTask(Task task) {
         this.currentTask = task;
         if (this.currentTask != null) {
@@ -184,7 +208,7 @@ public class NerrusAgent {
                     .whenCompleteAsync((v, ex) -> {
                         // Send message instead of direct method call to avoid race conditions
                         messages.offer(new TaskCompleted(Optional.ofNullable(ex != null ? ex.getCause() : null)));
-                    }, runnable -> Bukkit.getScheduler().runTask(plugin, runnable));
+                    }, IonNerrus.getInstance().getMainThreadExecutor());
         }
     }
 
@@ -308,6 +332,20 @@ public class NerrusAgent {
 
     public void speak(String message) {
         persona.speak(message);
+    }
+
+    /**
+     * Posts a message to the current goal from an async operation. The message will be queued and
+     * dispatched on the main server thread during the next tick.
+     * 
+     * This method is thread-safe and intended for use by async callbacks to communicate operation
+     * results back to the goal without directly mutating state.
+     *
+     * @param payload
+     *            The message payload (commonly {@link GoalResult} for async operation outcomes).
+     */
+    public void postMessage(Object payload) {
+        messages.add(new GoalMessage(payload));
     }
 
     /**

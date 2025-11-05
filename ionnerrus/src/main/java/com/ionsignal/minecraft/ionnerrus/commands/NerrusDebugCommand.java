@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionControllerFactory;
 import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.ioncore.debug.TimeoutBehavior;
+
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState;
@@ -80,24 +81,22 @@ public class NerrusDebugCommand implements CommandExecutor, TabCompleter {
                     Component.text("You already have an active debug session. Use /nerrusdebug stop first.", NamedTextColor.RED));
             return;
         }
-
-        // Create TickBasedController with plugin's main thread executor
+        // Pass plugin instance instead of executor to factory
         ExecutionController controller = ExecutionControllerFactory.createTickBased(
-                plugin.getMainThreadExecutor(),
-                TimeoutBehavior.AUTO_RESUME,
+                plugin,
+                TimeoutBehavior.REQUIRE_MANUAL,
                 60_000L // 60 second timeout
         );
-
         // Create initial state snapshot
         AgentDebugState initialState = AgentDebugState.snapshot(agent);
-
         // Create and register session
         DebugSession<AgentDebugState> session = registry.createSession(
                 ownerId,
                 initialState,
                 controller);
         session.transitionTo(SessionStatus.ACTIVE);
-
+        // Immediately pause so first message isn't skipped
+        controller.pause("Debug Start", "Ready to step through messages");
         player.sendMessage(Component.text("Started debugging agent: " + agent.getName(), NamedTextColor.GREEN));
         player.sendMessage(
                 Component.text("Use /nerrusdebug step to advance, /nerrusdebug continue to run to end, /nerrusdebug stop to cancel.",

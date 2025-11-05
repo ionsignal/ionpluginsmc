@@ -4,6 +4,8 @@ import com.ionsignal.minecraft.ioncore.debug.controllers.CallbackController;
 import com.ionsignal.minecraft.ioncore.debug.controllers.LatchBasedController;
 import com.ionsignal.minecraft.ioncore.debug.controllers.TickBasedController;
 
+import org.bukkit.plugin.Plugin;
+
 import java.util.concurrent.Executor;
 
 /**
@@ -51,45 +53,44 @@ public final class ExecutionControllerFactory {
      * Creates a tick-based controller with default timeout behavior (AUTO_RESUME after 30 seconds).
      * Tick-based controllers use flag coordination and never block the calling thread.
      *
-     * @param mainThreadExecutor
-     *            The main thread executor from the plugin (e.g., Bukkit scheduler wrapper).
+     * @param plugin
+     *            The plugin instance (for accessing Bukkit scheduler).
      * @return A new tick-based controller.
      */
-    public static TickBasedController createTickBased(Executor mainThreadExecutor) {
-        return new TickBasedController(mainThreadExecutor, TimeoutBehavior.AUTO_RESUME, DEFAULT_TIMEOUT_MILLIS);
+    public static TickBasedController createTickBased(Plugin plugin) {
+        return new TickBasedController(plugin, TimeoutBehavior.AUTO_RESUME, DEFAULT_TIMEOUT_MILLIS);
     }
 
     /**
      * Creates a tick-based controller with custom timeout behavior.
      *
-     * @param mainThreadExecutor
-     *            The main thread executor from the plugin.
+     * @param plugin
+     *            The plugin instance (for accessing Bukkit scheduler).
      * @param behavior
      *            The timeout behavior strategy.
      * @param timeoutMillis
      *            The timeout duration in milliseconds (0 = no timeout).
      * @return A new tick-based controller.
      */
-    public static TickBasedController createTickBased(Executor mainThreadExecutor, TimeoutBehavior behavior, long timeoutMillis) {
-        return new TickBasedController(mainThreadExecutor, behavior, timeoutMillis);
+    public static TickBasedController createTickBased(Plugin plugin, TimeoutBehavior behavior, long timeoutMillis) {
+        return new TickBasedController(plugin, behavior, timeoutMillis);
     }
 
     /**
      * Creates a tick-based controller with no timeout (requires manual resume).
      *
-     * @param mainThreadExecutor
-     *            The main thread executor from the plugin.
+     * @param plugin
+     *            The plugin instance (for accessing Bukkit scheduler).
      * @return A new tick-based controller.
      */
-    public static TickBasedController createTickBasedNoTimeout(Executor mainThreadExecutor) {
-        return new TickBasedController(mainThreadExecutor, TimeoutBehavior.REQUIRE_MANUAL, 0L);
+    public static TickBasedController createTickBasedNoTimeout(Plugin plugin) {
+        return new TickBasedController(plugin, TimeoutBehavior.REQUIRE_MANUAL, 0L);
     }
 
     /**
      * Creates a callback-based controller with default timeout behavior (AUTO_RESUME after 30 seconds).
      * Callback-based controllers return {@link java.util.concurrent.CompletableFuture}s from
-     * pauseAsync()
-     * for use in async callback chains.
+     * pauseAsync() for use in async callback chains.
      *
      * @param offloadExecutor
      *            The offload thread executor from the plugin (for async blocking).
