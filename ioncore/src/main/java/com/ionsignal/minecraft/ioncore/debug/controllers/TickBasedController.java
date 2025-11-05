@@ -5,7 +5,10 @@ import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.ioncore.debug.TimeoutBehavior;
 
-import java.util.concurrent.Executor;
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -33,30 +36,30 @@ public class TickBasedController implements ExecutionController {
     private final AtomicBoolean isPaused;
     private final AtomicBoolean continueToEnd;
     private final AtomicBoolean cancelled;
-    private final Executor mainThreadExecutor; // Injected from plugin
+    private final Plugin plugin;
     private final TimeoutBehavior timeoutBehavior;
     private final long timeoutMillis;
-    private final AtomicReference<Object> currentTimeoutTask; // Bukkit task reference
     private final AtomicReference<DebugSession<?>> session;
+    private volatile BukkitTask currentTimeoutTask;
 
     /**
      * Creates a tick-based controller with timeout behavior.
      *
-     * @param mainThreadExecutor
-     *            The main thread executor from the plugin (e.g., Bukkit scheduler wrapper).
+     * @param plugin
+     *            The plugin instance (for accessing Bukkit scheduler).
      * @param timeoutBehavior
      *            How to respond when a pause times out.
      * @param timeoutMillis
      *            Timeout duration in milliseconds (0 = no timeout).
      */
-    public TickBasedController(Executor mainThreadExecutor, TimeoutBehavior timeoutBehavior, long timeoutMillis) {
+    public TickBasedController(Plugin plugin, TimeoutBehavior timeoutBehavior, long timeoutMillis) {
         this.isPaused = new AtomicBoolean(false);
         this.continueToEnd = new AtomicBoolean(false);
         this.cancelled = new AtomicBoolean(false);
-        this.mainThreadExecutor = mainThreadExecutor;
+        this.plugin = plugin;
         this.timeoutBehavior = timeoutBehavior;
         this.timeoutMillis = timeoutMillis;
-        this.currentTimeoutTask = new AtomicReference<>();
+        this.currentTimeoutTask = null;
         this.session = new AtomicReference<>();
     }
 
@@ -66,13 +69,10 @@ public class TickBasedController implements ExecutionController {
         if (continueToEnd.get() || cancelled.get()) {
             return;
         }
-
         // Set paused flag (non-blocking)
         isPaused.set(true);
-
         // Update session status and phase information
         updateSessionStatus(SessionStatus.PAUSED, phase, info);
-
         // Schedule timeout if configured
         scheduleTimeout();
     }
@@ -81,10 +81,8 @@ public class TickBasedController implements ExecutionController {
     public void resume() {
         // Clear paused flag
         isPaused.set(false);
-
         // Cancel any pending timeout
         cancelTimeout();
-
         // Update session status to ACTIVE
         updateSessionStatus(SessionStatus.ACTIVE, "", "");
     }
@@ -99,7 +97,6 @@ public class TickBasedController implements ExecutionController {
     public void cancel() {
         cancelled.set(true);
         resume(); // Unblock if paused
-
         // Update session to CANCELLED status
         DebugSession<?> attachedSession = session.get();
         if (attachedSession != null) {
@@ -136,26 +133,22 @@ public class TickBasedController implements ExecutionController {
         if (timeoutMillis <= 0) {
             return; // No timeout configured
         }
-
         // Cancel any existing timeout
         cancelTimeout();
-
-        // Schedule new timeout on main thread
-        mainThreadExecutor.execute(() -> {
-            try {
-                Thread.sleep(timeoutMillis);
-                handleTimeout();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
+        // Convert milliseconds to ticks (20 ticks per second = 50ms per tick)
+        long ticks = timeoutMillis / 50L;
+        // Use Bukkit scheduler for non-blocking delayed task execution
+        currentTimeoutTask = Bukkit.getScheduler().runTaskLater(plugin, this::handleTimeout, ticks);
     }
 
     /**
      * Cancels the currently scheduled timeout task if one exists.
      */
     private void cancelTimeout() {
-        currentTimeoutTask.set(null); // Clear reference (Bukkit tasks are auto-cancelled when plugin disables)
+        if (currentTimeoutTask != null && !currentTimeoutTask.isCancelled()) {
+            currentTimeoutTask.cancel();
+        }
+        currentTimeoutTask = null;
     }
 
     /**

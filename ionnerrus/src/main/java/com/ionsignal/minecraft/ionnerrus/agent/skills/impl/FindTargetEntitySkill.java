@@ -40,6 +40,6 @@ public class FindTargetEntitySkill implements Skill<Optional<LivingEntity>> {
             }
             // Target not found.
             return Optional.empty();
-        });
+        }, IonNerrus.getInstance().getMainThreadExecutor());
     }
 }

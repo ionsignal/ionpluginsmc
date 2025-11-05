@@ -172,7 +172,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         }
         agent.assignGoal(null, null); // This stops the current goal and task
         sender.sendMessage(Component.text("Stopped current goal for agent " + name, NamedTextColor.YELLOW));
-        DebugPath.logAreaAround(agent.getPersona().getLocation(), 5);
+        // DebugPath.logAreaAround(agent.getPersona().getLocation(), 5);
         return true;
     }
 
@@ -346,8 +346,9 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         String targetName = args[2];
         double followDist = args.length > 3 ? Double.parseDouble(args[3]) : 12.0;
         double stopDist = args.length > 4 ? Double.parseDouble(args[4]) : 8.0;
+        int duration = 10; // injected follow defaults to 10 seconds
         try {
-            FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist);
+            FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist, duration);
             Goal followGoal = goalFactory.createGoal("FOLLOW_PLAYER", params);
             agent.assignGoal(followGoal, params);
             sender.sendMessage(Component.text("Instructing " + agent.getName() + " to follow " + targetName, NamedTextColor.GREEN));

@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.entity.LivingEntity;
 
 import java.util.List;
@@ -30,18 +31,23 @@ public class FollowPlayerGoal implements Goal {
         ACQUIRING_TARGET, FOLLOWING, FINISHED
     }
 
+    private final long durationMillis;
     private final FollowPlayerParameters params;
-    private State state = State.ACQUIRING_TARGET;
-    private GoalResult finalResult;
+    private volatile State state = State.ACQUIRING_TARGET;
+    private volatile GoalResult finalResult;
+
+    private BukkitTask timeoutCheckTask = null;
     private CompletableFuture<NavigationResult> followFuture;
+    private long followStartTimeMillis = -1;
 
     public FollowPlayerGoal(FollowPlayerParameters params) {
         this.params = params;
+        this.durationMillis = (long) (params.duration() * 1000.0);
     }
 
     @Override
     public void start(NerrusAgent agent) {
-        agent.speak("Okay, I'll follow " + params.targetName() + ".");
+        agent.speak(String.format("Okay, I'll follow %s for %.1f seconds.", params.targetName(), params.duration()));
     }
 
     @Override
@@ -49,38 +55,66 @@ public class FollowPlayerGoal implements Goal {
         if (isFinished()) {
             return;
         }
-
         if (state == State.ACQUIRING_TARGET) {
             agent.setCurrentTask(createSkillTask(
                     new FindTargetEntitySkill(params.targetName()).execute(agent)
-                            .thenAccept(entityOpt -> {
+                            .thenAcceptAsync(entityOpt -> {
                                 if (entityOpt.isPresent()) {
                                     startFollowing(agent, entityOpt.get());
                                 } else {
                                     fail("I can't find " + params.targetName() + ".");
                                 }
-                            })));
+                            }, IonNerrus.getInstance().getMainThreadExecutor())));
         }
-        // While in FOLLOWING state, this method does nothing.
-        // The Navigator handles all the logic. The goal just waits for the future to complete.
     }
 
     private void startFollowing(NerrusAgent agent, LivingEntity target) {
         state = State.FOLLOWING;
+        followStartTimeMillis = System.currentTimeMillis();
         followFuture = agent.getPersona().getNavigator().followOn(target, params.followDistance(), params.stopDistance());
-        followFuture.whenComplete((result, throwable) -> {
+        followFuture.whenCompleteAsync((result, throwable) -> {
+            cancelTimeoutTask();
             if (throwable != null) {
-                fail("An error occurred while following: " + throwable.getMessage());
+                agent.postMessage(new GoalResult.Failure("An error occurred while following: " + throwable.getMessage()));
             } else {
-                // The future only completes on failure or cancellation.
-                fail("I stopped following " + params.targetName() + " because: " + result.name());
+                agent.postMessage(new GoalResult.Failure("I stopped following " + params.targetName() + " because: " + result.name()));
             }
-        });
+        }, IonNerrus.getInstance().getMainThreadExecutor());
+        // Start Bukkit repeating task to check for timeout every tick
+        timeoutCheckTask = Bukkit.getScheduler().runTaskTimer(
+                IonNerrus.getInstance(), () -> {
+                    if (isFinished()) {
+                        cancelTimeoutTask();
+                        return;
+                    }
+                    long elapsedMillis = System.currentTimeMillis() - followStartTimeMillis;
+                    if (elapsedMillis >= durationMillis) {
+                        agent.speak("I'm done following.");
+                        // Cancel the navigation operation cleanly
+                        agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
+                        // Use message queue instead of direct state mutation
+                        agent.postMessage(new GoalResult.Success(
+                                String.format("I followed %s for %.1f seconds as requested.",
+                                        params.targetName(),
+                                        params.duration())));
+                    }
+                },
+                0L, // Start immediately
+                10L // Check every 500ms
+        );
     }
 
     private void fail(String message) {
         this.finalResult = new GoalResult.Failure(message);
         this.state = State.FINISHED;
+    }
+
+    // Helper method to safely cancel the timeout task
+    private void cancelTimeoutTask() {
+        if (timeoutCheckTask != null && !timeoutCheckTask.isCancelled()) {
+            timeoutCheckTask.cancel();
+            timeoutCheckTask = null;
+        }
     }
 
     @Override
@@ -90,6 +124,7 @@ public class FollowPlayerGoal implements Goal {
 
     @Override
     public void stop(NerrusAgent agent) {
+        cancelTimeoutTask();
         if (state == State.FOLLOWING) {
             agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
         }
@@ -103,6 +138,16 @@ public class FollowPlayerGoal implements Goal {
         return finalResult;
     }
 
+    @Override
+    public void onMessage(NerrusAgent agent, Object message) {
+        // Handle async navigation results posted via agent.postMessage()
+        if (message instanceof GoalResult result) {
+            cancelTimeoutTask();
+            this.finalResult = result;
+            this.state = State.FINISHED;
+        }
+    }
+
     private Task createSkillTask(CompletableFuture<?> future) {
         return new Task() {
             @Override
@@ -112,7 +157,8 @@ public class FollowPlayerGoal implements Goal {
 
             @Override
             public void cancel() {
-                /* No-op */ }
+                /* No-op */
+            }
         };
     }
 
@@ -121,13 +167,13 @@ public class FollowPlayerGoal implements Goal {
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
                     "FOLLOW_PLAYER",
-                    "Follows a target player or agent until cancelled.",
+                    "Follows a target player or agent for a specified duration. The goal completes successfully when the time limit is reached or fails if the target becomes unreachable.",
                     FollowPlayerParameters.class,
                     (schema, agent) -> {
                         AgentService agentService = IonNerrus.getInstance().getAgentService();
                         List<String> playerNames = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
                         List<String> agentNames = agentService.getAgents().stream()
-                                .filter(a -> !a.getPersona().getUniqueId().equals(agent.getPersona().getUniqueId())) // Exclude self
+                                .filter(a -> !a.getPersona().getUniqueId().equals(agent.getPersona().getUniqueId()))
                                 .map(NerrusAgent::getName)
                                 .toList();
                         String validTargets = Stream.concat(playerNames.stream(), agentNames.stream())
@@ -143,6 +189,11 @@ public class FollowPlayerGoal implements Goal {
                                 } else {
                                     targetNameProp.put("description", currentDesc + " Available targets: " + validTargets);
                                 }
+                            }
+                            ObjectNode durationProp = (ObjectNode) properties.get("duration");
+                            if (durationProp != null) {
+                                durationProp.put("minimum", 1.0);
+                                durationProp.put("maximum", 600.0);
                             }
                         }
                         return schema;

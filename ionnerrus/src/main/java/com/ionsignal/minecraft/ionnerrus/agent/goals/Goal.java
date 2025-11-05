@@ -34,6 +34,22 @@ public interface Goal {
     }
 
     /**
+     * Called when a message is dispatched to this goal from an async operation.
+     * This method is always invoked on the main server thread, making it safe to mutate goal state.
+     * 
+     * Async callbacks should post messages via {@link NerrusAgent#postMessage(Object)} rather than
+     * directly mutating goal state. The default implementation does nothing.
+     *
+     * @param agent
+     *            The agent executing the goal.
+     * @param message
+     *            The message payload (commonly {@link GoalResult} for async operation outcomes).
+     */
+    default void onMessage(NerrusAgent agent, Object message) {
+        // Default implementation is empty - override in goals that need message handling.
+    }
+
+    /**
      * @return True if the goal has been completed or cannot continue.
      */
     boolean isFinished();
