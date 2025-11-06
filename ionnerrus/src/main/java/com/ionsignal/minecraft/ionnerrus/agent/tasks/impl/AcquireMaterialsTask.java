@@ -277,7 +277,7 @@ public class AcquireMaterialsTask implements Task {
             Set<Material> group = blockTagManager.getMaterialSetFor(preferredMaterial);
             Optional<String> groupNameOpt = (group != null) ? blockTagManager.getGroupNameFor(group) : Optional.empty();
             if (groupNameOpt.isPresent()) {
-                return new GoalPrerequisite("GET_BLOCKS", new GetBlockParameters(groupNameOpt.get(), quantity));
+                return new GoalPrerequisite("GATHER", new GetBlockParameters(groupNameOpt.get(), quantity));
             }
         }
         if (plan.craftingSteps().stream().anyMatch(step -> step.ingredientToCraft().equals(ingredient))) {

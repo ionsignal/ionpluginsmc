@@ -2,9 +2,9 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GetBlockGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.MineOreGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.MineGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.PlaceBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.RequestItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.BuildGoal;
@@ -43,15 +43,15 @@ public class GoalFactory {
                 return new BuildGoal();
             case "FARM":
                 return new FarmGoal();
-            case "MINE_ORE":
-                return new MineOreGoal();
-            case "GET_BLOCKS":
+            case "MINE":
+                return new MineGoal();
+            case "GATHER":
                 GetBlockParameters getBlockParams = (GetBlockParameters) parameters;
                 Set<Material> materials = blockTagManager.getMaterialSet(getBlockParams.groupName());
                 if (materials == null) {
                     throw new IllegalArgumentException("Unknown block group: " + getBlockParams.groupName());
                 }
-                return new GetBlockGoal(materials, getBlockParams);
+                return new GatherGoal(materials, getBlockParams);
             case "GIVE_ITEM":
                 GiveItemParameters giveItemParams = (GiveItemParameters) parameters;
                 Material materialToGive;

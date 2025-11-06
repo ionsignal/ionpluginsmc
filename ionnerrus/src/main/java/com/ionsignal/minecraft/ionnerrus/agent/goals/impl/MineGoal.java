@@ -13,7 +13,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
  * but immediately fails with a message explaining the agent's limitations. This prevents
  * the LLM from misusing other tools for a task it cannot perform.
  */
-public class MineOreGoal implements Goal {
+public class MineGoal implements Goal {
     private boolean finished = false;
     private GoalResult finalResult;
 
@@ -21,7 +21,7 @@ public class MineOreGoal implements Goal {
     public void start(NerrusAgent agent) {
         // This goal provides immediate feedback to the LLM.
         this.finalResult = new GoalResult.Failure(
-                "The objective failed because I cannot mine for specific ores. I can only gather common, surface-level blocks using the GET_BLOCKS tool.");
+                "The objective failed because I cannot mine for specific ores. I can only gather common, surface-level blocks using the GATHER tool.");
         this.finished = true;
     }
 
@@ -49,7 +49,7 @@ public class MineOreGoal implements Goal {
         @Override
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
-                    "MINE_ORE",
+                    "MINE",
                     "Searches for and mines a specific quantity of valuable ores like iron, coal, or diamonds underground.",
                     MineOreParameters.class);
         }
