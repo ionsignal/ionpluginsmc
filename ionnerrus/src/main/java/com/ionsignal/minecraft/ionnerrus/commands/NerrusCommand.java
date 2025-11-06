@@ -12,7 +12,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParamete
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
-import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -54,7 +53,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             @NotNull String[] args) {
         if (args.length == 0) {
             sender.sendMessage(
-                    Component.text("Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow|craft> ...", NamedTextColor.GOLD));
+                    Component.text("Usage: /nerrus <spawn|remove|stop|gather|give|do|ask|list|follow|craft> ...", NamedTextColor.GOLD));
             return true;
         }
         String subCommand = args[0].toLowerCase();
@@ -72,7 +71,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             case "stop" -> {
                 return handleStop(sender, args);
             }
-            case "getblock" -> {
+            case "gather" -> {
                 return handleGetBlock(sender, args);
             }
             case "give" -> {
@@ -103,7 +102,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             }
             default -> {
                 sender.sendMessage(
-                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|getblock|give|do|ask|list|follow|craft> ...",
+                        Component.text("Unknown command. Usage: /nerrus <spawn|remove|stop|gather|give|do|ask|list|follow|craft> ...",
                                 NamedTextColor.RED));
                 return true;
             }
@@ -178,7 +177,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
 
     private boolean handleGetBlock(CommandSender sender, String[] args) {
         if (args.length < 4) {
-            sender.sendMessage(Component.text("Usage: /nerrus getblock <name> <type> <amount>", NamedTextColor.RED));
+            sender.sendMessage(Component.text("Usage: /nerrus gather <name> <type> <amount>", NamedTextColor.RED));
             return true;
         }
         String name = args[1];
@@ -209,8 +208,8 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         // Use the GoalFactory to create the goal and assign it as a single-item plan.
         try {
             GetBlockParameters params = new GetBlockParameters(groupName, amount);
-            Goal getBlockGoal = goalFactory.createGoal("GET_BLOCKS", params);
-            agent.assignGoal(getBlockGoal, params);
+            Goal gatherGoal = goalFactory.createGoal("GATHER", params);
+            agent.assignGoal(gatherGoal, params);
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
             return true;
@@ -377,11 +376,11 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,
             @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "stop", "getblock", "give", "do", "ask", "list", "follow", "craft");
+            return List.of("spawn", "remove", "stop", "gather", "give", "do", "ask", "list", "follow", "craft");
         }
         if (args.length == 2) {
             switch (args[0].toLowerCase()) {
-                case "remove", "stop", "getblock", "do", "give", "follow", "ask", "craft" -> {
+                case "remove", "stop", "gather", "do", "give", "follow", "ask", "craft" -> {
                     return agentService.getAgents().stream()
                             .map(NerrusAgent::getName)
                             .collect(Collectors.toList());
@@ -398,7 +397,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                             .map(Player::getName)
                             .collect(Collectors.toList());
                 }
-                case "getblock" -> {
+                case "gather" -> {
                     return blockTagManager.getRegisteredGroupNames().stream().sorted().collect(Collectors.toList());
                 }
                 case "give", "follow" -> {
@@ -426,7 +425,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                             .map(m -> m.name().toLowerCase())
                             .sorted()
                             .collect(Collectors.toList());
-                case "getblock":
+                case "gather":
                 case "craft":
                     return List.of("1", "8", "16", "32", "64");
                 case "follow":

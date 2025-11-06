@@ -38,12 +38,12 @@ The power of IonNerrus lies in its clean separation of concerns. Every action an
 ### **Goal (The "Why")**
 
 * **Role:** The highest-level objective selected by the Cognitive Layer. A goal is a state machine that decides which `Task` to run next based on the agent's state. It represents a single, complete tool execution.
-* **Example:** The `GetBlockGoal` is given the objective "get 32 wood." It will first run a task to check its inventory, then loop through gathering tasks until the count is met, and finally report its success or failure back to the Cognitive Layer.
+* **Example:** The `GatherGoal` is given the objective "get 32 wood." It will first run a task to check its inventory, then loop through gathering tasks until the count is met, and finally report its success or failure back to the Cognitive Layer.
 
 ### **Task (The "What")**
 
 * **Role:** A major, self-contained step required to achieve a `Goal`. A task orchestrates a sequence of low-level skills to get its job done.
-* **Example:** To fulfill its objective, the `GetBlockGoal` repeatedly runs a `GatherBlockTask`. This task is responsible for the entire "find one, go to one, break one, collect one" cycle.
+* **Example:** To fulfill its objective, the `GatherGoal` repeatedly runs a `GatherBlockTask`. This task is responsible for the entire "find one, go to one, break one, collect one" cycle.
 
 ### **Skill (The "How")**
 

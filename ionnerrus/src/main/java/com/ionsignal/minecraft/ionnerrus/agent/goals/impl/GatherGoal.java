@@ -22,7 +22,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
-public class GetBlockGoal implements Goal {
+public class GatherGoal implements Goal {
     private enum State {
         CHECKING_INVENTORY, GATHERING, SEARCHING_FOR_DENSE_AREA, MOVING_TO_DENSE_AREA, COMPLETED, FAILED
     }
@@ -57,7 +57,7 @@ public class GetBlockGoal implements Goal {
     private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
 
-    public GetBlockGoal(Set<Material> materials, GetBlockParameters params) {
+    public GatherGoal(Set<Material> materials, GetBlockParameters params) {
         this.materials = materials;
         this.params = params;
         this.logger = IonNerrus.getInstance().getLogger();
@@ -80,7 +80,7 @@ public class GetBlockGoal implements Goal {
                 } else {
                     this.state = State.GATHERING;
                 }
-                logger.info("GetBlockGoal: Inventory count updated to " + gatheredCount + "/" + params.quantity());
+                logger.info("GatherGoal: Inventory count updated to " + gatheredCount + "/" + params.quantity());
             }
             case GatherAttemptResult result -> {
                 // Handle the result of a gather attempt
@@ -100,13 +100,13 @@ public class GetBlockGoal implements Goal {
                         break;
                     case FAILED_TO_COLLECT:
                         // Transient failure - block exists but couldn't be collected this time Retry from the current state
-                        logger.info("GetBlockGoal: A single gather attempt failed. Retrying...");
+                        logger.info("GatherGoal: A single gather attempt failed. Retrying...");
                         this.state = State.GATHERING;
                         break;
                 }
             }
 
-            default -> logger.warning("GetBlockGoal received unknown message type: " + message.getClass().getName());
+            default -> logger.warning("GatherGoal received unknown message type: " + message.getClass().getName());
         }
     }
 
@@ -117,11 +117,11 @@ public class GetBlockGoal implements Goal {
             switch (state) {
                 case FAILED:
                     agent.speak("I tried, but I couldn't get all the blocks.");
-                    logger.warning("GetBlockGoal has failed.");
+                    logger.warning("GatherGoal has failed.");
                     break;
                 case COMPLETED:
                     agent.speak("I've gathered all the blocks!");
-                    logger.info("GetBlockGoal has completed successfully.");
+                    logger.info("GatherGoal has completed successfully.");
                     break;
             }
             return;
@@ -129,28 +129,28 @@ public class GetBlockGoal implements Goal {
         Task nextTask = null;
         switch (state) {
             case CHECKING_INVENTORY:
-                logger.info("GetBlockGoal: Checking inventory count.");
+                logger.info("GatherGoal: Checking inventory count.");
                 nextTask = createUpdateCountTask();
                 break;
             case GATHERING:
-                logger.info("GetBlockGoal: Attempting to gather one block.");
+                logger.info("GatherGoal: Attempting to gather one block.");
                 nextTask = createGatherOneBlockTask();
                 break;
             // NEEDS TO BE UPDATED TO SUPPORT LOOKAT BLOCK
             // case MOVING_TO_DENSE_AREA:
-            // logger.info("GetBlockGoal: Moving to the new area.");
+            // logger.info("GatherGoal: Moving to the new area.");
             // nextTask = taskFactory.createTask("GOTO_LOCATION", Map.of());
             // this.state = State.GATHERING_IN_DENSE_AREA; // Optimistically transition
             // break;
             // NEEDS TO BE UPDATED TO SUPPORT CLOSEST STANDING BLOCK
             // case SEARCHING_FOR_DENSE_AREA:
             // agent.speak("Can't find any nearby. I'll look for a better spot.");
-            // logger.info("GetBlockGoal: Searching for a dense area of blocks.");
+            // logger.info("GatherGoal: Searching for a dense area of blocks.");
             // nextTask = createFindDenseAreaTask(150);
             // this.state = State.MOVING_TO_DENSE_AREA; // Optimistically transition
             // break;
             default:
-                logger.info("GetBlockGoal: Unhandled state <" + state + "> please check.");
+                logger.info("GatherGoal: Unhandled state <" + state + "> please check.");
                 break;
         }
         if (nextTask != null) {
@@ -228,7 +228,7 @@ public class GetBlockGoal implements Goal {
         @Override
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
-                    "GET_BLOCKS",
+                    "GATHER",
                     "Navigates to and gathers a specified quantity of a block type from a predefined group.",
                     GetBlockParameters.class,
                     (schema, agent) -> {
