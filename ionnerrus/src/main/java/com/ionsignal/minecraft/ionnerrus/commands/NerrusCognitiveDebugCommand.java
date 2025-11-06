@@ -59,13 +59,13 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
             return true;
         }
         DebugSessionRegistry registry = IonCore.getDebugRegistry();
-        UUID ownerId = player.getUniqueId();
+        UUID sessionId = agent.getPersona().getUniqueId();
         switch (subcommand) {
-            case "start" -> handleStart(player, agent, registry, ownerId);
-            case "step" -> handleStep(player, registry, ownerId);
-            case "continue" -> handleContinue(player, registry, ownerId);
-            case "stop" -> handleStop(player, registry, ownerId);
-            case "history" -> handleHistory(player, registry, ownerId);
+            case "start" -> handleStart(player, agent, registry, sessionId);
+            case "step" -> handleStep(player, registry, sessionId);
+            case "continue" -> handleContinue(player, registry, sessionId);
+            case "stop" -> handleStop(player, registry, sessionId);
+            case "history" -> handleHistory(player, registry, sessionId);
             default -> player.sendMessage(
                     Component.text("Unknown subcommand. Use: start, step, continue, stop, or history",
                             NamedTextColor.RED));
@@ -73,8 +73,8 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
         return true;
     }
 
-    private void handleStart(Player player, NerrusAgent agent, DebugSessionRegistry registry, UUID ownerId) {
-        if (registry.hasActiveSession(ownerId)) {
+    private void handleStart(Player player, NerrusAgent agent, DebugSessionRegistry registry, UUID sessionId) {
+        if (registry.hasActiveSession(sessionId)) {
             player.sendMessage(Component.text(
                     "You already have an active debug session. Use /cognitivedebug stop first.", NamedTextColor.RED));
             return;
@@ -87,7 +87,7 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
         );
         // Note: Initial state will be null until first cognitiveStep() call
         DebugSession<CognitiveDebugState> session = registry.createSession(
-                ownerId,
+                sessionId,
                 null, // State is set on first cognitiveStep()
                 controller);
         session.transitionTo(SessionStatus.ACTIVE);
@@ -97,8 +97,8 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
                 NamedTextColor.GRAY));
     }
 
-    private void handleStep(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        registry.getActiveSession(ownerId, CognitiveDebugState.class).ifPresentOrElse(
+    private void handleStep(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        registry.getActiveSession(sessionId, CognitiveDebugState.class).ifPresentOrElse(
                 session -> {
                     session.getController().ifPresent(ExecutionController::resume);
                     player.sendMessage(Component.text("Stepped cognitive loop forward.", NamedTextColor.GREEN));
@@ -106,8 +106,8 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
                 () -> player.sendMessage(Component.text("No active cognitive debug session.", NamedTextColor.RED)));
     }
 
-    private void handleContinue(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        registry.getActiveSession(ownerId, CognitiveDebugState.class).ifPresentOrElse(
+    private void handleContinue(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        registry.getActiveSession(sessionId, CognitiveDebugState.class).ifPresentOrElse(
                 session -> {
                     session.getController().ifPresent(ExecutionController::continueToEnd);
                     player.sendMessage(
@@ -116,16 +116,16 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
                 () -> player.sendMessage(Component.text("No active cognitive debug session.", NamedTextColor.RED)));
     }
 
-    private void handleStop(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        if (registry.cancelSession(ownerId)) {
+    private void handleStop(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        if (registry.cancelSession(sessionId)) {
             player.sendMessage(Component.text("Cognitive debug session stopped.", NamedTextColor.YELLOW));
         } else {
             player.sendMessage(Component.text("No active session to stop.", NamedTextColor.RED));
         }
     }
 
-    private void handleHistory(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        registry.getActiveSession(ownerId, CognitiveDebugState.class).ifPresentOrElse(
+    private void handleHistory(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        registry.getActiveSession(sessionId, CognitiveDebugState.class).ifPresentOrElse(
                 session -> {
                     CognitiveDebugState state = session.getState();
                     if (state == null) {

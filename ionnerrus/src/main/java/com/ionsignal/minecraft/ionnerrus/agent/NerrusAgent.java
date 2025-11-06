@@ -15,7 +15,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import org.jetbrains.annotations.Nullable;
@@ -52,20 +51,15 @@ public class NerrusAgent {
     private volatile boolean isBusyWithDirective = false;
 
     /**
-     * An immutable record to hold the state of a single goal on the stack.
-     * Each goal gets its own isolated blackboard.
+     * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
+     * isolated blackboard and private message queue.
      */
-    private record GoalContext(Goal goal, Object parameters, Blackboard blackboard) {
-    }
-
-    /**
-     * A message sent from an async operation to the current goal which enables async callbacks to
-     * communicate with goals without directly mutating state.
-     * 
-     * @param payload
-     *            The message payload to be dispatched to the goal's onMessage() handler.
-     */
-    private record GoalMessage(Object payload) {
+    private record GoalContext(
+            Goal goal,
+            Object parameters,
+            Blackboard blackboard, // Keep for CraftItemGoal compatibility
+            ConcurrentLinkedQueue<Object> mailbox // NEW: Per-goal message queue
+    ) {
     }
 
     public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
@@ -76,8 +70,22 @@ public class NerrusAgent {
         this.llmService = llmService;
     }
 
-    // Process one message per tick - the ONLY place where agent state is mutated
+    // Process one message per tick with priority-based message processing (goal mailbox first)
     public void processMessages() {
+        // Process goal-specific messages first
+        if (currentContext != null && currentContext.mailbox() != null) {
+            Object goalMessage = currentContext.mailbox().poll();
+            if (goalMessage != null) {
+                try {
+                    handleGoalMessage(goalMessage);
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.SEVERE,
+                            "Error processing goal message for agent " + getName(), e);
+                }
+                return; // Process one message per tick
+            }
+        }
+        // Process global agent messages
         Object message = messages.poll();
         if (message == null) {
             return; // No messages to process
@@ -87,7 +95,6 @@ public class NerrusAgent {
             case AssignDirective cmd -> handleAssignDirective(cmd.directive(), cmd.requester());
             case SetBusyWithDirective cmd -> handleSetBusyWithDirective(cmd.isBusy());
             case TaskCompleted event -> handleTaskCompleted(event.error());
-            case GoalMessage goalMsg -> handleGoalMessage(goalMsg.payload());
             default -> plugin.getLogger().warning("Unknown message type in agent " + getName() + ": " + message.getClass().getSimpleName());
         }
     }
@@ -142,7 +149,13 @@ public class NerrusAgent {
         // Set up the new top-level goal.
         if (goal != null) {
             plugin.getLogger().info(String.format("[%s] Starting new top-level goal: %s", getName(), goalName));
-            this.currentContext = new GoalContext(goal, parameters, new Blackboard());
+            // Added fresh mailbox for new goal
+            this.currentContext = new GoalContext(
+                    goal,
+                    parameters,
+                    new Blackboard(), // Keep for CraftItemGoal compatibility
+                    new ConcurrentLinkedQueue<>() // Fresh mailbox for new goal
+            );
             this.topLevelGoalFuture = resultFuture;
             this.currentContext.goal().start(this);
             processNextStep();
@@ -258,7 +271,13 @@ public class NerrusAgent {
                 try {
                     Goal subGoal = goalFactory.createGoal(prerequisite.goalName(), prerequisite.parameters());
                     plugin.getLogger().info(String.format("[%s] Starting new sub-goal: %s", getName(), subGoal.getClass().getSimpleName()));
-                    this.currentContext = new GoalContext(subGoal, prerequisite.parameters(), new Blackboard());
+                    // REFACTOR: Added fresh mailbox for sub-goal
+                    this.currentContext = new GoalContext(
+                            subGoal,
+                            prerequisite.parameters(),
+                            new Blackboard(), // Keep for CraftItemGoal compatibility
+                            new ConcurrentLinkedQueue<>() // NEW: Fresh mailbox for sub-goal
+                    );
                     this.currentContext.goal().start(this);
                     processNextStep(); // Immediately process the new sub-goal.
                 } catch (Exception e) {
@@ -335,17 +354,23 @@ public class NerrusAgent {
     }
 
     /**
-     * Posts a message to the current goal from an async operation. The message will be queued and
-     * dispatched on the main server thread during the next tick.
+     * Posts a message to the current goal's mailbox from an async operation where the message will be
+     * queued in the goal's private mailbox and dispatched on the main server thread during the next
+     * tick.
      * 
-     * This method is thread-safe and intended for use by async callbacks to communicate operation
-     * results back to the goal without directly mutating state.
-     *
+     * This method is thread-safe and intended for use by async callbacks (e.g., task completions). Note
+     * that if no goal is currently active, the message is discarded with a warning.
+     * 
      * @param payload
-     *            The message payload (commonly {@link GoalResult} for async operation outcomes).
+     *            The message payload (typically a result record from skill execution).
      */
     public void postMessage(Object payload) {
-        messages.add(new GoalMessage(payload));
+        if (currentContext != null && currentContext.mailbox() != null) {
+            currentContext.mailbox().offer(payload);
+        } else {
+            plugin.getLogger().warning("Attempted to post message to goal, but no active context exists. Message discarded: "
+                    + payload.getClass().getSimpleName());
+        }
     }
 
     /**
@@ -379,5 +404,19 @@ public class NerrusAgent {
      */
     public List<String> getActionHistory() {
         return Collections.unmodifiableList(actionHistory);
+    }
+
+    /**
+     * Gets the size of the current goal's mailbox for debug visualization.
+     * 
+     * WARNING: size() on ConcurrentLinkedQueue is O(n), suitable for debugging but not for hot paths.
+     * 
+     * @return The number of pending messages in the goal mailbox, or 0 if no goal is active.
+     */
+    public int getGoalMailboxSize() {
+        if (currentContext != null && currentContext.mailbox() != null) {
+            return currentContext.mailbox().size();
+        }
+        return 0;
     }
 }

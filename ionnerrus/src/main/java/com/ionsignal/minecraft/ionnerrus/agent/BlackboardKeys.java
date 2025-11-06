@@ -15,9 +15,4 @@ public final class BlackboardKeys {
     public static final String CRAFTING_EXECUTION_PLAN = "crafting.executionPlan";
     public static final String NEXT_PREREQUISITE = "crafting.nextPrerequisite";
     public static final String MATERIALS_ACQUIRED = "crafting.materialsAcquired";
-
-    // Task-specific results
-    public static final String GATHER_BLOCK_RESULT = "gatherBlocks.result";
-    public static final String GATHER_CURRENT_COUNT = "gather.currentCount";
-    public static final String FIND_AREA_RESULT = "findArea.result";
 }

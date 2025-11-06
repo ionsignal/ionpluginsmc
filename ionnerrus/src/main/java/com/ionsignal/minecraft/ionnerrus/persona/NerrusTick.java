@@ -43,8 +43,8 @@ public class NerrusTick extends BukkitRunnable {
                 try {
                     // Check for active debug session for this agent
                     // Using fully qualified class names to avoid import conflicts
-                    Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore
-                            .getDebugRegistry().getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
+                    Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore.getDebugRegistry()
+                            .getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
                     if (sessionOpt.isPresent()) {
                         DebugSession<AgentDebugState> session = sessionOpt.get();
                         ExecutionController controller = session.getController().orElse(null);
