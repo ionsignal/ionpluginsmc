@@ -91,8 +91,6 @@ public class WorldSnapshot {
                     snapshots.size());
             if (durationMillis >= WARN_THRESHOLD_MS) {
                 LOGGER.warning(logMessage);
-            } else {
-                LOGGER.info(logMessage);
             }
             // Pass the world's height limits into the constructor.
             return new WorldSnapshot(snapshots, world.getMinHeight(), world.getMaxHeight());
