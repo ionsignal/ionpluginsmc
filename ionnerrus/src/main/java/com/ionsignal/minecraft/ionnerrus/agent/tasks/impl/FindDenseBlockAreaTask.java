@@ -41,9 +41,9 @@ public class FindDenseBlockAreaTask implements Task {
                         return;
                     if (bestChunkCenter != null) {
                         agent.getBlackboard().put(BlackboardKeys.TARGET_LOCATION, bestChunkCenter);
-                        agent.getBlackboard().put(BlackboardKeys.FIND_AREA_RESULT, true);
+                        // agent.getBlackboard().put(BlackboardKeys.FIND_AREA_RESULT, true); DEPRECATED
                     } else {
-                        agent.getBlackboard().put(BlackboardKeys.FIND_AREA_RESULT, false);
+                        // agent.getBlackboard().put(BlackboardKeys.FIND_AREA_RESULT, false); DEPRECATED
                     }
                 }, IonNerrus.getInstance().getMainThreadExecutor());
     }

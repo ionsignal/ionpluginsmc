@@ -20,23 +20,19 @@ public record AgentDebugState(
         UUID agentId,
         String agentName,
         Location currentLocation,
-        String currentGoalName, // Null if no goal
-        String currentTaskName, // Null if no task
-        Map<String, Object> blackboardSnapshot, // Defensive copy from Blackboard.getAllData()
-        Path currentPath, // Null if not navigating
-        String nextMessage // Class name of next message in queue
-) {
+        String currentGoalName,
+        String currentTaskName,
+        Map<String, Object> blackboardSnapshot,
+        Path currentPath,
+        String nextMessage,
+        int goalMailboxSize) {
     /**
-     * Creates a snapshot from a live NerrusAgent.
-     * MUST be called on the main thread to avoid race conditions.
-     * 
-     * This method is called from NerrusTick on the main server thread,
-     * making all state access thread-safe.
+     * Creates a snapshot from a live NerrusAgent and is called on the main thread to avoid race
+     * conditions, making all state access thread-safe.
      */
     public static AgentDebugState snapshot(NerrusAgent agent) {
         Goal currentGoal = agent.getCurrentGoal();
         Task currentTask = agent.getCurrentTask();
-        // Use new getAllData() method for defensive copy of blackboard
         Map<String, Object> blackboardCopy;
         if (agent.getBlackboard() != null) {
             blackboardCopy = agent.getBlackboard().getAllData();
@@ -47,6 +43,9 @@ public record AgentDebugState(
         if (agent.getPersona().isSpawned()) {
             currentPath = agent.getPersona().getNavigator().getCurrentPath();
         }
+        // Get goal mailbox size for debugging message queue depth
+        // Note: size() on ConcurrentLinkedQueue is O(n), acceptable for debug visualization
+        int mailboxSize = agent.getGoalMailboxSize();
         return new AgentDebugState(
                 agent.getPersona().getUniqueId(),
                 agent.getName(),
@@ -55,7 +54,7 @@ public record AgentDebugState(
                 currentTask != null ? currentTask.getClass().getSimpleName() : null,
                 blackboardCopy,
                 currentPath,
-                agent.getNextMessageType() // New getter method for message type
-        );
+                agent.getNextMessageType(),
+                mailboxSize);
     }
 }

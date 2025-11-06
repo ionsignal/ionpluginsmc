@@ -44,54 +44,45 @@ public class NerrusDebugCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(Component.text("This command can only be used by players.", NamedTextColor.RED));
             return true;
         }
-
         if (args.length < 2) {
             player.sendMessage(Component.text("Usage: /nerrusdebug <start|step|continue|stop|status> <agentName>", NamedTextColor.RED));
             return true;
         }
-
         String subcommand = args[0].toLowerCase();
         String agentName = args[1];
-
         NerrusAgent agent = plugin.getAgentService().findAgentByName(agentName);
         if (agent == null) {
             player.sendMessage(Component.text("Agent not found: " + agentName, NamedTextColor.RED));
             return true;
         }
-
         DebugSessionRegistry registry = IonCore.getDebugRegistry();
-        UUID ownerId = player.getUniqueId();
-
+        UUID sessionId = agent.getPersona().getUniqueId();
         switch (subcommand) {
-            case "start" -> handleStart(player, agent, registry, ownerId);
-            case "step" -> handleStep(player, registry, ownerId);
-            case "continue" -> handleContinue(player, registry, ownerId);
-            case "stop" -> handleStop(player, registry, ownerId);
-            case "status" -> handleStatus(player, registry, ownerId);
+            case "start" -> handleStart(player, agent, registry, sessionId);
+            case "step" -> handleStep(player, registry, sessionId);
+            case "continue" -> handleContinue(player, registry, sessionId);
+            case "stop" -> handleStop(player, registry, sessionId);
+            case "status" -> handleStatus(player, registry, sessionId);
             default -> player
                     .sendMessage(Component.text("Unknown subcommand. Use: start, step, continue, stop, or status", NamedTextColor.RED));
         }
-
         return true;
     }
 
-    private void handleStart(Player player, NerrusAgent agent, DebugSessionRegistry registry, UUID ownerId) {
-        if (registry.hasActiveSession(ownerId)) {
+    private void handleStart(Player player, NerrusAgent agent, DebugSessionRegistry registry, UUID sessionId) {
+        if (registry.hasActiveSession(sessionId)) {
             player.sendMessage(
                     Component.text("You already have an active debug session. Use /nerrusdebug stop first.", NamedTextColor.RED));
             return;
         }
-        // Pass plugin instance instead of executor to factory
         ExecutionController controller = ExecutionControllerFactory.createTickBased(
                 plugin,
                 TimeoutBehavior.REQUIRE_MANUAL,
                 60_000L // 60 second timeout
         );
-        // Create initial state snapshot
         AgentDebugState initialState = AgentDebugState.snapshot(agent);
-        // Create and register session
         DebugSession<AgentDebugState> session = registry.createSession(
-                ownerId,
+                sessionId,
                 initialState,
                 controller);
         session.transitionTo(SessionStatus.ACTIVE);
@@ -103,8 +94,8 @@ public class NerrusDebugCommand implements CommandExecutor, TabCompleter {
                         NamedTextColor.GRAY));
     }
 
-    private void handleStep(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        registry.getActiveSession(ownerId, AgentDebugState.class).ifPresentOrElse(
+    private void handleStep(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        registry.getActiveSession(sessionId, AgentDebugState.class).ifPresentOrElse(
                 session -> {
                     session.getController().ifPresent(ExecutionController::resume);
                     player.sendMessage(Component.text("Stepped agent forward one message.", NamedTextColor.GREEN));
@@ -113,8 +104,8 @@ public class NerrusDebugCommand implements CommandExecutor, TabCompleter {
                         Component.text("No active debug session. Use /nerrusdebug start <agentName> first.", NamedTextColor.RED)));
     }
 
-    private void handleContinue(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        registry.getActiveSession(ownerId, AgentDebugState.class).ifPresentOrElse(
+    private void handleContinue(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        registry.getActiveSession(sessionId, AgentDebugState.class).ifPresentOrElse(
                 session -> {
                     session.getController().ifPresent(ExecutionController::continueToEnd);
                     player.sendMessage(Component.text("Agent will continue to completion without pausing.", NamedTextColor.GREEN));
@@ -122,27 +113,33 @@ public class NerrusDebugCommand implements CommandExecutor, TabCompleter {
                 () -> player.sendMessage(Component.text("No active debug session.", NamedTextColor.RED)));
     }
 
-    private void handleStop(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        if (registry.cancelSession(ownerId)) {
+    private void handleStop(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        if (registry.cancelSession(sessionId)) {
             player.sendMessage(Component.text("Debug session stopped.", NamedTextColor.YELLOW));
         } else {
             player.sendMessage(Component.text("No active debug session to stop.", NamedTextColor.RED));
         }
     }
 
-    private void handleStatus(Player player, DebugSessionRegistry registry, UUID ownerId) {
-        registry.getActiveSession(ownerId, AgentDebugState.class).ifPresentOrElse(
+    private void handleStatus(Player player, DebugSessionRegistry registry, UUID sessionId) {
+        registry.getActiveSession(sessionId, AgentDebugState.class).ifPresentOrElse(
                 session -> {
                     AgentDebugState state = session.getState();
                     player.sendMessage(Component.text("=== Agent Debug Status ===", NamedTextColor.GOLD));
                     player.sendMessage(Component.text("Agent: " + state.agentName(), NamedTextColor.WHITE));
                     player.sendMessage(Component.text("Status: " + session.getStatus(), NamedTextColor.YELLOW));
                     player.sendMessage(Component.text(
-                            "Current Goal: " + (state.currentGoalName() != null ? state.currentGoalName() : "None"), NamedTextColor.GRAY));
-                    player.sendMessage(Component.text(
-                            "Current Task: " + (state.currentTaskName() != null ? state.currentTaskName() : "None"), NamedTextColor.GRAY));
-                    player.sendMessage(Component.text("Next Message: " + (state.nextMessage() != null ? state.nextMessage() : "None"),
+                            "Current Goal: " + (state.currentGoalName() != null ? state.currentGoalName() : "None"),
                             NamedTextColor.GRAY));
+                    player.sendMessage(Component.text(
+                            "Current Task: " + (state.currentTaskName() != null ? state.currentTaskName() : "None"),
+                            NamedTextColor.GRAY));
+                    player.sendMessage(Component.text(
+                            "Next Message: " + (state.nextMessage() != null ? state.nextMessage() : "None"),
+                            NamedTextColor.GRAY));
+                    player.sendMessage(Component.text(
+                            "Goal Mailbox: " + state.goalMailboxSize() + " pending message(s)",
+                            NamedTextColor.AQUA));
                     player.sendMessage(Component.text("Phase: " + session.getCurrentPhase(), NamedTextColor.AQUA));
                     player.sendMessage(Component.text("Info: " + session.getCurrentInfo(), NamedTextColor.AQUA));
                 },
@@ -156,7 +153,6 @@ public class NerrusDebugCommand implements CommandExecutor, TabCompleter {
             return List.of("start", "step", "continue", "stop", "status");
         }
         if (args.length == 2) {
-            // Suggest agent names for all subcommands
             return plugin.getAgentService().getAgents().stream()
                     .map(NerrusAgent::getName)
                     .collect(Collectors.toList());

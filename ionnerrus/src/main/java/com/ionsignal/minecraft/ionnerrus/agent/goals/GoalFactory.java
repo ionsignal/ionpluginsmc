@@ -51,7 +51,7 @@ public class GoalFactory {
                 if (materials == null) {
                     throw new IllegalArgumentException("Unknown block group: " + getBlockParams.groupName());
                 }
-                return new GetBlockGoal(taskFactory, materials, getBlockParams);
+                return new GetBlockGoal(materials, getBlockParams);
             case "GIVE_ITEM":
                 GiveItemParameters giveItemParams = (GiveItemParameters) parameters;
                 Material materialToGive;
