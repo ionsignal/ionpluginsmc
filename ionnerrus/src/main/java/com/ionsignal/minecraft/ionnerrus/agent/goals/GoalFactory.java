@@ -2,7 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.MineGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.PlaceBlockGoal;
@@ -12,7 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.DigGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FarmGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.PlaceBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.RequestItemParameters;
@@ -43,12 +43,12 @@ public class GoalFactory {
             case "MINE":
                 return new MineGoal();
             case "GATHER":
-                GetBlockParameters getBlockParams = (GetBlockParameters) parameters;
+                GatherBlockParameters getBlockParams = (GatherBlockParameters) parameters;
                 Set<Material> materials = blockTagManager.getMaterialSet(getBlockParams.groupName());
                 if (materials == null) {
                     throw new IllegalArgumentException("Unknown block group: " + getBlockParams.groupName());
                 }
-                return new GatherGoal(materials, getBlockParams);
+                return new GatherBlockGoal(materials, getBlockParams);
             case "GIVE_ITEM":
                 GiveItemParameters giveItemParams = (GiveItemParameters) parameters;
                 Material materialToGive;

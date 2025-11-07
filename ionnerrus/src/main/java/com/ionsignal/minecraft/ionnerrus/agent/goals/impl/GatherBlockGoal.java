@@ -6,7 +6,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
@@ -22,7 +22,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
-public class GatherGoal implements Goal {
+public class GatherBlockGoal implements Goal {
     private enum State {
         CHECKING_INVENTORY, GATHERING, SEARCHING_FOR_DENSE_AREA, MOVING_TO_DENSE_AREA, COMPLETED, FAILED
     }
@@ -52,13 +52,13 @@ public class GatherGoal implements Goal {
 
     private final Logger logger;
     private final Set<Material> materials;
-    private final GetBlockParameters params;
+    private final GatherBlockParameters params;
     private final Object contextToken = new Object();
     private final Set<Location> attemptedLocations = new HashSet<>();
     private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
 
-    public GatherGoal(Set<Material> materials, GetBlockParameters params) {
+    public GatherBlockGoal(Set<Material> materials, GatherBlockParameters params) {
         this.materials = materials;
         this.params = params;
         this.logger = IonNerrus.getInstance().getLogger();
@@ -137,19 +137,6 @@ public class GatherGoal implements Goal {
                 logger.info("GatherGoal: Attempting to gather one block.");
                 nextTask = createGatherOneBlockTask();
                 break;
-            // NEEDS TO BE UPDATED TO SUPPORT LOOKAT BLOCK
-            // case MOVING_TO_DENSE_AREA:
-            // logger.info("GatherGoal: Moving to the new area.");
-            // nextTask = taskFactory.createTask("GOTO_LOCATION", Map.of());
-            // this.state = State.GATHERING_IN_DENSE_AREA; // Optimistically transition
-            // break;
-            // NEEDS TO BE UPDATED TO SUPPORT CLOSEST STANDING BLOCK
-            // case SEARCHING_FOR_DENSE_AREA:
-            // agent.speak("Can't find any nearby. I'll look for a better spot.");
-            // logger.info("GatherGoal: Searching for a dense area of blocks.");
-            // nextTask = createFindDenseAreaTask(150);
-            // this.state = State.MOVING_TO_DENSE_AREA; // Optimistically transition
-            // break;
             default:
                 logger.info("GatherGoal: Unhandled state <" + state + "> please check.");
                 break;
@@ -219,7 +206,7 @@ public class GatherGoal implements Goal {
             return new ToolDefinition(
                     "GATHER",
                     "Navigates to and gathers a specified quantity of a block type from a predefined group.",
-                    GetBlockParameters.class,
+                    GatherBlockParameters.class,
                     (schema, agent) -> {
                         String validGroups = String.join(", ", blockTagManager.getRegisteredGroupNames());
                         ObjectNode properties = (ObjectNode) schema.get("properties");
