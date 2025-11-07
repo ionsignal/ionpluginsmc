@@ -1,18 +1,21 @@
-package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
+package com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.DigParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+
 /**
- * A "Guardrail" Goal that exists to capture the user's intent to dig,
- * but immediately fails with a message explaining the agent's limitations.
+ * A "Guardrail" Goal that exists to capture the user's intent to mine for specific ores,
+ * but immediately fails with a message explaining the agent's limitations. This prevents
+ * the LLM from misusing other tools for a task it cannot perform.
  */
-public class DigGoal implements Goal {
+public class MineGoal implements Goal {
     private final Object contextToken = new Object();
     private boolean finished = false;
     private GoalResult finalResult;
@@ -21,7 +24,7 @@ public class DigGoal implements Goal {
     public void start(NerrusAgent agent) {
         // This goal provides immediate feedback to the LLM.
         this.finalResult = new GoalResult.Failure(
-                "The objective failed because I have a limitation that prevents me from digging deep underground.");
+                "The objective failed because I cannot mine for specific ores. I can only gather common, surface-level blocks using the GATHER_BLOCK tool.");
         this.finished = true;
     }
 
@@ -50,13 +53,18 @@ public class DigGoal implements Goal {
         return contextToken;
     }
 
+    public record MineOreParameters(
+            @JsonProperty(required = true) @JsonPropertyDescription("The name of the ore to mine (e.g., 'iron', 'coal', 'diamond').") String oreName,
+            @JsonProperty(required = true) @JsonPropertyDescription("The number of ore blocks to mine.") int quantity) {
+    }
+
     public static class Provider implements GoalProvider {
         @Override
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
-                    "DIG",
-                    "Digs a hole straight down. Use this for requests involving digging or creating tunnels underground.",
-                    DigParameters.class);
+                    "MINE",
+                    "Searches for and mines a specific quantity of valuable ores like iron, coal, or diamonds underground.",
+                    MineOreParameters.class);
         }
     }
 }

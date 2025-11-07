@@ -4,13 +4,13 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.MineGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.PlaceBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.RequestItemGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.BuildGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.BuildGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.DigGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.FarmGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.MineGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.DigGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FarmGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
@@ -42,7 +42,7 @@ public class GoalFactory {
                 return new FarmGoal();
             case "MINE":
                 return new MineGoal();
-            case "GATHER":
+            case "GATHER_BLOCK":
                 GatherBlockParameters getBlockParams = (GatherBlockParameters) parameters;
                 Set<Material> materials = blockTagManager.getMaterialSet(getBlockParams.groupName());
                 if (materials == null) {

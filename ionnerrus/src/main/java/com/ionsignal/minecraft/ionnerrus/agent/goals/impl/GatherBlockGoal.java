@@ -204,7 +204,7 @@ public class GatherBlockGoal implements Goal {
         @Override
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
-                    "GATHER",
+                    "GATHER_BLOCK",
                     "Navigates to and gathers a specified quantity of a block type from a predefined group.",
                     GatherBlockParameters.class,
                     (schema, agent) -> {
