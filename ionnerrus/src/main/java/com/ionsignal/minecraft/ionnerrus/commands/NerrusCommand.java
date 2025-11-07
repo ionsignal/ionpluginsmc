@@ -7,7 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
@@ -207,7 +207,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         }
         // Use the GoalFactory to create the goal and assign it as a single-item plan.
         try {
-            GetBlockParameters params = new GetBlockParameters(groupName, amount);
+            GatherBlockParameters params = new GatherBlockParameters(groupName, amount);
             Goal gatherGoal = goalFactory.createGoal("GATHER", params);
             agent.assignGoal(gatherGoal, params);
         } catch (IllegalArgumentException e) {

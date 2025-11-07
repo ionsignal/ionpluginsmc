@@ -10,7 +10,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService.CraftingSte
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalPrerequisite;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal.AcquisitionResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GetBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.RequestItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
@@ -251,7 +251,7 @@ public class AcquireMaterialsTask implements Task {
             Set<Material> group = blockTagManager.getMaterialSetFor(preferredMaterial);
             Optional<String> groupNameOpt = (group != null) ? blockTagManager.getGroupNameFor(group) : Optional.empty();
             if (groupNameOpt.isPresent()) {
-                return new GoalPrerequisite("GATHER", new GetBlockParameters(groupNameOpt.get(), quantity));
+                return new GoalPrerequisite("GATHER", new GatherBlockParameters(groupNameOpt.get(), quantity));
             }
         }
         if (plan.craftingSteps().stream().anyMatch(step -> step.ingredientToCraft().equals(ingredient))) {

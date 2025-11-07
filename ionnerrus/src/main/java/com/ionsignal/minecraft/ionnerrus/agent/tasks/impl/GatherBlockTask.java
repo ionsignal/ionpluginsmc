@@ -2,8 +2,8 @@ package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherGoal.GatherResult;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherGoal.GatherAttemptResult;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherBlockGoal.GatherResult;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherBlockGoal.GatherAttemptResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.BreakBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CollectItemSkill;

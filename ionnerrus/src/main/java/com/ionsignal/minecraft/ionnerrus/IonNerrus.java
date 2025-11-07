@@ -122,7 +122,6 @@ public class IonNerrus extends JavaPlugin {
         this.recipeService = new RecipeService(this.blockTagManager);
 
         // Core Factories and Services (in dependency order)
-        // this.taskFactory = new TaskFactory(this.blockTagManager);
         this.goalRegistry = new GoalRegistry();
         this.goalFactory = new GoalFactory(this.blockTagManager, this.recipeService);
         this.llmService = new LLMService(this);
