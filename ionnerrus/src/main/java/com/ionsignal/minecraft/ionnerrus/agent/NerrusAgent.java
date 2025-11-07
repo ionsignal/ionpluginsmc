@@ -52,12 +52,11 @@ public class NerrusAgent {
 
     /**
      * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
-     * isolated blackboard and private message queue.
+     * isolated message queue.
      */
     public record GoalContext(
             Goal goal,
             Object parameters,
-            Blackboard blackboard,
             ConcurrentLinkedQueue<Object> mailbox) {
         /**
          * Posts a message to this context's mailbox.
@@ -155,12 +154,10 @@ public class NerrusAgent {
         // Set up the new top-level goal.
         if (goal != null) {
             plugin.getLogger().info(String.format("[%s] Starting new top-level goal: %s", getName(), goalName));
-            // Added fresh mailbox for new goal
             this.currentContext = new GoalContext(
-                    goal, parameters,
-                    new Blackboard(), // Keep for CraftItemGoal compatibility
-                    new ConcurrentLinkedQueue<>() // Fresh mailbox for new goal
-            );
+                    goal,
+                    parameters,
+                    new ConcurrentLinkedQueue<>());
             this.topLevelGoalFuture = resultFuture;
             this.currentContext.goal().start(this);
             processNextStep();
@@ -192,9 +189,6 @@ public class NerrusAgent {
         if (error.isPresent()) {
             plugin.getLogger().log(Level.SEVERE, String.format("[%s] Task %s failed with exception:", getName(), taskName), error.get());
             speak("I ran into an unexpected problem with my task.");
-            if (getBlackboard() != null) {
-                getBlackboard().put(BlackboardKeys.ISSUE, "TASK_EXCEPTION");
-            }
         } else {
             plugin.getLogger().info(String.format("[%s] Task %s completed successfully.", getName(), taskName));
         }
@@ -276,13 +270,10 @@ public class NerrusAgent {
                 try {
                     Goal subGoal = goalFactory.createGoal(prerequisite.goalName(), prerequisite.parameters());
                     plugin.getLogger().info(String.format("[%s] Starting new sub-goal: %s", getName(), subGoal.getClass().getSimpleName()));
-                    // REFACTOR: Added fresh mailbox for sub-goal
                     this.currentContext = new GoalContext(
                             subGoal,
                             prerequisite.parameters(),
-                            new Blackboard(), // Keep for CraftItemGoal compatibility
-                            new ConcurrentLinkedQueue<>() // NEW: Fresh mailbox for sub-goal
-                    );
+                            new ConcurrentLinkedQueue<>());
                     this.currentContext.goal().start(this);
                     processNextStep(); // Immediately process the new sub-goal.
                 } catch (Exception e) {
@@ -291,7 +282,7 @@ public class NerrusAgent {
                     handleGoalCompletion(new GoalResult.Failure(errorMessage));
                 }
             }
-            default -> { // Handles Success and Failure
+            default -> {
                 if (goalStack.isEmpty()) {
                     // This was the top-level goal. Complete its future and we're done.
                     plugin.getLogger().info(String.format("[%s] Top-level goal %s finished. Result: %s", getName(), completedGoalName,
@@ -324,11 +315,6 @@ public class NerrusAgent {
 
     public String getName() {
         return persona.getName();
-    }
-
-    @Nullable
-    public Blackboard getBlackboard() {
-        return currentContext != null ? currentContext.blackboard() : null;
     }
 
     @Nullable
