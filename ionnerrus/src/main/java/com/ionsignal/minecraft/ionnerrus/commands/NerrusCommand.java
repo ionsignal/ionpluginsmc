@@ -208,7 +208,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         // Use the GoalFactory to create the goal and assign it as a single-item plan.
         try {
             GatherBlockParameters params = new GatherBlockParameters(groupName, amount);
-            Goal gatherGoal = goalFactory.createGoal("GATHER", params);
+            Goal gatherGoal = goalFactory.createGoal("GATHER_BLOCK", params);
             agent.assignGoal(gatherGoal, params);
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));

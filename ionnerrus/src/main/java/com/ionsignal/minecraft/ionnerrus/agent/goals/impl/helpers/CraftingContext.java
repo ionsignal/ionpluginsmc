@@ -30,6 +30,7 @@ public class CraftingContext {
      * Checks if the context has enough materials to satisfy a specific recipe once.
      * This is a non-destructive check.
      */
+    @SuppressWarnings("null")
     public boolean hasIngredientsFor(CraftingRecipe recipe) {
         Map<Material, Integer> tempInventory = new HashMap<>(this.availableMaterials);
         List<RecipeChoice> choices = getRecipeChoices(recipe);
@@ -56,6 +57,7 @@ public class CraftingContext {
      * Consumes the ingredients for a given recipe from the available materials.
      * This is a destructive operation.
      */
+    @SuppressWarnings("null")
     public void consumeIngredientsFor(CraftingRecipe recipe) {
         List<RecipeChoice> choices = getRecipeChoices(recipe);
         for (RecipeChoice choice : choices) {
@@ -74,6 +76,7 @@ public class CraftingContext {
     /**
      * Adds a crafted item to the context's available materials.
      */
+    @SuppressWarnings("null")
     public void addCraftedItem(ItemStack result) {
         availableMaterials.merge(result.getType(), result.getAmount(), Integer::sum);
     }

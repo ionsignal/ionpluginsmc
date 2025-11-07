@@ -72,6 +72,7 @@ public class RecipeService {
      *            A set to track visited nodes in the dependency graph to prevent redundant
      *            processing and infinite loops.
      */
+    @SuppressWarnings("null")
     private void resolveDependencies(
             Map<Ingredient, Integer> itemsToCraft,
             Map<Ingredient, Integer> totalRawMaterials,
@@ -234,6 +235,7 @@ public class RecipeService {
      *            The recipe to analyze.
      * @return A map representing the ingredient signature.
      */
+    @SuppressWarnings("null")
     private Map<Ingredient, Integer> getIngredientSignature(CraftingRecipe recipe) {
         Map<Ingredient, Integer> signature = new HashMap<>();
         for (RecipeChoice choice : getRecipeChoices(recipe)) {

@@ -1,19 +1,20 @@
-package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
+package com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FarmParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+
 /**
- * A "Guardrail" Goal that exists to capture the user's intent to farm,
- * but immediately fails with a message explaining the agent's limitations. This prevents
- * the LLM from misusing other tools for a task it cannot perform.
+ * A "Guardrail" Goal that exists to capture the user's intent to dig,
+ * but immediately fails with a message explaining the agent's limitations.
  */
-public class FarmGoal implements Goal {
+public class DigGoal implements Goal {
     private final Object contextToken = new Object();
     private boolean finished = false;
     private GoalResult finalResult;
@@ -22,7 +23,7 @@ public class FarmGoal implements Goal {
     public void start(NerrusAgent agent) {
         // This goal provides immediate feedback to the LLM.
         this.finalResult = new GoalResult.Failure(
-                "The objective failed because I do not have the ability to farm. I cannot plant seeds, till soil, or harvest crops.");
+                "The objective failed because I have a limitation that prevents me from digging deep underground.");
         this.finished = true;
     }
 
@@ -51,13 +52,17 @@ public class FarmGoal implements Goal {
         return contextToken;
     }
 
+    public record DigParameters(
+            @JsonProperty(required = true) @JsonPropertyDescription("The number of blocks to dig downwards.") int depth) {
+    }
+
     public static class Provider implements GoalProvider {
         @Override
         public ToolDefinition getToolDefinition(BlockTagManager blockTagManager) {
             return new ToolDefinition(
-                    "FARM",
-                    "Manages a farm, which includes tilling soil, planting seeds, and harvesting crops like wheat or carrots.",
-                    FarmParameters.class);
+                    "DIG",
+                    "Digs a hole straight down. Use this for requests involving digging or creating tunnels underground.",
+                    DigParameters.class);
         }
     }
 }
