@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
@@ -14,17 +13,19 @@ import java.util.logging.Logger;
 
 public class GoToLocationTask implements Task {
     private final Logger logger;
-    private final String locationBlackboardKey;
+    private final Location targetLocation;
     private volatile boolean cancelled = false;
     private NerrusAgent agent;
 
-    public GoToLocationTask(String locationBlackboardKey) {
+    /**
+     * Creates a task to navigate the agent to a specific location.
+     * 
+     * @param targetLocation
+     *            The location to navigate to
+     */
+    public GoToLocationTask(Location targetLocation) {
         this.logger = IonNerrus.getInstance().getLogger();
-        this.locationBlackboardKey = locationBlackboardKey;
-    }
-
-    public GoToLocationTask() {
-        this(BlackboardKeys.TARGET_LOCATION);
+        this.targetLocation = targetLocation;
     }
 
     @Override
@@ -39,13 +40,8 @@ public class GoToLocationTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         this.agent = agent;
         this.cancelled = false;
-        Location target = agent.getBlackboard().getLocation(locationBlackboardKey).orElse(null);
-        if (target == null) {
-            agent.speak("I don't have a location to go to.");
-            return CompletableFuture.completedFuture(null);
-        }
         // Use the skill for simple movement, no look target.
-        NavigateToLocationSkill navSkill = new NavigateToLocationSkill(target);
+        NavigateToLocationSkill navSkill = new NavigateToLocationSkill(this.targetLocation);
         return navSkill.execute(agent).thenAccept(navResult -> {
             if (cancelled)
                 return;
@@ -57,11 +53,11 @@ public class GoToLocationTask implements Task {
                     logger.info("Agent " + agent.getName() + " has arrived.");
                     break;
                 case UNREACHABLE:
-                    logger.warning("Agent " + agent.getName() + " could not find a path to " + target.toVector());
+                    logger.warning("Agent " + agent.getName() + " could not find a path to " + this.targetLocation.toVector());
                     agent.speak("I can't find a way there.");
                     break;
                 case STUCK:
-                    logger.warning("Agent " + agent.getName() + " got stuck on the way to " + target.toVector());
+                    logger.warning("Agent " + agent.getName() + " got stuck on the way to " + this.targetLocation.toVector());
                     agent.speak("I seem to be stuck.");
                     break;
                 case CANCELLED:

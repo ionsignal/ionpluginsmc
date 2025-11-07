@@ -8,7 +8,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CheckPlayerReadySkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.DropItemSkill;
@@ -23,9 +22,12 @@ import org.bukkit.Material;
 import org.bukkit.entity.LivingEntity;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
 import java.util.Set;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.concurrent.CompletableFuture;
@@ -36,14 +38,13 @@ public class GiveItemGoal implements Goal {
         CHECKING_INVENTORY, FINDING_TARGET, APPROACHING_AND_WAITING, FOLLOWING_AND_WAITING, DROPPING_ITEM, COMPLETED, FAILED
     }
 
-    private static final String TARGET_ENTITY_KEY = "giveItem.targetEntity";
-
     private final Object contextToken = new Object();
     private final Logger logger;
     private final GiveItemParameters params;
     private final Material material;
     private State state = State.CHECKING_INVENTORY;
     private GoalResult finalResult;
+    private LivingEntity targetEntity;
 
     public GiveItemGoal(GiveItemParameters params, Material material) {
         this.params = params;
@@ -62,7 +63,7 @@ public class GiveItemGoal implements Goal {
             return;
         }
         switch (state) {
-            case CHECKING_INVENTORY:
+            case CHECKING_INVENTORY -> {
                 logger.info("GiveItemGoal: Checking inventory for " + params.quantity() + " " + material.name());
                 agent.setCurrentTask(createSkillTask(new CountItemsSkill(Set.of(material)).execute(agent)
                         .thenAccept(counts -> {
@@ -73,24 +74,22 @@ public class GiveItemGoal implements Goal {
                                 fail(agent, "I don't have enough " + params.materialName() + " to give. I only have " + haveAmount + ".");
                             }
                         })));
-                break;
-
-            case FINDING_TARGET:
+            }
+            case FINDING_TARGET -> {
                 logger.info("GiveItemGoal: Looking for target '" + params.targetName() + "'.");
                 agent.setCurrentTask(createSkillTask(new FindTargetEntitySkill(params.targetName()).execute(agent)
                         .thenAccept(entityOpt -> {
                             if (entityOpt.isPresent()) {
-                                agent.getBlackboard().put(TARGET_ENTITY_KEY, entityOpt.get());
+                                this.targetEntity = entityOpt.get();
                                 state = State.APPROACHING_AND_WAITING;
                             } else {
                                 fail(agent, "I can't find " + params.targetName() + ".");
                             }
                         })));
-                break;
-
+            }
             // Initiate the parallel follow and check operations
-            case APPROACHING_AND_WAITING:
-                agent.getBlackboard().get(TARGET_ENTITY_KEY, LivingEntity.class).ifPresentOrElse(target -> {
+            case APPROACHING_AND_WAITING -> {
+                Optional.ofNullable(this.targetEntity).ifPresentOrElse(target -> {
                     logger.info("GiveItemGoal: Approaching and waiting for " + target.getName() + " to be ready.");
                     // Start the continuous follow behavior. The Navigator will handle all movement.
                     agent.getPersona().getNavigator().followOn(target, 5.0, 2.5);
@@ -112,18 +111,17 @@ public class GiveItemGoal implements Goal {
                     // Transition to a new "do-nothing" state to prevent this block from running again.
                     state = State.FOLLOWING_AND_WAITING;
                 }, () -> fail(agent, "Lost track of the target entity."));
-                break;
+            }
 
             // State that does nothing, simply waiting for the CheckPlayerReadySkill future to complete.
-            case FOLLOWING_AND_WAITING:
-                // The agent's task is running (CheckPlayerReadySkill).
-                // The Navigator is running (follow).
-                // The Goal's job here is to do nothing and wait for one of those to finish.
-                break;
-
-            case DROPPING_ITEM:
+            case FOLLOWING_AND_WAITING -> {
+            }
+            // The agent's task is running (CheckPlayerReadySkill).
+            // The Navigator is running (follow).
+            // The Goal's job here is to do nothing and wait for one of those to finish.
+            case DROPPING_ITEM -> {
                 logger.info("GiveItemGoal: Dropping " + params.quantity() + " " + material.name());
-                agent.getBlackboard().get(TARGET_ENTITY_KEY, LivingEntity.class).ifPresentOrElse(target -> {
+                Optional.ofNullable(this.targetEntity).ifPresentOrElse(target -> {
                     // Pass the target entity to the DropItemSkill for the calculated toss.
                     agent.setCurrentTask(createSkillTask(new DropItemSkill(material, params.quantity(), target).execute(agent)
                             .thenAccept(success -> {
@@ -137,10 +135,10 @@ public class GiveItemGoal implements Goal {
                                 }
                             })));
                 }, () -> fail(agent, "Lost track of the target entity."));
-                break;
+            }
+            default -> {
 
-            default:
-                break;
+            }
         }
     }
 
@@ -189,7 +187,6 @@ public class GiveItemGoal implements Goal {
         if (!isFinished()) {
             fail(agent, "Goal was cancelled.");
         }
-        agent.getBlackboard().remove(TARGET_ENTITY_KEY);
     }
 
     @Override
@@ -200,6 +197,12 @@ public class GiveItemGoal implements Goal {
     @Override
     public Object getContextToken() {
         return contextToken;
+    }
+
+    public record GiveItemParameters(
+            @JsonProperty(required = true) @JsonPropertyDescription("The name of the material to give (e.g., 'OAK_LOG', 'COBBLESTONE').") String materialName,
+            @JsonProperty(required = true) @JsonPropertyDescription("The number of items to give.") int quantity,
+            @JsonProperty(required = true) @JsonPropertyDescription("The name of the player or agent to give the item to.") String targetName) {
     }
 
     public static class Provider implements GoalProvider {

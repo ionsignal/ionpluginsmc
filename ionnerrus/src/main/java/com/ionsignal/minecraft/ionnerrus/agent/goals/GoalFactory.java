@@ -13,7 +13,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.MineGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GiveItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.PlaceBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.RequestItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
@@ -50,7 +49,7 @@ public class GoalFactory {
                 }
                 return new GatherBlockGoal(materials, getBlockParams);
             case "GIVE_ITEM":
-                GiveItemParameters giveItemParams = (GiveItemParameters) parameters;
+                GiveItemGoal.GiveItemParameters giveItemParams = (GiveItemGoal.GiveItemParameters) parameters;
                 Material materialToGive;
                 try {
                     materialToGive = Material.valueOf(giveItemParams.materialName().toUpperCase());
