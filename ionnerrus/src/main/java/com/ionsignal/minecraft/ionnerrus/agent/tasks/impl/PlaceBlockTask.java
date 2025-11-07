@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
-import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal.BlockPlacementResult;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.PlaceBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
@@ -14,10 +14,11 @@ import java.util.concurrent.CompletableFuture;
  * On success, it places the new block's location on the blackboard.
  */
 public class PlaceBlockTask implements Task {
-
+    private final Object contextToken;
     private final Material material;
 
-    public PlaceBlockTask(Material material) {
+    public PlaceBlockTask(Material material, Object contextToken) {
+        this.contextToken = contextToken;
         this.material = material;
     }
 
@@ -25,9 +26,11 @@ public class PlaceBlockTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         return new PlaceBlockSkill(material).execute(agent)
                 .thenAccept(placedLocationOpt -> {
-                    placedLocationOpt.ifPresent(
-                            location -> agent.getBlackboard().put(BlackboardKeys.CRAFTING_TABLE_LOCATION, location));
-                    // If it fails, do nothing. The calling goal is responsible for checking the blackboard.
+                    if (placedLocationOpt.isPresent()) {
+                        agent.postMessage(contextToken, BlockPlacementResult.success(placedLocationOpt.get()));
+                    } else {
+                        agent.postMessage(contextToken, BlockPlacementResult.failure());
+                    }
                 });
     }
 

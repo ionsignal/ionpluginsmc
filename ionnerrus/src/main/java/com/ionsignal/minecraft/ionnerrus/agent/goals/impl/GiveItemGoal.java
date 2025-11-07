@@ -38,6 +38,7 @@ public class GiveItemGoal implements Goal {
 
     private static final String TARGET_ENTITY_KEY = "giveItem.targetEntity";
 
+    private final Object contextToken = new Object();
     private final Logger logger;
     private final GiveItemParameters params;
     private final Material material;
@@ -194,6 +195,11 @@ public class GiveItemGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

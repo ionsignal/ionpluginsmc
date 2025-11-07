@@ -14,6 +14,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
  * the LLM from misusing other tools for a task it cannot perform.
  */
 public class BuildGoal implements Goal {
+    private final Object contextToken = new Object();
     private boolean finished = false;
     private GoalResult finalResult;
 
@@ -43,6 +44,11 @@ public class BuildGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {
