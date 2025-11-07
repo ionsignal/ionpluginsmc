@@ -34,31 +34,31 @@ public class TaskFactory {
     public Task createTask(String taskName, Map<String, Object> parameters) {
         try {
             switch (taskName.toUpperCase()) {
-                case "FIND_BIOME":
-                    Set<Biome> biomes = (Set<Biome>) parameters.get("biomes");
-                    int findRadius = (int) parameters.getOrDefault("radius", 1000);
-                    return new FindBiomeTask(biomes, findRadius);
+                // case "FIND_BIOME":
+                // Set<Biome> biomes = (Set<Biome>) parameters.get("biomes");
+                // int findRadius = (int) parameters.getOrDefault("radius", 1000);
+                // return new FindBiomeTask(biomes, findRadius);
 
-                case "FIND_NEARBY_BLOCK":
-                    Material materialToFind = (Material) parameters.get("material");
-                    int searchRadius = (int) parameters.getOrDefault("radius", 20);
-                    return new FindNearbyBlockTask(materialToFind, searchRadius);
+                // case "FIND_NEARBY_BLOCK":
+                // Material materialToFind = (Material) parameters.get("material");
+                // int searchRadius = (int) parameters.getOrDefault("radius", 20);
+                // return new FindNearbyBlockTask(materialToFind, searchRadius);
 
-                case "PLACE_BLOCK":
-                    Material materialToPlace = (Material) parameters.get("material");
-                    return new PlaceBlockTask(materialToPlace);
+                // case "PLACE_BLOCK":
+                // Material materialToPlace = (Material) parameters.get("material");
+                // return new PlaceBlockTask(materialToPlace);
 
-                case "EXECUTE_CRAFT":
-                    CraftingRecipe recipeToExecute = (CraftingRecipe) parameters.get("recipe");
-                    int times = (int) parameters.get("timesToCraft");
-                    CraftingContext context = (CraftingContext) parameters.get("context");
-                    return new CraftExecutionTask(recipeToExecute, times, context);
+                // case "EXECUTE_CRAFT":
+                // CraftingRecipe recipeToExecute = (CraftingRecipe) parameters.get("recipe");
+                // int times = (int) parameters.get("timesToCraft");
+                // CraftingContext context = (CraftingContext) parameters.get("context");
+                // return new CraftExecutionTask(recipeToExecute, times, context);
 
-                case "ACQUIRE_MATERIALS":
-                    RecipeService.CraftingBlueprint plan = (RecipeService.CraftingBlueprint) parameters.get("plan");
-                    Ingredient targetIngredient = (Ingredient) parameters.get("targetIngredient");
-                    int quantity = (int) parameters.get("targetQuantity");
-                    return new AcquireMaterialsTask(plan, targetIngredient, quantity, this.blockTagManager);
+                // case "ACQUIRE_MATERIALS":
+                // RecipeService.CraftingBlueprint plan = (RecipeService.CraftingBlueprint) parameters.get("plan");
+                // Ingredient targetIngredient = (Ingredient) parameters.get("targetIngredient");
+                // int quantity = (int) parameters.get("targetQuantity");
+                // return new AcquireMaterialsTask(plan, targetIngredient, quantity, this.blockTagManager);
 
                 default:
                     logger.warning("Unknown task name: " + taskName);

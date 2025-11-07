@@ -18,19 +18,16 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.PlaceBlockParame
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.RequestItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 
 import org.bukkit.Material;
 
 import java.util.Set;
 
 public class GoalFactory {
-    private final TaskFactory taskFactory;
     private final BlockTagManager blockTagManager;
     private final RecipeService recipeService;
 
-    public GoalFactory(TaskFactory taskFactory, BlockTagManager blockTagManager, RecipeService recipeService) {
-        this.taskFactory = taskFactory;
+    public GoalFactory(BlockTagManager blockTagManager, RecipeService recipeService) {
         this.blockTagManager = blockTagManager;
         this.recipeService = recipeService;
     }
@@ -63,7 +60,7 @@ public class GoalFactory {
                 return new GiveItemGoal(giveItemParams, materialToGive);
             case "CRAFT_ITEM":
                 CraftItemParameters craftParams = (CraftItemParameters) parameters;
-                return new CraftItemGoal(craftParams, recipeService, blockTagManager, taskFactory);
+                return new CraftItemGoal(craftParams, recipeService, blockTagManager);
             case "FOLLOW_PLAYER":
                 FollowPlayerParameters followParams = (FollowPlayerParameters) parameters;
                 return new FollowPlayerGoal(followParams);

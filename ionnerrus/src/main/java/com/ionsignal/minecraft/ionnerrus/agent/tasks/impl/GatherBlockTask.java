@@ -36,6 +36,7 @@ import java.util.logging.Logger;
 public class GatherBlockTask implements Task {
     public static final boolean VISUALIZE_PATH = true;
 
+    private final Object contextToken;
     private final Executor mainThreadExecutor;
     private final Set<Location> attemptedLocations;
     private final Set<UUID> unreachableItems = new HashSet<>();
@@ -45,10 +46,11 @@ public class GatherBlockTask implements Task {
     private volatile boolean cancelled = false;
     private NerrusAgent agent;
 
-    public GatherBlockTask(Set<Material> materials, int searchRadius, Set<Location> attemptedLocations) {
+    public GatherBlockTask(Set<Material> materials, int searchRadius, Set<Location> attemptedLocations, Object contextToken) {
         this.materials = materials;
         this.searchRadius = searchRadius;
         this.attemptedLocations = attemptedLocations;
+        this.contextToken = contextToken;
         this.logger = IonNerrus.getInstance().getLogger();
         this.mainThreadExecutor = IonNerrus.getInstance().getMainThreadExecutor();
     }
@@ -95,12 +97,12 @@ public class GatherBlockTask implements Task {
                             });
                         case NO_TARGETS_FOUND:
                             // Post message instead of blackboard write
-                            agent.postMessage(new GatherAttemptResult(GatherResult.NO_BLOCKS_IN_RANGE));
+                            agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.NO_BLOCKS_IN_RANGE));
                             return CompletableFuture.completedFuture(null);
                         case NO_STANDPOINTS_FOUND:
                         case NO_PATH_FOUND:
                             // Post message instead of blackboard write
-                            agent.postMessage(new GatherAttemptResult(GatherResult.NO_REACHABLE_BLOCKS_IN_RANGE));
+                            agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.NO_REACHABLE_BLOCKS_IN_RANGE));
                             return CompletableFuture.completedFuture(null);
                         default:
                             // Should be unreachable.
@@ -124,7 +126,7 @@ public class GatherBlockTask implements Task {
                     }
                     if (navResult != NavigateToLocationResult.SUCCESS) {
                         // Post message instead of blackboard write
-                        agent.postMessage(new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                        agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                         return CompletableFuture.completedFuture(false);
                     }
                     return new EquipBestToolSkill(target.blockLocation().getBlock()).execute(agent);
@@ -137,7 +139,7 @@ public class GatherBlockTask implements Task {
                     }
                     if (!equipSuccess) {
                         // Post message instead of blackboard write
-                        agent.postMessage(new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                        agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                         return CompletableFuture.completedFuture(false);
                     }
                     return new BreakBlockSkill(target.blockLocation()).execute(agent)
@@ -153,7 +155,7 @@ public class GatherBlockTask implements Task {
                                     logger.warning("Failed to break block at " + target.blockLocation().toVector() + " for reason: "
                                             + breakResult.name());
                                     // Post message instead of blackboard write
-                                    agent.postMessage(new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                                    agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                                     return CompletableFuture.completedFuture(false);
                                 }
                                 return collectNearbyItem(target.blockLocation());
@@ -201,7 +203,7 @@ public class GatherBlockTask implements Task {
             if (targetItem == null || targetItem.isDead()) {
                 logger.warning("Could not find dropped item after breaking block. This attempt failed.");
                 // Post message instead of blackboard write
-                agent.postMessage(new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                 return CompletableFuture.completedFuture(false); // This collection attempt was not successful.
             }
             return new CollectItemSkill(targetItem).execute(agent)
@@ -210,12 +212,12 @@ public class GatherBlockTask implements Task {
                         switch (collectResult.status()) {
                             case SUCCESS:
                                 // Post message instead of blackboard write
-                                agent.postMessage(new GatherAttemptResult(GatherResult.SUCCESS));
+                                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.SUCCESS));
                                 wasSuccessful = true;
                                 break;
                             case ITEM_GONE: // If it's gone by the time we collect, that's also a success.
                                 // Post message instead of blackboard write
-                                agent.postMessage(new GatherAttemptResult(GatherResult.SUCCESS));
+                                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.SUCCESS));
                                 wasSuccessful = true;
                                 break;
                             case NAVIGATION_FAILED:
@@ -225,12 +227,12 @@ public class GatherBlockTask implements Task {
                                         + ". Blacklisting for this task.");
                                 unreachableItems.add(targetItem.getUniqueId());
                                 // Post message instead of blackboard write
-                                agent.postMessage(new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                                 break;
                             case PICKUP_TIMEOUT:
                                 logger.warning("Failed to collect item due to timeout.");
                                 // Post message instead of blackboard write
-                                agent.postMessage(new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                                 break;
                             case CANCELLED:
                                 // Do nothing, wasSuccessful remains false.

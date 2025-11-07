@@ -15,6 +15,7 @@ import org.bukkit.Material;
 import java.util.concurrent.CompletableFuture;
 
 public class PlaceBlockGoal implements Goal {
+    private final Object contextToken = new Object();
     private final PlaceBlockParameters params;
     private final Material materialToPlace;
     private boolean finished = false;
@@ -78,6 +79,11 @@ public class PlaceBlockGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

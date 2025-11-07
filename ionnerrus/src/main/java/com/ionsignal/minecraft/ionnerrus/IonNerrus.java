@@ -7,7 +7,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.TaskFactory;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleListener;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCognitiveDebugCommand;
@@ -18,10 +17,19 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Keyed;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.inventory.Recipe;
+import org.bukkit.inventory.ShapedRecipe;
+import org.bukkit.inventory.ShapelessRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 public class IonNerrus extends JavaPlugin {
@@ -33,7 +41,6 @@ public class IonNerrus extends JavaPlugin {
     private NerrusManager nerrusManager;
     private GoalRegistry goalRegistry;
     private GoalFactory goalFactory;
-    private TaskFactory taskFactory;
     private BlockTagManager blockTagManager;
     private LLMService llmService;
     private RecipeService recipeService;
@@ -81,6 +88,8 @@ public class IonNerrus extends JavaPlugin {
             }
         }
 
+        Bukkit.getScheduler().runTaskLater(this, this::disableNonWoodCraftingRecipes, 1L);
+
         getLogger().info("IonNerrus has been enabled.");
     }
 
@@ -113,9 +122,9 @@ public class IonNerrus extends JavaPlugin {
         this.recipeService = new RecipeService(this.blockTagManager);
 
         // Core Factories and Services (in dependency order)
-        this.taskFactory = new TaskFactory(this.blockTagManager);
+        // this.taskFactory = new TaskFactory(this.blockTagManager);
         this.goalRegistry = new GoalRegistry();
-        this.goalFactory = new GoalFactory(this.taskFactory, this.blockTagManager, this.recipeService);
+        this.goalFactory = new GoalFactory(this.blockTagManager, this.recipeService);
         this.llmService = new LLMService(this);
         this.agentService = new AgentService(this, this.nerrusManager, this.goalRegistry, this.goalFactory, this.llmService);
 
@@ -128,6 +137,26 @@ public class IonNerrus extends JavaPlugin {
 
         // Load saved agents, future implementation
         // this.agentService.loadAgents();
+    }
+
+    private void disableNonWoodCraftingRecipes() {
+        Iterator<Recipe> recipeIterator = Bukkit.recipeIterator();
+        List<NamespacedKey> toRemove = new ArrayList<>();
+        Set<String> woodKeywords = Set.of("planks", "log", "wood", "stick", "crafting_table", "chest", "barrel");
+        while (recipeIterator.hasNext()) {
+            Recipe recipe = recipeIterator.next();
+            if (recipe instanceof ShapedRecipe || recipe instanceof ShapelessRecipe) {
+                NamespacedKey key = ((Keyed) recipe).getKey();
+                if (key.getNamespace().equals(NamespacedKey.MINECRAFT)) {
+                    boolean isWoodRecipe = woodKeywords.stream().anyMatch(keyword -> key.getKey().contains(keyword));
+                    if (!isWoodRecipe) {
+                        toRemove.add(key);
+                    }
+                }
+            }
+        }
+        toRemove.forEach(Bukkit::removeRecipe);
+        getLogger().info("Disabled " + toRemove.size() + " non-wood crafting recipes for testing");
     }
 
     public static IonNerrus getInstance() {

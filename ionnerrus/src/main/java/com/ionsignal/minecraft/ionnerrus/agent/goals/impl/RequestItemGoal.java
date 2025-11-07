@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
 
 public class RequestItemGoal implements Goal {
-
+    private final Object contextToken = new Object();
     private final RequestItemParameters params;
     private final Material materialToRequest;
     private boolean finished = false;
@@ -86,6 +86,11 @@ public class RequestItemGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

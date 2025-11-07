@@ -13,7 +13,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
  * but immediately fails with a message explaining the agent's limitations.
  */
 public class DigGoal implements Goal {
-
+    private final Object contextToken = new Object();
     private boolean finished = false;
     private GoalResult finalResult;
 
@@ -43,6 +43,11 @@ public class DigGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

@@ -54,12 +54,18 @@ public class NerrusAgent {
      * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
      * isolated blackboard and private message queue.
      */
-    private record GoalContext(
+    public record GoalContext(
             Goal goal,
             Object parameters,
-            Blackboard blackboard, // Keep for CraftItemGoal compatibility
-            ConcurrentLinkedQueue<Object> mailbox // NEW: Per-goal message queue
-    ) {
+            Blackboard blackboard,
+            ConcurrentLinkedQueue<Object> mailbox) {
+        /**
+         * Posts a message to this context's mailbox.
+         * Thread-safe and can be called from any thread.
+         */
+        public void postMessage(Object payload) {
+            mailbox.offer(payload);
+        }
     }
 
     public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
@@ -151,8 +157,7 @@ public class NerrusAgent {
             plugin.getLogger().info(String.format("[%s] Starting new top-level goal: %s", getName(), goalName));
             // Added fresh mailbox for new goal
             this.currentContext = new GoalContext(
-                    goal,
-                    parameters,
+                    goal, parameters,
                     new Blackboard(), // Keep for CraftItemGoal compatibility
                     new ConcurrentLinkedQueue<>() // Fresh mailbox for new goal
             );
@@ -364,12 +369,17 @@ public class NerrusAgent {
      * @param payload
      *            The message payload (typically a result record from skill execution).
      */
-    public void postMessage(Object payload) {
+    public void postMessage(Object contextToken, Object payload) {
         if (currentContext != null && currentContext.mailbox() != null) {
-            currentContext.mailbox().offer(payload);
+            if (currentContext.goal().getContextToken() == contextToken) {
+                currentContext.mailbox().offer(payload);
+            } else {
+                plugin.getLogger().warning("Attempted to post message to goal, but context token does not match. " +
+                        "Message discarded: " + payload.getClass().getSimpleName());
+            }
         } else {
-            plugin.getLogger().warning("Attempted to post message to goal, but no active context exists. Message discarded: "
-                    + payload.getClass().getSimpleName());
+            plugin.getLogger().warning("Attempted to post message to goal, but no active context exists. " +
+                    "Message discarded: " + payload.getClass().getSimpleName());
         }
     }
 

@@ -31,6 +31,7 @@ public class FollowPlayerGoal implements Goal {
         ACQUIRING_TARGET, FOLLOWING, FINISHED
     }
 
+    private final Object contextToken = new Object();
     private final long durationMillis;
     private final FollowPlayerParameters params;
     private volatile State state = State.ACQUIRING_TARGET;
@@ -75,9 +76,10 @@ public class FollowPlayerGoal implements Goal {
         followFuture.whenCompleteAsync((result, throwable) -> {
             cancelTimeoutTask();
             if (throwable != null) {
-                agent.postMessage(new GoalResult.Failure("An error occurred while following: " + throwable.getMessage()));
+                agent.postMessage(contextToken, new GoalResult.Failure("An error occurred while following: " + throwable.getMessage()));
             } else {
-                agent.postMessage(new GoalResult.Failure("I stopped following " + params.targetName() + " because: " + result.name()));
+                agent.postMessage(contextToken,
+                        new GoalResult.Failure("I stopped following " + params.targetName() + " because: " + result.name()));
             }
         }, IonNerrus.getInstance().getMainThreadExecutor());
         // Start Bukkit repeating task to check for timeout every tick
@@ -93,7 +95,7 @@ public class FollowPlayerGoal implements Goal {
                         // Cancel the navigation operation cleanly
                         agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
                         // Use message queue instead of direct state mutation
-                        agent.postMessage(new GoalResult.Success(
+                        agent.postMessage(contextToken, new GoalResult.Success(
                                 String.format("I followed %s for %.1f seconds as requested.",
                                         params.targetName(),
                                         params.duration())));
@@ -160,6 +162,11 @@ public class FollowPlayerGoal implements Goal {
                 /* No-op */
             }
         };
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

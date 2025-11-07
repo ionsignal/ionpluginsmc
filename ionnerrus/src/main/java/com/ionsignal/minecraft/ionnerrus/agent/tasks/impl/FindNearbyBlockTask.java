@@ -1,11 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
-import com.ionsignal.minecraft.ionnerrus.agent.BlackboardKeys;
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlockResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 
+import org.bukkit.Location;
 import org.bukkit.Material;
 
 import java.util.HashSet;
@@ -17,27 +19,28 @@ import java.util.concurrent.CompletableFuture;
  * On success, it places the block's location on the blackboard.
  */
 public class FindNearbyBlockTask implements Task {
-
     private final Material material;
     private final int searchRadius;
+    private final Object contextToken;
 
-    public FindNearbyBlockTask(Material material, int searchRadius) {
+    public FindNearbyBlockTask(Material material, int searchRadius, Object contextToken) {
         this.material = material;
         this.searchRadius = searchRadius;
+        this.contextToken = contextToken;
     }
 
     @Override
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         return new FindCollectableBlockSkill(Set.of(material), searchRadius, new HashSet<>())
                 .execute(agent)
-                .thenAccept(findResult -> {
+                .thenAcceptAsync(findResult -> {
                     if (findResult.status() == FindCollectableBlockResult.Status.SUCCESS) {
-                        // We only care about the block's location, not the path or standing spot.
-                        agent.getBlackboard().put(BlackboardKeys.CRAFTING_TABLE_LOCATION,
-                                findResult.optimalTarget().get().blockLocation());
+                        Location location = findResult.optimalTarget().get().blockLocation();
+                        agent.postMessage(contextToken, CraftItemGoal.TableSearchResult.found(location));
+                    } else {
+                        agent.postMessage(contextToken, CraftItemGoal.TableSearchResult.notFound());
                     }
-                    // If not found, do nothing. The calling goal is responsible for checking the blackboard.
-                });
+                }, IonNerrus.getInstance().getMainThreadExecutor());
     }
 
     @Override

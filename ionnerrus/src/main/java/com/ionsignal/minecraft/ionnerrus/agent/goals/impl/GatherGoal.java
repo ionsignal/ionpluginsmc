@@ -53,6 +53,7 @@ public class GatherGoal implements Goal {
     private final Logger logger;
     private final Set<Material> materials;
     private final GetBlockParameters params;
+    private final Object contextToken = new Object();
     private final Set<Location> attemptedLocations = new HashSet<>();
     private State state = State.CHECKING_INVENTORY;
     private int gatheredCount = 0;
@@ -160,7 +161,7 @@ public class GatherGoal implements Goal {
 
     private Task createGatherOneBlockTask() {
         // Search radius is hardcoded to 50 blocks
-        return new GatherBlockTask(materials, 50, attemptedLocations);
+        return new GatherBlockTask(materials, 50, attemptedLocations, contextToken);
     }
 
     private Task createUpdateCountTask() {
@@ -170,7 +171,7 @@ public class GatherGoal implements Goal {
                 return new CountItemsSkill(materials).execute(agent)
                         .thenAcceptAsync(counts -> {
                             int total = counts.values().stream().mapToInt(Integer::intValue).sum();
-                            agent.postMessage(new InventoryCountResult(total));
+                            agent.postMessage(contextToken, new InventoryCountResult(total));
                         }, IonNerrus.getInstance().getMainThreadExecutor());
             }
 
@@ -180,23 +181,6 @@ public class GatherGoal implements Goal {
             }
         };
     }
-
-    // COMMENTED OUT: Dense area search functionality - needs future refactoring
-    // private Task createFindDenseAreaTask(int radius) {
-    // // Using find biome for now
-    // Map<String, Object> params = new HashMap<>();
-    // Set<Biome> FOREST_BIOMES = Set.of(
-    // Biome.FOREST, Biome.FLOWER_FOREST, Biome.BIRCH_FOREST, Biome.DARK_FOREST,
-    // Biome.OLD_GROWTH_BIRCH_FOREST, Biome.TAIGA, Biome.OLD_GROWTH_PINE_TAIGA,
-    // Biome.OLD_GROWTH_SPRUCE_TAIGA, Biome.JUNGLE, Biome.SPARSE_JUNGLE,
-    // Biome.BAMBOO_JUNGLE, Biome.WINDSWEPT_FOREST);
-    // params.put("biomes", FOREST_BIOMES);
-    // params.put("radius", 100);
-    // // params.put("materials", materials);
-    // // params.put("radius", radius);
-    // // return taskFactory.createTask("FIND_DENSE_BLOCK_AREA", params);
-    // return taskFactory.createTask("FIND_BIOME", params);
-    // }
 
     @Override
     public boolean isFinished() {
@@ -222,6 +206,11 @@ public class GatherGoal implements Goal {
                     + gatheredCount + ".";
             return new GoalResult.Failure(message);
         }
+    }
+
+    @Override
+    public Object getContextToken() {
+        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

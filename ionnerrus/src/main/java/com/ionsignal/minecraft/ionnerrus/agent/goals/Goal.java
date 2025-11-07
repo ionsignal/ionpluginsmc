@@ -67,4 +67,11 @@ public interface Goal {
      * @return A GoalResult object containing the outcome and a descriptive message.
      */
     GoalResult getFinalResult();
+
+    /**
+     * Gets the goals unique identifier
+     *
+     * @return A Object that acts as an instance identifier for this goal.
+     */
+    Object getContextToken();
 }
