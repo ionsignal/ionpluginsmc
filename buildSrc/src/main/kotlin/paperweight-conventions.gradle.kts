@@ -1,7 +1,6 @@
 plugins {
     id("java-library")
     id("io.papermc.paperweight.userdev")
-    // id("eclipse")
 }
 
 val minecraftVersion = property("minecraft_version").toString()

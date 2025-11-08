@@ -2,7 +2,6 @@ plugins {
     `java-base`
     id("xyz.jpenilla.run-paper") version "3.0.2"
     id("com.github.ben-manes.versions") version "0.53.0"
-    // id("eclipse") 
 }
 
 allprojects {
@@ -73,22 +72,21 @@ abstract class CopyTerraAddonTask : DefaultTask() {
 }
 
 val copyTerraAddon = tasks.register<CopyTerraAddonTask>("copyTerraAddon") {
-    // Input: Terra addon's reobfJar output (declared lazily with Provider)
+    // For MOJANG_PRODUCTION, use shadowJar output
     addonJar.set(
-        terraAddon.tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
-            .flatMap { it.outputJar }
+        terraAddon.tasks.named("shadowJar")
+            .flatMap { task ->
+                @Suppress("UNCHECKED_CAST")
+                (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
+            }
     )
     // Output: Terra's addons directory
     targetDirectory.set(layout.projectDirectory.dir("run/plugins/Terra/addons"))
     // Ensure addon is built before copying
-    dependsOn(terraAddon.tasks.named("reobfJar"))
+    dependsOn(terraAddon.tasks.named("shadowJar"))
 }
 
-tasks {
-    // named("eclipse") {
-    //     dependsOn("cleanEclipse")
-    // }
-        
+tasks {    
     runServer {
         // Use the default toolchain or specify directly
         javaLauncher.set(
@@ -109,16 +107,19 @@ tasks {
         minecraftVersion(minecraftVersion.get())
         runDirectory.set(layout.projectDirectory.dir("run"))
 
-        // Load IonCore first (dependency order)
+        // For MOJANG_PRODUCTION, use jar outputs (IonCore)
         pluginJars(
-            ioncore.tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
-                .flatMap { it.outputJar }
+            ioncore.tasks.named<Jar>("jar")
+                .flatMap { it.archiveFile }
         )
         
-        // Use Provider for ionnerrus plugin JAR
+        // For MOJANG_PRODUCTION, use shadowJar output (IonNerrus)
         pluginJars(
-            ionnerrus.tasks.named<io.papermc.paperweight.tasks.RemapJar>("reobfJar")
-                .flatMap { it.outputJar }
+            ionnerrus.tasks.named("shadowJar")
+                .flatMap { task ->
+                    @Suppress("UNCHECKED_CAST")
+                    (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
+                }
         )
         
         downloadPlugins {
@@ -127,6 +128,6 @@ tasks {
 
         // Ensure Terra addon is copied before server starts
         dependsOn(copyTerraAddon)
-        dependsOn(ionnerrus.tasks.named("reobfJar"))
+        dependsOn(ionnerrus.tasks.named("shadowJar"))
     }
 }
