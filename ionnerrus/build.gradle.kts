@@ -5,6 +5,11 @@ plugins {
 
 description = "An LLM powered NPC decision engine"
 
+// Configure paperweight for Mojang production mappings
+paperweight.reobfArtifactConfiguration.set(
+    io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
+)
+
 dependencies {
     // IonCore 
     compileOnly(project(":ioncore", configuration = "devJar"))
@@ -20,15 +25,12 @@ dependencies {
 tasks {
     // The regular jar task produces a dev JAR with Mojang mappings
     jar {
-        archiveClassifier.set("dev-mojmap")
-        manifest {
-            attributes["paperweight-mappings-namespace"] = "mojang"
-        }
+        archiveClassifier.set("mojmap")
     }
 
-    // Shadow task shades dependencies into the dev JAR
+    // Shadow task shades dependencies into the JAR
     shadowJar {
-        archiveClassifier.set("dev-mojmap-all") // This becomes the primary artifact
+        archiveClassifier.set("") // No classifier for the final artifact
         
         // Relocate dependencies to avoid conflicts
         relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
@@ -42,16 +44,9 @@ tasks {
         exclude("META-INF/*.SF")
     }
     
-    // ReobfJar takes the shadowed JAR and remaps it to Spigot mappings and
-    // ensures shadowJar completes before reobfJar starts
-    reobfJar {
-        // Input is the shadowJar output
-        inputJar.set(shadowJar.flatMap { it.archiveFile })
-    }
-
-    // Make assemble depend on reobfJar (the final artifact)
+    // For MOJANG_PRODUCTION, shadowJar is the final artifact
     assemble {
-        dependsOn(reobfJar)
+        dependsOn(shadowJar)
     }
     
     processResources {
