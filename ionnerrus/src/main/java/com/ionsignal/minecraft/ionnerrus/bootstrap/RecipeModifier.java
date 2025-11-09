@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.PluginConfig;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Keyed;
@@ -19,11 +20,14 @@ import java.util.Set;
  * This class is only active if the 'disableNonWoodRecipes' config flag is enabled.
  */
 public class RecipeModifier {
-    private final IonNerrus plugin;
     private static final Set<String> WOOD_KEYWORDS = Set.of("planks", "log", "wood", "stick", "crafting_table", "chest", "barrel");
 
-    public RecipeModifier(IonNerrus plugin) {
+    private final IonNerrus plugin;
+    private final PluginConfig config;
+
+    public RecipeModifier(IonNerrus plugin, PluginConfig config) {
         this.plugin = plugin;
+        this.config = config;
     }
 
     /**
@@ -31,7 +35,7 @@ public class RecipeModifier {
      * This is a testing utility and should not be used in production.
      */
     public void disableNonWoodRecipesIfConfigured() {
-        if (!plugin.getPluginConfig().isDisableNonWoodRecipes()) {
+        if (!config.isDisableNonWoodRecipes()) {
             return; // Feature disabled in config
         }
         Iterator<Recipe> recipeIterator = Bukkit.recipeIterator();
@@ -50,5 +54,14 @@ public class RecipeModifier {
         }
         blacklist.forEach(Bukkit::removeRecipe);
         plugin.getLogger().info("Disabled " + blacklist.size() + " non-wood crafting recipes for testing.");
+    }
+
+    /**
+     * Cleans up recipe modifications. Since recipe changes are permanent for the server session, this
+     * is a no-op. Recipes will reset on next server restart.
+     */
+    public void cleanup() {
+        // No action needed - recipe modifications persist until server restart
+        plugin.getLogger().info("Recipe modifier cleanup complete (no action required).");
     }
 }

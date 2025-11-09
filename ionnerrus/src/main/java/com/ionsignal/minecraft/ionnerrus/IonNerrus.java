@@ -1,22 +1,19 @@
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.CommandRegistrar;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.IntegrationBootstrap;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.ListenerRegistrar;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.RecipeModifier;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
-import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.concurrent.Executor;
 
 public class IonNerrus extends JavaPlugin {
@@ -24,82 +21,190 @@ public class IonNerrus extends JavaPlugin {
 
     private Executor mainThreadExecutor;
     private Executor offloadThreadExecutor;
-    private AgentService agentService;
-    private NerrusManager nerrusManager;
-    private GoalRegistry goalRegistry;
-    private GoalFactory goalFactory;
-    private BlockTagManager blockTagManager;
-    private LLMService llmService;
-    private RecipeService recipeService;
-    private ChatBubbleService chatBubbleService;
-    private PluginConfig pluginConfig;
+
+    // Added service container (replaces load() method)
+    private ServiceContainer services;
 
     @Override
     public void onEnable() {
         instance = this;
+        // Load config before any service initialization
+        saveDefaultConfig();
+        reloadConfig();
         // Create executors
         mainThreadExecutor = runnable -> Bukkit.getScheduler().runTask(this, runnable);
         offloadThreadExecutor = runnable -> getServer().getScheduler().runTaskAsynchronously(this, runnable);
-        // Load core services
-        load();
-        // External integrations
-        IntegrationBootstrap integrationBootstrap = new IntegrationBootstrap(this);
-        integrationBootstrap.initializeIonCoreIntegration();
-        // Register commands
-        CommandRegistrar commandRegistrar = new CommandRegistrar(this, agentService, blockTagManager, goalFactory, goalRegistry);
-        commandRegistrar.registerAll();
-        // Register event listeners
-        ListenerRegistrar listenerRegistrar = new ListenerRegistrar(this, nerrusManager, chatBubbleService);
-        listenerRegistrar.registerAll();
-        // Apply recipe modifications (if configured)
-        RecipeModifier recipeModifier = new RecipeModifier(this);
-        Bukkit.getScheduler().runTaskLater(this, recipeModifier::disableNonWoodRecipesIfConfigured, 1L);
-        getLogger().info("IonNerrus has been enabled.");
+        // Initialize service container (replaces load() method)
+        try {
+            services = ServiceContainer.initialize(this);
+        } catch (ServiceInitializationException e) {
+            // Enhanced error reporting for critical failures
+            getLogger().severe("═══════════════════════════════════════════════════════");
+            getLogger().severe("CRITICAL INITIALIZATION FAILURE:");
+            getLogger().severe(e.getMessage());
+            getLogger().severe("IonNerrus cannot function without these core services.");
+            getLogger().severe("Plugin is now disabled. Fix the error and restart the server.");
+            getLogger().severe("═══════════════════════════════════════════════════════");
+            if (e.getCause() != null) {
+                e.getCause().printStackTrace();
+            }
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        // External integrations (NON-CRITICAL)
+        try {
+            IntegrationBootstrap integrationBootstrap = new IntegrationBootstrap(this);
+            integrationBootstrap.initializeIonCoreIntegration();
+        } catch (Exception e) {
+            getLogger().warning("Non-critical integration failure: " + e.getMessage());
+            // Continue - debug features are optional
+        }
+        // Register commands (CRITICAL) - now receives services from container
+        try {
+            CommandRegistrar commandRegistrar = new CommandRegistrar(
+                    this,
+                    services.getAgentService(),
+                    services.getBlockTagManager(),
+                    services.getGoalFactory(),
+                    services.getGoalRegistry());
+            commandRegistrar.registerAll();
+        } catch (Exception e) {
+            getLogger().severe("Failed to register commands: " + e.getMessage());
+            e.printStackTrace();
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        // Register event listeners (CRITICAL) - now receives services from container
+        try {
+            ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
+                    this,
+                    services.getNerrusManager(),
+                    services.getChatBubbleService() // Can be null
+            );
+            listenerRegistrar.registerAll();
+        } catch (Exception e) {
+            getLogger().severe("Failed to register listeners: " + e.getMessage());
+            e.printStackTrace();
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        // Apply recipe modifications (NON-CRITICAL, testing feature)
+        // Now receives config from container
+        try {
+            RecipeModifier recipeModifier = new RecipeModifier(this, services.getConfig());
+            Bukkit.getScheduler().runTaskLater(this,
+                    recipeModifier::disableNonWoodRecipesIfConfigured, 1L);
+        } catch (Exception e) {
+            getLogger().warning("Recipe modification failed (non-critical): " + e.getMessage());
+            // Continue - testing feature, not required for core functionality
+        }
+
+        getLogger().info("IonNerrus v" + getPluginMeta().getVersion() + " has been enabled successfully.");
     }
 
     @Override
     public void onDisable() {
-        if (llmService != null) {
-            llmService.shutdown();
-        }
-        if (nerrusManager != null) {
-            nerrusManager.shutdown();
-        }
-        getLogger().info("IonNerrus has been disabled.");
-    }
-
-    private void load() {
-        saveDefaultConfig();
-        reloadConfig();
-
-        // Platform-specific and manager setup
-        this.nerrusManager = new NerrusManager(this);
-        if (!this.nerrusManager.initialize()) {
-            getLogger().severe("Failed to initialize NerrusManager. Disabling plugin.");
-            getServer().getPluginManager().disablePlugin(this);
+        getLogger().info("Disabling IonNerrus v" + getPluginMeta().getVersion() + " plugin.");
+        if (services == null) {
+            // Plugin never initialized successfully - nothing to clean up
+            getLogger().warning("Services were never initialized - skipping shutdown.");
             return;
         }
+        // Despawn agents before the chunk system gets too far into its halt sequence.
+        if (services.getAgentService() != null) {
+            getLogger().info("Despawning all agents before shutdown...");
+            try {
+                services.getAgentService().despawnAll();
+                getLogger().info("All agents despawned successfully.");
+            } catch (Exception e) {
+                getLogger().severe("Error during agent despawn: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+        // Stop recipe modifications (non-critical, best-effort)
+        try {
+            RecipeModifier recipeModifier = new RecipeModifier(this, services.getConfig());
+            recipeModifier.cleanup();
+        } catch (Exception e) {
+            getLogger().warning("Error during recipe cleanup: " + e.getMessage());
+        }
+        // Unregister event listeners (critical - prevents NPEs on next events)
+        try {
+            ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
+                    this,
+                    services.getNerrusManager(),
+                    services.getChatBubbleService());
+            listenerRegistrar.unregisterAll();
+        } catch (Exception e) {
+            getLogger().severe("Error unregistering listeners: " + e.getMessage());
+            e.printStackTrace();
+        }
+        // Unregister commands (critical - prevents command execution after disable)
+        try {
+            CommandRegistrar commandRegistrar = new CommandRegistrar(
+                    this,
+                    services.getAgentService(),
+                    services.getBlockTagManager(),
+                    services.getGoalFactory(),
+                    services.getGoalRegistry());
+            commandRegistrar.unregisterAll();
+        } catch (Exception e) {
+            getLogger().severe("Error unregistering commands: " + e.getMessage());
+            e.printStackTrace();
+        }
+        // Clean up external integrations (non-critical, best-effort)
+        try {
+            IntegrationBootstrap integrationBootstrap = new IntegrationBootstrap(this);
+            integrationBootstrap.cleanup();
+        } catch (Exception e) {
+            getLogger().warning("Error cleaning up integrations: " + e.getMessage());
+        }
+        // Shut down all core services (critical)
+        try {
+            services.shutdown();
+        } catch (Exception e) {
+            getLogger().severe("Error during service container shutdown: " + e.getMessage());
+            e.printStackTrace();
+        }
+        // Give async operations time to complete and conduct a best-effort wait since we can't block
+        // onDisable() indefinitely
+        try {
+            Thread.sleep(500); // 500ms grace period for async cleanup
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        // Log remaining non-daemon threads to verify cleanup
+        if (getLogger().isLoggable(java.util.logging.Level.FINE)) {
+            ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+            ThreadInfo[] threads = threadBean.dumpAllThreads(false, false);
+            long nonDaemonCount = 0;
+            for (ThreadInfo thread : threads) {
+                Thread t = findThreadById(thread.getThreadId());
+                if (t != null && !t.isDaemon() && t.getName().contains("LLM")) {
+                    getLogger().fine("Non-daemon thread still alive: " + t.getName());
+                    nonDaemonCount++;
+                }
+            }
+            if (nonDaemonCount > 0) {
+                getLogger().warning("Found " + nonDaemonCount + " LLM-related non-daemon threads still running");
+            }
+        }
+        // 6. Clear static references to prevent memory leaks (AFTER grace period)
+        instance = null;
+        services = null;
+        getLogger().info("IonNerrus has been disabled successfully.");
+    }
 
-        // Configuration and content
-        this.pluginConfig = new PluginConfig(getConfig());
-        this.blockTagManager = new BlockTagManager();
-        this.recipeService = new RecipeService(this.blockTagManager);
-
-        // Core Factories and Services (in dependency order)
-        this.goalRegistry = new GoalRegistry();
-        this.goalFactory = new GoalFactory(this.blockTagManager, this.recipeService);
-        this.llmService = new LLMService(this);
-        this.agentService = new AgentService(this, this.nerrusManager, this.goalRegistry, this.goalFactory, this.llmService);
-
-        // Registration of static tool definitions (now happens only once)
-        GoalRegistrar registrar = new GoalRegistrar(this.goalRegistry, this.blockTagManager);
-        registrar.registerAll();
-
-        // Chat bubble service
-        this.chatBubbleService = new ChatBubbleService(this);
-
-        // Load saved agents, future implementation
-        // this.agentService.loadAgents();
+    /**
+     * Helper method to find a thread by ID (for debugging).
+     */
+    private Thread findThreadById(long threadId) {
+        for (Thread t : Thread.getAllStackTraces().keySet()) {
+            if (t.threadId() == threadId) {
+                return t;
+            }
+        }
+        return null;
     }
 
     public static IonNerrus getInstance() {
@@ -115,18 +220,40 @@ public class IonNerrus extends JavaPlugin {
     }
 
     public LLMService getLlmService() {
-        return llmService;
+        // Null-safe delegation with clear error message
+        if (services == null) {
+            throw new IllegalStateException("Services not initialized - plugin failed to load");
+        }
+        return services.getLlmService();
     }
 
     public AgentService getAgentService() {
-        return agentService;
+        // Null-safe delegation with clear error message
+        if (services == null) {
+            throw new IllegalStateException("Services not initialized - plugin failed to load");
+        }
+        return services.getAgentService();
     }
 
     public PluginConfig getPluginConfig() {
-        return pluginConfig;
+        // Null-safe delegation with clear error message
+        if (services == null) {
+            throw new IllegalStateException("Services not initialized - plugin failed to load");
+        }
+        return services.getConfig();
     }
 
     public ChatBubbleService getChatBubbleService() {
-        return chatBubbleService;
+        // Null-safe delegation with clear error message which can still return null even if services are
+        // initialized (FancyHolograms may not be available)
+        if (services == null) {
+            throw new IllegalStateException("Services not initialized - plugin failed to load");
+        }
+        return services.getChatBubbleService(); // NOTE: Can return null
+    }
+
+    // Added getter for container itself (used by Phase 3 shutdown)
+    public ServiceContainer getServices() {
+        return services; // Intentionally allow null check by callers
     }
 }

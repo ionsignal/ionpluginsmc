@@ -83,6 +83,19 @@ public class ChatBubbleService {
     }
 
     /**
+     * Cleans up all active chat bubble holograms during plugin shutdown.
+     * Cancels all hologram tracker tasks and removes all holograms from the registry.
+     */
+    public void cleanup() {
+        // Cancel all active bubble tasks
+        for (HologramTrackerTask task : activeBubbleTasks.values()) {
+            task.cancelAndCleanup();
+        }
+        activeBubbleTasks.clear();
+        plugin.getLogger().info("Chat bubble service cleanup complete - removed " + activeBubbleTasks.size() + " active bubble(s).");
+    }
+
+    /**
      * A self-contained task that manages a single hologram's lifecycle, including
      * following an entity and displaying sentences sequentially.
      */

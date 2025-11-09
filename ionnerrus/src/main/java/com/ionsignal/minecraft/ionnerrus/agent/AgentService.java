@@ -11,8 +11,10 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -36,42 +38,14 @@ public class AgentService {
     }
 
     /*
-     * TODO: implement agent persistence later, let's disable for now for speeding up development.
-     * 
-     * public void loadAgents() {
-     * plugin.getLogger().info("Loading Nerrus agents from registry...");
-     * int count = 0;
-     * for (Persona persona : IonNerrus.getNerrusRegistry()) {
-     * if (npc.data().has(NERRUS_AGENT_METADATA)) {
-     * Persona persona = personaRegistry.createPersona(EntityType.PLAYER, persona.getName());
-     * persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
-     * SkinTrait skinTrait = persona.getTraitNullable(SkinTrait.class);
-     * if (skinTrait != null && skinTrait.getSkinName() != null) {
-     * NerrusManager.getInstance().getSkinCache().fetchSkin(skinTrait.getSkinName()).thenAccept(skinData
-     * -> {
-     * if (skinData != null) {
-     * plugin.getMainThreadExecutor().execute(() -> persona.setSkin(skinData));
-     * }
-     * });
-     * }
-     * if (npc.isSpawned()) {
-     * persona.spawn(npc.getStoredLocation());
-     * }
-     * NerrusAgent agent = new NerrusAgent(npc, persona, plugin);
-     * agents.put(npc.getUniqueId(), agent);
-     * count++;
-     * }
-     * }
-     * plugin.getLogger().info("Loaded " + count + " Nerrus agents.");
-     * }
+     * Implement agent persistence later, let's disable for now for speeding up development.
      */
-
     public NerrusAgent spawnAgent(String name, Location location, String skinNameToFetch) {
         Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name);
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
         NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
-        NerrusManager.getInstance().getSkinCache().fetchSkin(skinNameToFetch).thenAccept(skinData -> {
+        NerrusManager.getInstance().getSkinCache().fetchSkin(skinNameToFetch).thenAcceptAsync(skinData -> {
             if (skinData != null) {
                 persona.setSkin(skinData);
             } else {
@@ -81,7 +55,7 @@ public class AgentService {
                 persona.spawn(location);
                 plugin.getLogger().info("Successfully spawned agent: " + name);
             });
-        });
+        }, plugin.getMainThreadExecutor());
         return agent;
     }
 
@@ -112,8 +86,42 @@ public class AgentService {
     }
 
     public void despawnAll() {
+        if (agents.isEmpty()) {
+            return;
+        }
+        plugin.getLogger().info("Despawning " + agents.size() + " agent(s)...");
+        // Make a copy to avoid ConcurrentModificationException
+        List<NerrusAgent> agentList = new ArrayList<>(agents.values());
+        for (NerrusAgent agent : agentList) {
+            try {
+                // Cancel any ongoing operations first
+                if (agent.getPersona().isSpawned()) {
+                    agent.getPersona().getNavigator().cancelCurrentOperation(
+                            com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult.CANCELLED,
+                            com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult.CANCELLED);
+                    agent.getPersona().getActionController().clear();
+                }
+                // Then despawn
+                personaRegistry.deregister(agent.getPersona());
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());
+            }
+        }
         agents.clear();
-        personaRegistry.clear();
         plugin.getLogger().info("Despawned all Nerrus agents.");
+    }
+
+    /**
+     * Shuts down the agent service.
+     * Note: Agents are despawned early in IonNerrus.onDisable() to avoid chunk system race conditions.
+     * This method just ensures cleanup of any remaining state.
+     */
+    public void shutdown() {
+        plugin.getLogger().info("Shutting down AgentService...");
+        // Agents should already be despawned by now (see IonNerrus.onDisable)
+        if (!agents.isEmpty()) {
+            plugin.getLogger().warning("AgentService.shutdown() found " + agents.size() + " remaining agents - this shouldn't happen!");
+            despawnAll();
+        }
     }
 }

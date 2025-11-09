@@ -38,4 +38,43 @@ public class IntegrationBootstrap {
             plugin.getLogger().warning("Could not register with IonCore: " + e.getMessage());
         }
     }
+
+    /**
+     * Cleans up external plugin integrations with a best-effort approach where failures are logged but
+     * they don't block the shutdown sequence.
+     */
+    public void cleanup() {
+        try {
+            IonCore core = (IonCore) Bukkit.getPluginManager().getPlugin("IonCore");
+            if (core == null) {
+                return;
+            }
+            // Cancel all debug sessions for agents (prevents session leaks)
+            try {
+                com.ionsignal.minecraft.ionnerrus.agent.AgentService agentService = plugin.getAgentService();
+                if (agentService != null) {
+                    int cancelledCount = 0;
+                    for (com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent agent : agentService.getAgents()) {
+                        boolean cancelled = IonCore.getDebugRegistry().cancelSession(
+                                agent.getPersona().getUniqueId());
+                        if (cancelled) {
+                            cancelledCount++;
+                        }
+                    }
+                    if (cancelledCount > 0) {
+                        plugin.getLogger().info("Cancelled " + cancelledCount + " debug session(s) for agents.");
+                    }
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error cancelling debug sessions: " + e.getMessage());
+            }
+            // Unregister visualization providers (fixes CRITICAL Issue #5 - memory leak)
+            IonCore.getVisualizationRegistry().unregister(AgentDebugState.class);
+            IonCore.getVisualizationRegistry().unregister(CognitiveDebugState.class);
+            plugin.getLogger().info("Unregistered visualization providers from IonCore.");
+
+        } catch (Exception e) {
+            plugin.getLogger().warning("Could not clean up IonCore integration: " + e.getMessage());
+        }
+    }
 }

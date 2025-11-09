@@ -73,7 +73,6 @@ public class ServiceContainer {
      */
     public static ServiceContainer initialize(IonNerrus plugin) {
         plugin.getLogger().info("Initializing service container...");
-
         try {
             // Layer 1: Configuration (CRITICAL - no dependencies)
             PluginConfig config = new PluginConfig(plugin.getConfig());
@@ -192,5 +191,54 @@ public class ServiceContainer {
      */
     public ChatBubbleService getChatBubbleService() {
         return chatBubbleService; // NOTE: Can be null
+    }
+
+    /**
+     * Shuts down all services in reverse dependency order.
+     * This method is idempotent - calling it multiple times is safe.
+     * 
+     * Shutdown order is critical: high-level services must shut down before
+     * the low-level services they depend on.
+     */
+    public void shutdown() {
+        plugin.getLogger().info("Shutting down service container...");
+        // Layer 6: High-level services first
+        if (agentService != null) {
+            shutdownService("AgentService", agentService::shutdown);
+        }
+        // Layer 5: External integrations
+        if (llmService != null) {
+            shutdownService("LLMService", llmService::shutdown);
+        }
+        if (chatBubbleService != null) {
+            shutdownService("ChatBubbleService", chatBubbleService::cleanup);
+        }
+        // Layer 4: Goal system (no cleanup needed, but listed for clarity)
+        // goalFactory and goalRegistry are stateless
+        // ...
+        // Layer 3: Content systems (no cleanup needed)
+        // recipeService and blockTagManager are stateless
+        // ...
+        // Layer 2: Platform-specific managers
+        if (nerrusManager != null) {
+            shutdownService("NerrusManager", nerrusManager::shutdown);
+        }
+        // Layer 1: Configuration (no cleanup needed)
+        plugin.getLogger().info("Service container shutdown complete.");
+    }
+
+    /**
+     * Helper to safely shut down a single service with exception isolation.
+     * If one service fails to shut down, others still proceed.
+     */
+    private void shutdownService(String serviceName, Runnable shutdownAction) {
+        try {
+            plugin.getLogger().info("Shutting down " + serviceName + "...");
+            shutdownAction.run();
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error shutting down " + serviceName + ": " + e.getMessage());
+            e.printStackTrace();
+            // Continue with other services - don't let one failure block shutdown
+        }
     }
 }
