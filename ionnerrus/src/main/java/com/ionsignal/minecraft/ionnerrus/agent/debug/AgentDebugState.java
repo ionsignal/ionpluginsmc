@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.debug;
 
+import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
@@ -15,7 +16,6 @@ import java.util.UUID;
  * 
  * Debug state record for agent message processing visualization.
  */
-// PHASE 4 CHANGE: Removed 'Map<String, Object> blackboardSnapshot' parameter from record
 public record AgentDebugState(
         UUID agentId,
         String agentName,
@@ -24,7 +24,16 @@ public record AgentDebugState(
         String currentTaskName,
         Path currentPath,
         String nextMessage,
-        int goalMailboxSize) {
+        int goalMailboxSize) implements DebugStateSnapshot {
+
+    /**
+     * Implement DebugStateSnapshot marker interface
+     */
+    @Override
+    public String getDebugLabel() {
+        return "Agent Execution: " + agentName;
+    }
+
     /**
      * Creates a snapshot from a live NerrusAgent and is called on the main thread to avoid race
      * conditions, making all state access thread-safe.
@@ -32,16 +41,6 @@ public record AgentDebugState(
     public static AgentDebugState snapshot(NerrusAgent agent) {
         Goal currentGoal = agent.getCurrentGoal();
         Task currentTask = agent.getCurrentTask();
-
-        // PHASE 4 CHANGE: Removed blackboard snapshot collection - no longer capturing blackboard data
-        // OLD CODE:
-        // Map<String, Object> blackboardCopy;
-        // if (agent.getBlackboard() != null) {
-        // blackboardCopy = agent.getBlackboard().getAllData();
-        // } else {
-        // blackboardCopy = Map.of();
-        // }
-
         Path currentPath = null;
         if (agent.getPersona().isSpawned()) {
             currentPath = agent.getPersona().getNavigator().getCurrentPath();
@@ -49,8 +48,6 @@ public record AgentDebugState(
         // Get goal mailbox size for debugging message queue depth
         // Note: size() on ConcurrentLinkedQueue is O(n), acceptable for debug visualization
         int mailboxSize = agent.getGoalMailboxSize();
-
-        // PHASE 4 CHANGE: Removed 'blackboardCopy' parameter from constructor call
         return new AgentDebugState(
                 agent.getPersona().getUniqueId(),
                 agent.getName(),

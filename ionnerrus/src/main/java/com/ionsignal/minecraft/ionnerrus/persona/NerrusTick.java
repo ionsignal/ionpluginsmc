@@ -41,33 +41,33 @@ public class NerrusTick extends BukkitRunnable {
         if (plugin != null && plugin.getAgentService() != null) {
             for (NerrusAgent agent : plugin.getAgentService().getAgents()) {
                 try {
-                    // Check for active debug session for this agent
-                    // Using fully qualified class names to avoid import conflicts
-                    Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore.getDebugRegistry()
-                            .getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
+                    // Unified debug session integration check for active debug session for this agent
+                    Optional<DebugSession<com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState>> sessionOpt = IonCore
+                            .getDebugRegistry()
+                            .getActiveSession(
+                                    agent.getPersona().getUniqueId(),
+                                    com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState.class);
+
                     if (sessionOpt.isPresent()) {
-                        DebugSession<AgentDebugState> session = sessionOpt.get();
+                        DebugSession<com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState> session = sessionOpt.get();
                         ExecutionController controller = session.getController().orElse(null);
+                        // Complete visualization flow skips agent message processing if controller is paused to allow for
+                        // inspection between ticks
+                        if (controller != null && controller.isPaused()) {
+                            continue;
+                        }
+                        // Update state snapshot and mark visualization dirty which captures the current agent state before
+                        // processing next message
+                        com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState snapshot = com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState
+                                .snapshot(agent);
+                        session.setState(snapshot); // Atomically marks visualization dirty
+                        // Signal pause point to controller (non-blocking for TickBasedController)
                         if (controller != null) {
-                            // Update state snapshot on main thread (thread-safe)
-                            // This captures the current agent state before processing messages
-                            AgentDebugState snapshot = AgentDebugState.snapshot(agent);
-                            // Store snapshot in session's atomic reference
-                            session.setState(snapshot);
-                            session.markVisualizationDirty();
-                            // Skip message processing if controller is in paused state
-                            // This allows the debugger to inspect state between message processing
-                            if (controller.isPaused()) {
-                                continue; // Skip this agent's message processing for this tick
-                            }
-                            // Trigger pause before processing next message (non-blocking)
-                            // TickBasedController.pause() sets a flag and returns immediately
                             String nextMsg = snapshot.nextMessage() != null ? snapshot.nextMessage() : "No messages";
                             controller.pause("Message Processing", "Next: " + nextMsg);
-                            // If pause() returned (TickBasedController never blocks), continue to process
                         }
                     }
-                    // Process agent messages (unchanged)
+                    // Process agent messages (will be skipped if controller is paused)
                     agent.processMessages();
                 } catch (Exception e) {
                     manager.getLogger().severe("Error processing mailbox for agent " + agent.getName());

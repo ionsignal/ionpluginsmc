@@ -44,6 +44,16 @@ public class PluginConfig {
         return this.handle.getDouble("chat-bubbles.min-slide-duration-seconds", 2.0);
     }
 
+    /**
+     * Gets whether non-wood crafting recipes should be disabled for testing.
+     * This is a development/testing utility and should always be false in production.
+     *
+     * @return true if non-wood recipes should be disabled, false otherwise
+     */
+    public boolean isDisableNonWoodRecipes() {
+        return this.handle.getBoolean("testing.disableNonWoodRecipes", false);
+    }
+
     public Color getChatBubbleBackgroundColor() {
         String hex = this.handle.getString("chat-bubbles.background-color-hex", "#BFFFFFFF");
         try {
