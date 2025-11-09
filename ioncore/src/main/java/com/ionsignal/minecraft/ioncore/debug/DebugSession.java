@@ -9,6 +9,19 @@ import java.util.concurrent.atomic.AtomicReference;
  * A debug session represents a single debugging operation owned by a player. It manages thread-safe
  * access to session state, lifecycle status, and visualization coordination via dirty flags.
  *
+ * THREAD SAFETY NOTES
+ * - All state is managed via AtomicReference<T> for thread-safe reads/writes
+ * - State transitions use atomic compare-and-set (see transitionTo()) to prevent races
+ * - Status can be modified from any thread; validation is atomic
+ * - Visualization dirty flag uses AtomicBoolean for efficient signaling
+ * - Once terminal state reached (COMPLETED, CANCELLED, FAILED), it cannot transition back
+ *
+ * LIFECYCLE GUARANTEE:
+ * - Valid transitions: CREATED→ACTIVE, ACTIVE→PAUSED, PAUSED→ACTIVE,
+ * ACTIVE/PAUSED→{COMPLETED,CANCELLED,FAILED}
+ * - Invalid transitions from terminal states back to non-terminal states are rejected
+ * - This state machine is enforced atomically in transitionTo()
+ *
  * @param <TState>
  *            The type of state object this session manages (e.g., structure placement state,
  *            pathfinding state).
@@ -45,6 +58,11 @@ public class DebugSession<TState> {
      *            The execution controller for this session (may be null).
      */
     public DebugSession(UUID owner, TState initialState, ExecutionController controller) {
+        // Validate that state implements DebugStateSnapshot (if not null)
+        if (initialState != null && !(initialState instanceof DebugStateSnapshot)) {
+            throw new IllegalArgumentException(
+                    "Initial state must implement DebugStateSnapshot. Got: " + initialState.getClass().getName());
+        }
         this.owner = owner;
         this.state = new AtomicReference<>(initialState);
         this.status = new AtomicReference<>(SessionStatus.CREATED);
@@ -161,7 +179,8 @@ public class DebugSession<TState> {
 
     /**
      * Transitions the session to a new status with validation. Invalid transitions (e.g., COMPLETED ->
-     * ACTIVE) will throw an exception.
+     * ACTIVE) will throw an exception. If another thread modifies status between our check and set, we
+     * retry automatically.
      *
      * @param newStatus
      *            The target status.
@@ -169,12 +188,27 @@ public class DebugSession<TState> {
      *             if the transition is invalid.
      */
     public void transitionTo(SessionStatus newStatus) {
-        SessionStatus currentStatus = status.get();
-        if (!isValidTransition(currentStatus, newStatus)) {
-            throw new DebugSessionException("Invalid session transition: " + currentStatus + " -> " + newStatus);
+        if (newStatus == null) {
+            throw new IllegalArgumentException("New status cannot be null");
         }
-        status.set(newStatus);
-        markVisualizationDirty();
+        // Retry loop for atomic compare-and-set ensuring atomicity: we read the current status and set the
+        // new status without any interleaving opportunity for concurrent threads.
+        while (true) {
+            SessionStatus currentStatus = status.get();
+            // Validate the transition
+            if (!isValidTransition(currentStatus, newStatus)) {
+                throw new DebugSessionException(
+                        String.format("Invalid session transition: %s -> %s", currentStatus, newStatus));
+            }
+            // Attempt atomic transition using compareAndSet and only succeeds if status hasn't changed since
+            // our read above. If another thread changed it, this returns false and we retry.
+            if (status.compareAndSet(currentStatus, newStatus)) {
+                // Success: mark visualization as dirty within the atomic success
+                markVisualizationDirty();
+                return; // Exit retry loop
+            }
+            // Failure: status was modified by another thread, retry the loop
+        }
     }
 
     /**
@@ -200,8 +234,23 @@ public class DebugSession<TState> {
      * Updates the session state with a new snapshot. This method is thread-safe and automatically
      * marks the visualization as dirty.
      *
+     * THREAD SAFETY: This method is safe to call from any thread. The state is atomically
+     * updated and the visualization dirty flag is set within the same atomic operation (from
+     * the caller's perspective, though individual atomics are used).
+     *
+     * STATE CONTRACT: The provided state must implement {@link DebugStateSnapshot} to be
+     * compatible with visualization providers. While this is validated in the constructor,
+     * runtime validation is omitted here for performance reasons. Callers should ensure
+     * compliance.
+     *
+     * VISUALIZATION COORDINATION: Calling this method always marks visualization as dirty,
+     * signaling to the main-thread render task that the display needs updating on the
+     * next render cycle.
+     *
      * @param newState
-     *            The new state to set.
+     *            The new state to set. Should implement {@link DebugStateSnapshot}.
+     * @see DebugStateSnapshot
+     * @see VisualizationProvider#render(DebugStateSnapshot)
      */
     public void setState(TState newState) {
         state.set(newState);

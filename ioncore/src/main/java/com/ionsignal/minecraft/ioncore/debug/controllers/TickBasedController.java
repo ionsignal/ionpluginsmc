@@ -17,18 +17,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@link LatchBasedController}, this controller NEVER blocks the calling thread. Instead, it sets
  * an {@code isPaused} flag that consumers must check before processing work.
  * 
- * <p>
- * Typical usage pattern:
- * 
- * <pre>{@code
- * if (controller.isPaused()) {
- *     continue; // Skip this tick's work
- * }
- * controller.pause("Processing Messages", "Next: MyMessage");
- * // Continue with work...
- * }</pre>
- * 
- * <p>
  * Thread Safety: All state is managed via atomic types. The {@code mainThreadExecutor} is used
  * for scheduling timeout tasks to ensure they run on the correct thread.
  */
@@ -126,6 +114,18 @@ public class TickBasedController implements ExecutionController {
     }
 
     /**
+     * Lifecycle shutdown for the TickBasedController uses Bukkit's scheduler, which is managed by the
+     * server and automatically cleaned up. This method cancels any pending timeout task but does not
+     * require explicit resource cleanup.
+     *
+     * This method is idempotent and safe to call multiple times.
+     */
+    @Override
+    public void shutdown() {
+        cancelTimeout();
+    }
+
+    /**
      * Schedules a timeout task on the main thread executor. The timeout will call
      * {@link #handleTimeout()} after the configured delay.
      */
@@ -158,7 +158,6 @@ public class TickBasedController implements ExecutionController {
         if (!isPaused.get()) {
             return; // Already resumed, ignore timeout
         }
-
         switch (timeoutBehavior) {
             case AUTO_RESUME:
                 resume();
