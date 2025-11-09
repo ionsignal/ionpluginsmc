@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.PluginManager;
 
 /**
@@ -32,15 +33,23 @@ public class ListenerRegistrar {
         // Core listeners (always registered)
         manager.registerEvents(new PlayerListener(plugin, nerrusManager), plugin);
         manager.registerEvents(new PersonaInteractionListener(), plugin);
-        // Conditional listener: Chat bubbles (requires FancyHolograms)
-        if (plugin.getPluginConfig().isChatBubblesEnabled()) {
-            if (manager.getPlugin("FancyHolograms") == null) {
-                plugin.getLogger().warning("Chat Bubbles feature is enabled, but FancyHolograms plugin not found. Feature disabled.");
-            } else {
-                manager.registerEvents(new ChatBubbleListener(plugin, chatBubbleService), plugin);
-                plugin.getLogger().info("Chat Bubbles feature enabled.");
-            }
+        // Conditional listener: Chat bubbles (requires FancyHolograms AND successful initialization)
+        if (plugin.getPluginConfig().isChatBubblesEnabled() && chatBubbleService != null) {
+            manager.registerEvents(new ChatBubbleListener(plugin, chatBubbleService), plugin);
+            plugin.getLogger().info("Chat Bubbles feature enabled.");
+        } else if (plugin.getPluginConfig().isChatBubblesEnabled()) {
+            // Config enabled but service unavailable - inform admin
+            plugin.getLogger().warning("Chat Bubbles enabled in config, but service failed to initialize.");
         }
         plugin.getLogger().info("Registered event listeners.");
+    }
+
+    /**
+     * Unregisters all event listeners from the Bukkit event system and must be called during plugin
+     * disable to prevent stale references.
+     */
+    public void unregisterAll() {
+        HandlerList.unregisterAll(plugin);
+        plugin.getLogger().info("Unregistered all event listeners.");
     }
 }

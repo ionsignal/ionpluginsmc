@@ -45,7 +45,11 @@ public class NerrusManager {
         if (tickTask != null) {
             tickTask.cancel();
         }
+        if (skinCache != null) {
+            skinCache.shutdown();
+        }
         registry.clear();
+        instance = null;
     }
 
     public static NerrusManager getInstance() {

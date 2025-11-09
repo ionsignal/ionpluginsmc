@@ -6,7 +6,6 @@ import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState;
 
 import org.bukkit.scheduler.BukkitRunnable;
 

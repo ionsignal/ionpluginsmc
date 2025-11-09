@@ -1,9 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.persona.skin;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+
+import org.bukkit.Bukkit;
+
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import org.bukkit.Bukkit;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -16,15 +18,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 public class SkinCache {
-
     private static final String UUID_API_URL = "https://api.mojang.com/users/profiles/minecraft/";
     private static final String SKIN_API_URL = "https://sessionserver.mojang.com/session/minecraft/profile/";
 
     private final ConcurrentHashMap<String, SkinData> skinCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, UUID> uuidCache = new ConcurrentHashMap<>();
     private final HttpClient httpClient;
+    private final IonNerrus plugin;
 
     public SkinCache(IonNerrus plugin) {
+        this.plugin = plugin;
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .connectTimeout(Duration.ofSeconds(10))
@@ -103,5 +106,22 @@ public class SkinCache {
                     IonNerrus.getInstance().getLogger().log(Level.WARNING, "Could not fetch UUID for name: " + name, ex.getMessage());
                     return null;
                 });
+    }
+
+    /**
+     * Shuts down the HTTP client to release its internal threads.
+     */
+    public void shutdown() {
+        plugin.getLogger().info("Shutting down SkinCache HTTP client...");
+        try {
+            // This closes the internal selector threads that HttpClient creates
+            httpClient.close();
+            plugin.getLogger().info("SkinCache HTTP client closed successfully.");
+        } catch (Exception e) {
+            plugin.getLogger().warning("Error closing SkinCache HTTP client: " + e.getMessage());
+        }
+        // Clear caches to release memory
+        skinCache.clear();
+        uuidCache.clear();
     }
 }

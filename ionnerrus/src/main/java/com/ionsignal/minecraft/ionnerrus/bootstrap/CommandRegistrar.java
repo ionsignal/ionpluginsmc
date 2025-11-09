@@ -43,21 +43,41 @@ public class CommandRegistrar {
         Objects.requireNonNull(nerrusCmd, "The 'nerrus' command is not registered in plugin.yml");
         nerrusCmd.setExecutor(nerrusCommand);
         nerrusCmd.setTabCompleter(nerrusCommand);
-
         // /nerrusdebug command
         NerrusDebugCommand nerrusDebugCommand = new NerrusDebugCommand(plugin);
         PluginCommand debugCmd = plugin.getCommand("nerrusdebug");
         Objects.requireNonNull(debugCmd, "The 'nerrusdebug' command is not registered in plugin.yml");
         debugCmd.setExecutor(nerrusDebugCommand);
         debugCmd.setTabCompleter(nerrusDebugCommand);
-
         // /cognitivedebug command
         NerrusCognitiveDebugCommand cognitiveDebugCommand = new NerrusCognitiveDebugCommand(plugin);
         PluginCommand cognitiveDebugCmd = plugin.getCommand("cognitivedebug");
         Objects.requireNonNull(cognitiveDebugCmd, "The 'cognitivedebug' command is not registered in plugin.yml");
         cognitiveDebugCmd.setExecutor(cognitiveDebugCommand);
         cognitiveDebugCmd.setTabCompleter(cognitiveDebugCommand);
-
         plugin.getLogger().info("Registered '/nerrus', '/nerrusdebug', and '/cognitivedebug' commands.");
+    }
+
+    /**
+     * Unregisters commands from the Bukkit system even (technically) a no-op in Bukkit but we clear
+     * executors/completers to prevent stale references.
+     */
+    public void unregisterAll() {
+        PluginCommand nerrusCmd = plugin.getCommand("nerrus");
+        if (nerrusCmd != null) {
+            nerrusCmd.setExecutor(null);
+            nerrusCmd.setTabCompleter(null);
+        }
+        PluginCommand debugCmd = plugin.getCommand("nerrusdebug");
+        if (debugCmd != null) {
+            debugCmd.setExecutor(null);
+            debugCmd.setTabCompleter(null);
+        }
+        PluginCommand cognitiveDebugCmd = plugin.getCommand("cognitivedebug");
+        if (cognitiveDebugCmd != null) {
+            cognitiveDebugCmd.setExecutor(null);
+            cognitiveDebugCmd.setTabCompleter(null);
+        }
+        plugin.getLogger().info("Unregistered all commands.");
     }
 }
