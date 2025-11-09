@@ -87,4 +87,16 @@ public interface ExecutionController {
      *            The session to attach.
      */
     void attachSession(DebugSession<?> session);
+
+    /**
+     * Lifecycle cleanup for resources associated with this controller.
+     * Implementations that manage thread pools or other resources should override this method.
+     *
+     * Default implementation is a no-op; controllers without managed resources need not override.
+     *
+     * This method may be called multiple times safely; implementations should be idempotent.
+     */
+    default void shutdown() {
+        // No-op default implementation
+    }
 }

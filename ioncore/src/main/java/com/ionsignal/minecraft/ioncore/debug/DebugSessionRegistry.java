@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Thread-safe registry for managing active debug sessions. Each player (UUID) can have at most one
@@ -13,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * or cancelled.
  */
 public class DebugSessionRegistry {
+    private static final Logger LOGGER = Logger.getLogger(DebugSessionRegistry.class.getName());
     private final Map<UUID, DebugSession<?>> sessions = new ConcurrentHashMap<>();
 
     /**
@@ -34,7 +37,6 @@ public class DebugSessionRegistry {
         if (sessions.containsKey(owner)) {
             throw new DebugSessionException("Player " + owner + " already has an active debug session. Remove or cancel it first.");
         }
-
         DebugSession<TState> session = new DebugSession<>(owner, initialState, controller);
         sessions.put(owner, session);
         return session;
@@ -97,6 +99,7 @@ public class DebugSessionRegistry {
             if (session.isActive()) {
                 session.transitionTo(SessionStatus.COMPLETED);
             }
+            shutdownController(session);
             return true;
         }
         return false;
@@ -104,25 +107,54 @@ public class DebugSessionRegistry {
 
     /**
      * Cancels and removes a session from the registry. This method calls the session's controller (if
-     * present) to
-     * cancel execution, then transitions the status to CANCELLED.
-     *
+     * present) to cancel execution, then transitions the status to CANCELLED.
+     * 
      * @param owner
      *            The UUID of the player whose session should be cancelled.
      * @return {@code true} if a session was cancelled, {@code false} if no session existed.
      */
     public boolean cancelSession(UUID owner) {
-        DebugSession<?> session = sessions.remove(owner);
-        if (session != null) {
-            // Cancel via controller if present
-            session.getController().ifPresent(ExecutionController::cancel);
-            // Ensure status is set to CANCELLED
-            if (session.getStatus() != SessionStatus.CANCELLED) {
-                session.transitionTo(SessionStatus.CANCELLED);
-            }
-            return true;
+        DebugSession<?> session = sessions.remove(owner); // Remove first (committed)
+        if (session == null) {
+            return false; // Session doesn't exist
         }
-        return false;
+        try {
+            // Step 1: Cancel the controller (should always succeed)
+            session.getController().ifPresent(ExecutionController::cancel);
+            // Step 2: Update session status to CANCELLED
+            // This may fail if the state machine is in an invalid state
+            if (session.getStatus() != SessionStatus.CANCELLED) {
+                try {
+                    session.transitionTo(SessionStatus.CANCELLED);
+                } catch (DebugSessionException e) {
+                    // State transition failed, log but don't propagate since we've already cancelled the controller, so
+                    // we must ensure status gets set
+                    String message = String.format(
+                            "Failed to transition session %s to CANCELLED: %s",
+                            owner, e.getMessage());
+                    LOGGER.warning(message);
+                    // Force status to CANCELLED anyway (defensive) which bypasses the state validation ensuring cleanup
+                    session.setStatus(SessionStatus.CANCELLED);
+                }
+            }
+            shutdownController(session);
+            return true;
+        } catch (Exception e) {
+            // Unexpected error during cancel - log but don't propagate
+            LOGGER.log(Level.SEVERE,
+                    String.format("Unexpected error cancelling session %s", owner), e);
+            // Ensure the controller is still cancelled even if something went wrong
+            session.getController().ifPresent(controller -> {
+                try {
+                    controller.cancel();
+                } catch (Exception cancelError) {
+                    LOGGER.log(Level.SEVERE,
+                            "Failed to cancel execution controller during error recovery", cancelError);
+                }
+            });
+            shutdownController(session);
+            return true; // Session was removed, cleanup initiated
+        }
     }
 
     /**
@@ -147,6 +179,7 @@ public class DebugSessionRegistry {
             if (session.isActive()) {
                 session.transitionTo(SessionStatus.CANCELLED);
             }
+            shutdownController(session);
         });
         sessions.clear();
     }
@@ -158,5 +191,26 @@ public class DebugSessionRegistry {
      */
     public int size() {
         return sessions.size();
+    }
+
+    /**
+     * Safely shuts down the execution controller associated with a session.
+     * Uses the default interface method to ensure proper resource cleanup
+     * regardless of the concrete controller implementation.
+     *
+     * This method is idempotent and safe to call multiple times.
+     *
+     * @param session
+     *            The session whose controller should be shut down.
+     */
+    private void shutdownController(DebugSession<?> session) {
+        session.getController().ifPresent(controller -> {
+            try {
+                controller.shutdown();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING,
+                        "Exception during controller shutdown (non-fatal)", e);
+            }
+        });
     }
 }
