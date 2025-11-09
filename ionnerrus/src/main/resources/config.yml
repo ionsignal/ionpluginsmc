@@ -29,3 +29,8 @@ chat-bubbles:
   background-color-hex: "#BF000000"
   # The scale of the hologram text. 1.0 is default.
   scale: 1.2
+
+testing:
+  # Disables all non-wood crafting recipes for development/testing.
+  # WARNING: This is a destructive operation. Only enable in test environments.
+  disableNonWoodRecipes: false

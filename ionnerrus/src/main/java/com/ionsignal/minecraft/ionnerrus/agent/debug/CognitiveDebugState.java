@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.debug;
 
+import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
 import io.github.sashirestela.openai.domain.chat.ChatMessage;
 import java.util.List;
 import java.util.UUID;
@@ -12,10 +13,18 @@ public record CognitiveDebugState(
         UUID agentId,
         String agentName,
         String currentDirective,
-        List<ChatMessage> conversationHistory, // Defensive copy
+        List<ChatMessage> conversationHistory,
         String lastToolCall,
         String lastToolResult,
-        int cognitiveStepCount) {
+        int cognitiveStepCount) implements DebugStateSnapshot {
+
+    /**
+     * Implement DebugStateSnapshot marker interface
+     */
+    @Override
+    public String getDebugLabel() {
+        return "Cognitive Reasoning: " + agentName;
+    }
 
     /**
      * Creates a snapshot from a live ReActDirector.
@@ -28,7 +37,7 @@ public record CognitiveDebugState(
                 agent.getPersona().getUniqueId(),
                 agent.getName(),
                 director.getDirective(),
-                List.copyOf(director.getConversationHistory()), // Defensive copy
+                List.copyOf(director.getConversationHistory()),
                 director.getLastToolCall(),
                 director.getLastToolResult(),
                 director.getCognitiveStepCount());
