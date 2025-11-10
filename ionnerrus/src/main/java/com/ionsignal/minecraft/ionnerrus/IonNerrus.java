@@ -16,29 +16,37 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.concurrent.Executor;
 
+import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.Level;
+
+import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
+
 public class IonNerrus extends JavaPlugin {
     private static IonNerrus instance;
 
     private Executor mainThreadExecutor;
     private Executor offloadThreadExecutor;
 
-    // Added service container (replaces load() method)
+    // Added service container
     private ServiceContainer services;
+    private ComponentLogger componentLogger;
 
     @Override
     public void onEnable() {
-        instance = this;
+        // Singleton
+        IonNerrus.instance = this;
+        // Logging level configuration
+        enableDebugLogging();
         // Load config before any service initialization
         saveDefaultConfig();
         reloadConfig();
         // Create executors
         mainThreadExecutor = runnable -> Bukkit.getScheduler().runTask(this, runnable);
         offloadThreadExecutor = runnable -> getServer().getScheduler().runTaskAsynchronously(this, runnable);
-        // Initialize service container (replaces load() method)
+        // Initialize service container
         try {
             services = ServiceContainer.initialize(this);
         } catch (ServiceInitializationException e) {
-            // Enhanced error reporting for critical failures
             getLogger().severe("═══════════════════════════════════════════════════════");
             getLogger().severe("CRITICAL INITIALIZATION FAILURE:");
             getLogger().severe(e.getMessage());
@@ -51,15 +59,14 @@ public class IonNerrus extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        // External integrations (NON-CRITICAL)
+        // External integrations
         try {
             IntegrationBootstrap integrationBootstrap = new IntegrationBootstrap(this);
             integrationBootstrap.initializeIonCoreIntegration();
         } catch (Exception e) {
             getLogger().warning("Non-critical integration failure: " + e.getMessage());
-            // Continue - debug features are optional
         }
-        // Register commands (CRITICAL) - now receives services from container
+        // Register commands
         try {
             CommandRegistrar commandRegistrar = new CommandRegistrar(
                     this,
@@ -74,7 +81,7 @@ public class IonNerrus extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        // Register event listeners (CRITICAL) - now receives services from container
+        // Register event listeners
         try {
             ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
                     this,
@@ -88,7 +95,7 @@ public class IonNerrus extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        // Apply recipe modifications (NON-CRITICAL, testing feature)
+        // Apply recipe modifications
         // Now receives config from container
         try {
             RecipeModifier recipeModifier = new RecipeModifier(this, services.getConfig());
@@ -96,9 +103,7 @@ public class IonNerrus extends JavaPlugin {
                     recipeModifier::disableNonWoodRecipesIfConfigured, 1L);
         } catch (Exception e) {
             getLogger().warning("Recipe modification failed (non-critical): " + e.getMessage());
-            // Continue - testing feature, not required for core functionality
         }
-
         getLogger().info("IonNerrus v" + getPluginMeta().getVersion() + " has been enabled successfully.");
     }
 
@@ -189,7 +194,7 @@ public class IonNerrus extends JavaPlugin {
                 getLogger().warning("Found " + nonDaemonCount + " LLM-related non-daemon threads still running");
             }
         }
-        // 6. Clear static references to prevent memory leaks (AFTER grace period)
+        // Clear static references to prevent memory leaks (AFTER grace period)
         instance = null;
         services = null;
         getLogger().info("IonNerrus has been disabled successfully.");
@@ -207,8 +212,27 @@ public class IonNerrus extends JavaPlugin {
         return null;
     }
 
+    /**
+     * Helper method to enable debug logger from PaperMC
+     */
+    private void enableDebugLogging() {
+        try {
+            this.componentLogger = getComponentLogger();
+            String pluginLoggerName = this.getName();
+            Configurator.setLevel(pluginLoggerName, Level.DEBUG);
+            Configurator.setLevel("com.ionsignal.minecraft.ionnerrus", Level.DEBUG);
+        } catch (Exception e) {
+            getLogger().warning("Failed to enable debug logging: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
     public static IonNerrus getInstance() {
         return instance;
+    }
+
+    public ComponentLogger getModernLogger() {
+        return componentLogger;
     }
 
     public Executor getOffloadThreadExecutor() {

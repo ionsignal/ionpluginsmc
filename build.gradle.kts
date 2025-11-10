@@ -97,11 +97,11 @@ tasks {
         )
 
         // Enable debugger with suspend (port 5005)
-        // jvmArgs("-Xmx4G", "-Xms2G", "-XX:+UseG1GC")
         jvmArgs(
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005",
             "-XX:+AllowEnhancedClassRedefinition",
-            "-Xmx4G", "-Xms2G", "-XX:+UseG1GC"
+            "-Xmx4G", "-Xms2G", "-XX:+UseG1GC",
+            "-Dlog4j.configurationFile=${project.projectDir}/log4j2-debug.xml"
         )
 
         minecraftVersion(minecraftVersion.get())
