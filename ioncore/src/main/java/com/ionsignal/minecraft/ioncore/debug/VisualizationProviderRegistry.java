@@ -5,9 +5,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Thread-safe registry for storing and retrieving visualization providers.
- * Each debug state type can have an associated visualization provider that handles
- * rendering its specific state.
+ * Thread-safe registry for storing and retrieving visualization providers where each debug state
+ * type can have an associated visualization provider that handles rendering its specific state.
  * 
  * Accessed globally via {@link IonCore} singleton to allow cross-plugin registration.
  * 
