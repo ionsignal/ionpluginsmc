@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.util;
+package com.ionsignal.minecraft.ionnerrus.persona.util;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.mojang.datafixers.DataFixer;

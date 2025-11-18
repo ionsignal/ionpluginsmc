@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.util;
+package com.ionsignal.minecraft.ionnerrus.persona.util;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 
@@ -120,7 +120,8 @@ public class EmptyPlayerAdvancements extends PlayerAdvancements {
     }
 
     /**
-     * A dummy HolderLookup.Provider that provides no registries, required by the ServerAdvancementManager constructor.
+     * A dummy HolderLookup.Provider that provides no registries, required by the
+     * ServerAdvancementManager constructor.
      */
     private static class EmptyProvider implements HolderLookup.Provider {
         @Override

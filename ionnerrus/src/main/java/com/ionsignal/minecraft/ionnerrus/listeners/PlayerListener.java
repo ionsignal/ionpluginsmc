@@ -37,7 +37,7 @@ public class PlayerListener implements Listener {
         }
         for (Persona persona : nerrusManager.getRegistry().getAll()) {
             if (persona.isSpawned()) {
-                nerrusManager.getPlatformBridge().showToPlayer(persona, player);
+                persona.showToPlayer(player);
             }
         }
     }

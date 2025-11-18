@@ -1,13 +1,16 @@
 package com.ionsignal.minecraft.ionnerrus.persona.action.impl;
 
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.action.Action;
 import com.ionsignal.minecraft.ionnerrus.persona.action.ActionStatus;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
+
 import net.minecraft.util.Mth;
+
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.util.Vector;
+
 import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.CompletableFuture;

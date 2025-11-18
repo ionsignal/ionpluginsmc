@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaNMSBridge;
 import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinCache;
 import com.ionsignal.minecraft.ionnerrus.util.ServerVersion;
 
@@ -14,7 +13,6 @@ public class NerrusManager {
     private final IonNerrus plugin;
     private final NerrusRegistry registry;
     private NerrusTick tickTask;
-    private PersonaNMSBridge platformBridge;
     private SkinCache skinCache;
 
     public NerrusManager(IonNerrus plugin) {
@@ -26,9 +24,8 @@ public class NerrusManager {
 
     public boolean initialize() {
         String minecraftVersion = ServerVersion.getMinecraftVersion();
-        if ("1.21.7".equals(minecraftVersion) || "1.21.8".equals(minecraftVersion)) {
-            this.platformBridge = new PersonaNMSBridge();
-            getLogger().info("Initialized Persona platform bridge for Minecraft version " + minecraftVersion);
+        if ("1.21.8".equals(minecraftVersion)) {
+            getLogger().info("Initialized Persona management for Minecraft version " + minecraftVersion);
         } else {
             getLogger().severe(
                     "Unsupported server version: " + minecraftVersion
@@ -66,10 +63,6 @@ public class NerrusManager {
 
     public Logger getLogger() {
         return plugin.getLogger();
-    }
-
-    public PersonaNMSBridge getPlatformBridge() {
-        return platformBridge;
     }
 
     public SkinCache getSkinCache() {

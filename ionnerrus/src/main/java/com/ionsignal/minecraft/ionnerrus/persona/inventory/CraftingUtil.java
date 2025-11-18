@@ -1,7 +1,7 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.inventory;
+package com.ionsignal.minecraft.ionnerrus.persona.inventory;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;

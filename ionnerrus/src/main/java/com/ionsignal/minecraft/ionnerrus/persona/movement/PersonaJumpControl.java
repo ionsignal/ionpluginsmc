@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement;
+package com.ionsignal.minecraft.ionnerrus.persona.movement;
 
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.control.JumpControl;

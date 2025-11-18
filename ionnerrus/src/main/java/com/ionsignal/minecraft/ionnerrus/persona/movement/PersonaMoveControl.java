@@ -1,6 +1,7 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement;
+package com.ionsignal.minecraft.ionnerrus.persona.movement;
 
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
+
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.control.MoveControl;

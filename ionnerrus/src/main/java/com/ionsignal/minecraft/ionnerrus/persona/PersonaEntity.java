@@ -1,16 +1,13 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7;
+package com.ionsignal.minecraft.ionnerrus.persona;
 
-import com.ionsignal.minecraft.ionnerrus.persona.Persona;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.PersonaHolder;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.inventory.PersonaInventoryMenu;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaJumpControl;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaLookControl;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.movement.PersonaMoveControl;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.network.EmptyConnection;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.network.EmptyPacketListener;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.util.EmptyPlayerAdvancements;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.util.EmptyServerStatsCounter;
-
+import com.ionsignal.minecraft.ionnerrus.persona.inventory.PersonaInventoryMenu;
+import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaJumpControl;
+import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl;
+import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaMoveControl;
+import com.ionsignal.minecraft.ionnerrus.persona.network.EmptyConnection;
+import com.ionsignal.minecraft.ionnerrus.persona.network.EmptyPacketListener;
+import com.ionsignal.minecraft.ionnerrus.persona.util.EmptyPlayerAdvancements;
+import com.ionsignal.minecraft.ionnerrus.persona.util.EmptyServerStatsCounter;
 import com.mojang.authlib.GameProfile;
 
 import net.minecraft.network.chat.Component;
