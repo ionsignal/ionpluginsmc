@@ -18,7 +18,9 @@ dependencies {
     implementation(libs.simple.openai)
     implementation(libs.okhttp)
     implementation(libs.classgraph)
-    // FancyHolograms - local JAR (we'll handle this in Stage 2b)
+    // CraftEngine
+    compileOnly(files("libs/craft-engine-paper-plugin-0.0.64.jar"))
+    // FancyHolograms
     compileOnly(files("libs/fancyholograms-3.0.0.jar"))
 }
 
