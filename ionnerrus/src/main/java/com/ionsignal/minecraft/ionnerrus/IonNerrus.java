@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.bootstrap.IntegrationBootstrap;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.ListenerRegistrar;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.RecipeModifier;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
+import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -86,7 +87,8 @@ public class IonNerrus extends JavaPlugin {
             ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
-                    services.getChatBubbleService() // Can be null
+                    services.getChatBubbleService(), // Can be null
+                    services.getHudManager() // Can be null
             );
             listenerRegistrar.registerAll();
         } catch (Exception e) {
@@ -138,7 +140,8 @@ public class IonNerrus extends JavaPlugin {
             ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
-                    services.getChatBubbleService());
+                    services.getChatBubbleService(), // Can be null
+                    services.getHudManager()); // Can be null
             listenerRegistrar.unregisterAll();
         } catch (Exception e) {
             getLogger().severe("Error unregistering listeners: " + e.getMessage());
@@ -276,7 +279,35 @@ public class IonNerrus extends JavaPlugin {
         return services.getChatBubbleService(); // NOTE: Can return null
     }
 
-    // Added getter for container itself (used by Phase 3 shutdown)
+    /**
+     * Gets the HUD Manager if available.
+     *
+     * This provides access to the HUD rendering system for displaying persistent UI elements (status
+     * icons, health bars, goal indicators). The HUD system requires CraftEngine 3.6+ to function.
+     *
+     * @return HudManager instance, or null if CraftEngine unavailable or initialization failed
+     * @throws IllegalStateException
+     *             if services not initialized (plugin failed to load)
+     */
+    public HudManager getHudManager() {
+        // Null-safe delegation with clear error message
+        if (services == null) {
+            throw new IllegalStateException("Services not initialized - plugin failed to load");
+        }
+        return services.getHudManager(); // NOTE: Can return null (CraftEngine dependency)
+    }
+
+    /**
+     * Checks if the HUD system is available and ready to use.
+     *
+     * @return true if HUD features can be used, false otherwise
+     */
+    public boolean isHudAvailable() {
+        // Delegate to ServiceContainer's availability check
+        return services != null && services.isHudAvailable();
+    }
+
+    // Added getter for container itself
     public ServiceContainer getServices() {
         return services; // Intentionally allow null check by callers
     }
