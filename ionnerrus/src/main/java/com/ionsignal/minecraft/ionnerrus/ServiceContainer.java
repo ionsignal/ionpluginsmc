@@ -9,6 +9,9 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
+import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
+
+import org.bukkit.plugin.Plugin;
 
 /**
  * Central service container managing the lifecycle of all plugin services.
@@ -37,6 +40,9 @@ public class ServiceContainer {
     private final AgentService agentService;
     private final ChatBubbleService chatBubbleService; // NOTE: Can be null if FancyHolograms fails to load
 
+    // HUD system fields
+    private final HudManager hudManager;
+
     /**
      * Private constructor - use {@link #initialize(IonNerrus)} to create instances.
      */
@@ -49,7 +55,8 @@ public class ServiceContainer {
             GoalFactory goalFactory,
             LLMService llmService,
             AgentService agentService,
-            ChatBubbleService chatBubbleService) {
+            ChatBubbleService chatBubbleService,
+            HudManager hudManager) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -60,6 +67,7 @@ public class ServiceContainer {
         this.llmService = llmService;
         this.agentService = agentService;
         this.chatBubbleService = chatBubbleService; // Can be null
+        this.hudManager = hudManager;
     }
 
     /**
@@ -91,6 +99,7 @@ public class ServiceContainer {
             // Layer 5: External integrations
             LLMService llmService = initializeLLMService(plugin); // CRITICAL
             ChatBubbleService chatBubbleService = initializeChatBubbles(plugin); // NON-CRITICAL (can be null)
+            HudManager hudManager = initializeHudManager(plugin);
             // Layer 6: High-level services (CRITICAL)
             AgentService agentService = new AgentService(
                     plugin,
@@ -112,7 +121,8 @@ public class ServiceContainer {
                     goalFactory,
                     llmService,
                     agentService,
-                    chatBubbleService);
+                    chatBubbleService,
+                    hudManager);
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
@@ -147,6 +157,54 @@ public class ServiceContainer {
         } catch (Exception e) {
             plugin.getLogger().warning(
                     "Failed to initialize chat bubble service (non-critical): " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Initializes the HUD Manager. (NON-CRITICAL - feature).
+     * Failures are logged but don't prevent plugin startup.
+     */
+    private static HudManager initializeHudManager(IonNerrus plugin) {
+        // Check if CraftEngine plugin is loaded where Paper (PaperCraftEnginePlugin) and Bukkit
+        // (BukkitCraftEnginePlugin) variants register as "CraftEngine" in plugin.yml
+        Plugin cePlugin = plugin.getServer()
+                .getPluginManager()
+                .getPlugin("CraftEngine");
+        if (cePlugin == null || !cePlugin.isEnabled()) {
+            plugin.getLogger().warning(
+                    "CraftEngine not found - HUD features disabled.");
+            return null;
+        }
+        try {
+            // Create HudManager instance
+            HudManager hudManager = new HudManager(plugin);
+            // registerDefaultHudElements(plugin, hudManager); // Moved to CraftEngineReloadListener..
+            hudManager.finishRegistration();
+            // Register as Bukkit event listener for resource pack generation
+            // HudManager listens for AsyncResourcePackCacheEvent to inject shaders/fonts
+            plugin.getServer().getPluginManager().registerEvents(hudManager, plugin);
+            // Save codepoint allocations to disk cache
+            // This ensures stable Unicode character assignments across server restarts
+            try {
+                hudManager.saveCache();
+            } catch (java.io.IOException e) {
+                plugin.getLogger().warning(
+                        "Failed to save HUD codepoint cache (non-fatal): " + e.getMessage());
+            }
+            // Log successful initialization
+            plugin.getLogger().info(String.format(
+                    "HUD Manager initialized: %d elements registered, listening for pack generation.",
+                    hudManager.getElementCount()));
+            return hudManager;
+        } catch (NoClassDefFoundError e) {
+            plugin.getLogger().warning(
+                    "CraftEngine classes not found on classpath - HUD features disabled.");
+            return null;
+        } catch (Exception e) {
+            plugin.getLogger().severe(
+                    "Failed to initialize HUD Manager (non-critical): " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
     }
@@ -194,9 +252,28 @@ public class ServiceContainer {
     }
 
     /**
+     * Gets the HUD Manager. Can return null if CraftEngine is not available or
+     * initialization failed. Callers must check for null before use.
+     *
+     * @return HudManager instance, or null if unavailable
+     */
+    public HudManager getHudManager() {
+        return hudManager; // NOTE: Can be null
+    }
+
+    /**
+     * Checks if the HUD system is available and ready to use.
+     *
+     * @return true if HUD features can be used, false otherwise
+     */
+    public boolean isHudAvailable() {
+        return hudManager != null;
+    }
+
+    /**
      * Shuts down all services in reverse dependency order.
      * This method is idempotent - calling it multiple times is safe.
-     * 
+     *
      * Shutdown order is critical: high-level services must shut down before
      * the low-level services they depend on.
      */
@@ -222,6 +299,9 @@ public class ServiceContainer {
         // Layer 2: Platform-specific managers
         if (nerrusManager != null) {
             shutdownService("NerrusManager", nerrusManager::shutdown);
+        }
+        if (hudManager != null) {
+            shutdownService("HudManager", hudManager::shutdown);
         }
         // Layer 1: Configuration (no cleanup needed)
         plugin.getLogger().info("Service container shutdown complete.");

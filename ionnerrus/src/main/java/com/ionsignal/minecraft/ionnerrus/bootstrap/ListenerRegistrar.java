@@ -3,7 +3,9 @@ package com.ionsignal.minecraft.ionnerrus.bootstrap;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleListener;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
+import com.ionsignal.minecraft.ionnerrus.listeners.CraftEngineReloadListener;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
+import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 
@@ -18,11 +20,13 @@ public class ListenerRegistrar {
     private final IonNerrus plugin;
     private final NerrusManager nerrusManager;
     private final ChatBubbleService chatBubbleService;
+    private final HudManager hudManager;
 
-    public ListenerRegistrar(IonNerrus plugin, NerrusManager nerrusManager, ChatBubbleService chatBubbleService) {
+    public ListenerRegistrar(IonNerrus plugin, NerrusManager nerrusManager, ChatBubbleService chatBubbleService, HudManager hudManager) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.chatBubbleService = chatBubbleService;
+        this.hudManager = hudManager;
     }
 
     /**
@@ -40,6 +44,11 @@ public class ListenerRegistrar {
         } else if (plugin.getPluginConfig().isChatBubblesEnabled()) {
             // Config enabled but service unavailable - inform admin
             plugin.getLogger().warning("Chat Bubbles enabled in config, but service failed to initialize.");
+        }
+        // Register CraftEngine reload listener only if HUD system initialized successfully
+        if (hudManager != null) {
+            manager.registerEvents(new CraftEngineReloadListener(plugin, hudManager), plugin);
+            plugin.getLogger().info("Registered listener for CraftEngine reload events.");
         }
         plugin.getLogger().info("Registered event listeners.");
     }
