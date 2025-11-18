@@ -1,11 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.persona.listeners;
 
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaHolder;
 import com.ionsignal.minecraft.ionnerrus.persona.action.impl.FaceHeadBodyAction;
 import com.ionsignal.minecraft.ionnerrus.persona.event.PlayerLeftClickPersonaEvent;
 import com.ionsignal.minecraft.ionnerrus.persona.event.PlayerRightClickPersonaEvent;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.PersonaHolder;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
 
 import net.minecraft.server.level.ServerPlayer;
 

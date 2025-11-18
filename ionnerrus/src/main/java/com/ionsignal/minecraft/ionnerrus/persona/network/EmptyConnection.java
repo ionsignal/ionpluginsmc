@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.network;
+package com.ionsignal.minecraft.ionnerrus.persona.network;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelConfig;

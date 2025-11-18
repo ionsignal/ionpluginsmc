@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.network;
+package com.ionsignal.minecraft.ionnerrus.persona.network;
 
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;

@@ -14,10 +14,11 @@ import java.util.concurrent.CompletableFuture;
 
 public class BlockBreakerAction implements Action {
     private static final int SWING_INTERVAL = 10;
+
     private final Block block;
     private final CompletableFuture<ActionStatus> future = new CompletableFuture<>();
-    private int ticksToBreak;
 
+    private int ticksToBreak;
     private FaceHeadBodyAction faceAction;
     private ActionStatus status = ActionStatus.RUNNING;
     private Persona persona;
@@ -32,29 +33,22 @@ public class BlockBreakerAction implements Action {
     public void start(Persona persona) {
         this.persona = persona;
         this.ticksSinceLastSwing = SWING_INTERVAL;
-
-        // look at the block we're breaking
         Location lookTarget = block.getLocation().clone().add(0.5, 0.5, 0.5);
         this.faceAction = new FaceHeadBodyAction(lookTarget, true, Integer.MAX_VALUE);
         this.faceAction.start(persona);
-
         if (block.getType() == Material.AIR) {
             finish(ActionStatus.SUCCESS);
             return;
         }
-
-        var bridge = persona.getManager().getPlatformBridge();
-        this.ticksToBreak = 20; // bridge.calculateBreakTicks(persona, this.block);
+        this.ticksToBreak = persona.calculateBreakTicks(this.block);
         if (this.ticksToBreak == Integer.MAX_VALUE) {
             IonNerrus.getInstance().getLogger()
                     .warning("Persona " + persona.getName() + " tried to break an unbreakable block: " + block.getType());
             finish(ActionStatus.FAILURE);
             return;
         }
-
-        // Handle instant-break blocks
         if (this.ticksToBreak <= 1) {
-            boolean success = bridge.destroyBlock(persona, this.block);
+            boolean success = persona.destroyBlock(this.block);
             finish(success ? ActionStatus.SUCCESS : ActionStatus.FAILURE);
         }
     }
@@ -74,23 +68,15 @@ public class BlockBreakerAction implements Action {
             ticksSinceLastSwing = 0;
         }
         int stage = (int) (((double) ticksElapsed / this.ticksToBreak) * 10.0);
-        persona.getManager().getPlatformBridge().sendBlockBreakAnimation(persona, block, stage);
+        persona.sendBlockBreakAnimation(block, stage);
         if (ticksElapsed >= this.ticksToBreak) {
-            IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                if (persona.isSpawned() && block.getType() != Material.AIR) {
-                    var bridge = persona.getManager().getPlatformBridge();
-                    boolean success = bridge.destroyBlock(persona, this.block);
-                    if (success) {
-                        finish(ActionStatus.SUCCESS);
-                    } else {
-                        // This can happen if a plugin cancels the BlockBreakEvent, etc.
-                        finish(ActionStatus.FAILURE);
-                    }
-                } else {
-                    // If the block is already air or the entity is invalid, it's a success.
-                    finish(ActionStatus.SUCCESS);
-                }
-            });
+            // Already on main thread (called from NerrusTick)
+            if (persona.isSpawned() && block.getType() != Material.AIR) {
+                boolean success = persona.destroyBlock(this.block);
+                finish(success ? ActionStatus.SUCCESS : ActionStatus.FAILURE);
+            } else {
+                finish(ActionStatus.SUCCESS);
+            }
         }
     }
 
@@ -106,7 +92,7 @@ public class BlockBreakerAction implements Action {
                 this.faceAction.stop();
             }
             this.future.complete(finalStatus);
-            persona.getManager().getPlatformBridge().sendBlockBreakAnimation(persona, block, -1);
+            persona.sendBlockBreakAnimation(block, -1);
         }
     }
 

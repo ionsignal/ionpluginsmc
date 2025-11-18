@@ -1,6 +1,5 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform;
+package com.ionsignal.minecraft.ionnerrus.persona;
 
-import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import org.jetbrains.annotations.NotNull;
 
 /**

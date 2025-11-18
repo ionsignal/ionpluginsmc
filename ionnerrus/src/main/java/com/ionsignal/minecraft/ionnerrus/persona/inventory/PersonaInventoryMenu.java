@@ -1,6 +1,5 @@
-package com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.inventory;
+package com.ionsignal.minecraft.ionnerrus.persona.inventory;
 
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
 import net.minecraft.world.Container;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -12,6 +11,8 @@ import org.bukkit.craftbukkit.inventory.CraftInventory;
 import org.bukkit.craftbukkit.inventory.CraftInventoryView;
 import org.bukkit.inventory.InventoryView;
 import org.jetbrains.annotations.NotNull;
+
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 
 public class PersonaInventoryMenu extends AbstractContainerMenu {
 
