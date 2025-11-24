@@ -28,7 +28,6 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.Collections;
 import java.util.Set;
@@ -37,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuProvider {
     private final Persona persona;
@@ -49,8 +47,6 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
     protected final PersonaMoveControl moveControl;
     protected final PersonaJumpControl jumpControl;
     protected final PersonaLookControl lookControl;
-
-    private @Nullable ServerPlayer viewingPlayer = null;
 
     public PersonaEntity(MinecraftServer server, ServerLevel level, GameProfile gameProfile, Persona persona) {
         super(server, level, gameProfile,
@@ -113,21 +109,14 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
     @Override
     public AbstractContainerMenu createMenu(int containerId, @SuppressWarnings("null") @NotNull Inventory playerInventory,
             @SuppressWarnings("null") @NotNull net.minecraft.world.entity.player.Player player) {
-        this.startViewing((ServerPlayer) player);
+        this.persona.getPhysicalBody().onInventoryOpen(player.getBukkitEntity());
         return new PersonaInventoryMenu(containerId, playerInventory, this.getInventory(), this);
     }
 
-    public void startViewing(ServerPlayer player) {
-        this.viewingPlayer = player;
-    }
-
-    public void stopViewing() {
-        this.viewingPlayer = null;
-        this.lookControl.stopLooking();
-    }
-
-    public boolean isInventoryLocked() {
-        return this.viewingPlayer != null;
+    @Override
+    public void doCloseContainer() {
+        this.persona.getPhysicalBody().onInventoryClose();
+        super.doCloseContainer();
     }
 
     @Override
@@ -137,33 +126,13 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
 
     @Override
     public void aiStep() {
-        if (isInventoryLocked()) {
-            if (this.viewingPlayer != null && this.viewingPlayer.isAlive()) {
-                this.lookControl.setLookAt(this.viewingPlayer.getX(), this.viewingPlayer.getEyeY(), this.viewingPlayer.getZ());
-            }
-            this.lookControl.tick();
-
-            this.zza = 0.0F;
-            this.xxa = 0.0F;
-            return;
-        }
-
+        // Tick physics controls.
+        // Note: lookControl is NOT ticked here.
+        // It is driven exclusively by BukkitPhysicalBody
         this.moveControl.tick();
         this.jumpControl.tick();
 
         super.aiStep();
-
-        this.lookControl.tick();
-    }
-
-    @Override
-    public void travel(@NotNull @SuppressWarnings("null") Vec3 travelVector) {
-        // This is the key method for movement.
-        // ServerPlayer normally doesn't move itself. We need to use the LivingEntity logic
-        // which uses zza, xxa, and jumping state to move.
-        // By calling super.travel() on LivingEntity, we enable this behavior.
-        // Call the LivingEntity travel method, which contains the actual movement logic
-        super.travel(travelVector);
     }
 
     public PersonaMoveControl getMoveControl() {
