@@ -375,7 +375,6 @@ public class CraftItemGoal implements Goal {
                 return;
             }
         }
-
         // No craftable steps found
         int currentCount = context.getAvailableCount(Ingredient.of(targetItemMaterial));
         int targetCount = initialTargetItemCount + params.quantity();
@@ -392,13 +391,13 @@ public class CraftItemGoal implements Goal {
             @Override
             public CompletableFuture<Void> execute(NerrusAgent agent) {
                 return CompletableFuture.runAsync(() -> {
-                    Optional<RecipeService.CraftingBlueprint> planOpt = recipeService.createCraftingPlan(targetItemMaterial,
-                            params.quantity());
                     // Post message instead of direct state mutation
+                    Optional<RecipeService.CraftingBlueprint> planOpt = recipeService
+                            .createCraftingBlueprint(targetItemMaterial, params.quantity());
                     IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
                         if (planOpt.isEmpty()) {
-                            agent.postMessage(contextToken, PlanningResult.failure(
-                                    "Unable to create crafting plan for " + params.itemName()));
+                            agent.postMessage(contextToken,
+                                    PlanningResult.failure("Unable to create crafting plan for " + params.itemName()));
                         } else {
                             agent.postMessage(contextToken, PlanningResult.success(planOpt.get()));
                         }

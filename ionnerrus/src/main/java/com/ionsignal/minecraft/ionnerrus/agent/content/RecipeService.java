@@ -14,137 +14,27 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.logging.Logger;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 
 /**
- * A service for resolving Minecraft crafting recipes into a complete, actionable plan. It
- * recursively calculates all raw material requirements and determines the correct, ordered sequence
- * of intermediate crafting steps needed to produce a final item.
+ * This service resolves recipe dependencies and returns ALL possible crafting paths without
+ * considering world state, inventory, or agent location. The resulting CraftingBlueprint is
+ * context-free and can be reused by multiple agents.
  */
 public class RecipeService {
+    private static final int MAX_RESOLUTION_DEPTH = 20;
+
     private final BlockTagManager blockTagManager;
-    private final Logger logger;
-
-    public RecipeService(BlockTagManager blockTagManager) {
-        this.logger = IonNerrus.getInstance().getLogger();
-        this.blockTagManager = blockTagManager;
-    }
-
-    /**
-     * Creates a complete, ordered plan for crafting an item.
-     *
-     * @param targetMaterial
-     *            The final item to be crafted.
-     * @param quantity
-     *            The desired quantity of the final item.
-     * @return An Optional containing the full CraftingPlan, or empty if the item cannot be crafted.
-     */
-    public Optional<CraftingBlueprint> createCraftingPlan(Material targetMaterial, int quantity) {
-        try {
-            Map<Ingredient, Integer> requiredItems = new HashMap<>();
-            requiredItems.put(Ingredient.of(targetMaterial), quantity);
-            Map<Ingredient, Integer> totalRawMaterials = new HashMap<>();
-            List<CraftingStep> orderedSteps = new ArrayList<>();
-            logger.info("[RecipeService] Starting crafting plan for " + quantity + "x " + targetMaterial);
-            resolveDependencies(requiredItems, totalRawMaterials, orderedSteps, 0);
-            return Optional.of(new CraftingBlueprint(totalRawMaterials, orderedSteps));
-        } catch (IllegalStateException e) {
-            logger.severe("Failed to create crafting plan for " + targetMaterial + ": " + e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * The core recursive function that performs a dependency-graph traversal (depth-first search)
-     * to calculate raw materials and determine the correct crafting order (topological sort).
-     *
-     * @param itemsToCraft
-     *            A map of materials and quantities needed at the current level of recursion.
-     * @param totalRawMaterials
-     *            A map that accumulates the final raw material shopping list.
-     * @param orderedSteps
-     *            A list that accumulates the correctly ordered crafting steps (post-order traversal).
-     * @param visited
-     *            A set to track visited nodes in the dependency graph to prevent redundant
-     *            processing and infinite loops.
-     */
-    @SuppressWarnings("null")
-    private void resolveDependencies(
-            Map<Ingredient, Integer> itemsToCraft,
-            Map<Ingredient, Integer> totalRawMaterials,
-            List<CraftingStep> orderedSteps,
-            int depth) {
-        String indent = "  ".repeat(depth);
-        String itemsStr = itemsToCraft.entrySet().stream()
-                .map(e -> e.getValue() + "x " + e.getKey())
-                .collect(Collectors.joining(", "));
-        // logger.info(String.format("%s[Depth %d] Resolving dependencies for: {%s}", indent, depth,
-        // itemsStr));
-        for (Map.Entry<Ingredient, Integer> entry : new HashMap<>(itemsToCraft).entrySet()) {
-            Ingredient ingredient = entry.getKey();
-            int needed = entry.getValue();
-            // The check for already-completed steps is now done by inspecting the final orderedSteps list,
-            // which is more reliable than the old visited set.
-            if (orderedSteps.stream().anyMatch(step -> step.ingredientToCraft().equals(ingredient))) {
-                logger.info(String.format("%s -> Already resolved %s. Skipping.", indent, ingredient));
-                continue;
-            }
-            Material representativeMaterial = ingredient.getPreferredMaterial();
-            if (blockTagManager.isRawMaterial(representativeMaterial) || blockTagManager.isGatherable(representativeMaterial)) {
-                logger.info(String.format("%s -> Terminal node %s (is a raw/gatherable material). Adding to raw materials list.", indent,
-                        ingredient));
-                totalRawMaterials.merge(ingredient, needed, Integer::sum);
-                continue;
-            }
-            List<CraftingRecipe> recipes = findRecipesForIngredient(ingredient);
-            if (recipes.isEmpty()) {
-                logger.info(String.format("%s -> Terminal node %s (no recipe). Adding to raw materials list.", indent, ingredient));
-                totalRawMaterials.merge(ingredient, needed, Integer::sum);
-                continue;
-            }
-            // Group recipes by their abstract ingredient signature.
-            Map<Map<Ingredient, Integer>, List<CraftingRecipe>> recipeGroups = recipes.stream()
-                    .collect(Collectors.groupingBy(this::getIngredientSignature));
-            // Create CraftingPath objects for each group.
-            List<CraftingPath> paths = recipeGroups.entrySet().stream()
-                    .map(groupEntry -> {
-                        // Get yield from the group, assuming all recipes in a group have the same yield.
-                        int yield = groupEntry.getValue().get(0).getResult().getAmount();
-                        return new CraftingPath(groupEntry.getKey(), groupEntry.getValue(), yield);
-                    })
-                    .toList();
-            // We still need a representative yield to calculate craftsToPerform for the recursion and we'll
-            // just use the first path's yield for this. The execution logic will use the correct yield later.
-            int representativeYield = paths.get(0).yield();
-            int craftsToPerform = (int) Math.ceil((double) needed / representativeYield);
-            // logger.info(String.format(
-            // "%s -> Found %d recipe(s) for %s, grouped into %d distinct path(s). Representative yield: %d.
-            // Need to perform %d craft(s).",
-            // indent, recipes.size(), ingredient, paths.size(), representativeYield, craftsToPerform));
-            // Collect all possible sub-ingredients from all paths.
-            Map<Ingredient, Integer> allSubIngredients = new HashMap<>();
-            for (CraftingPath path : paths) {
-                path.requirements().forEach((subIngredient, quantity) -> {
-                    allSubIngredients.merge(subIngredient, quantity * craftsToPerform, Integer::sum);
-                });
-            }
-            if (!allSubIngredients.isEmpty()) {
-                String subIngStr = allSubIngredients.entrySet().stream().map(e -> e.getValue() + "x " + e.getKey())
-                        .collect(Collectors.joining(", "));
-                logger.info(String.format("%s -> All possible sub-ingredients needed: {%s}", indent, subIngStr));
-                logger.info(String.format("%s -> Descending into dependencies for %s...", indent, ingredient));
-                resolveDependencies(allSubIngredients, totalRawMaterials, orderedSteps, depth + 1);
-            }
-            // logger.info(String.format("%s -> Finished dependencies for %s. Adding to ordered steps.", indent,
-            // ingredient));
-            orderedSteps.add(new CraftingStep(ingredient, paths));
-        }
-        logger.info(String.format("%s[Depth %d] Finished resolving for: {%s}", indent, depth, itemsStr));
-    }
+    private final ComponentLogger logger;
 
     /**
      * Represents a single, distinct crafting action to be performed.
@@ -182,10 +72,190 @@ public class RecipeService {
     public record CraftingPath(Map<Ingredient, Integer> requirements, List<CraftingRecipe> recipes, int yield) {
     }
 
+    public RecipeService(BlockTagManager blockTagManager) {
+        this.logger = IonNerrus.getInstance().getModernLogger();
+        this.blockTagManager = blockTagManager;
+    }
+
+    /**
+     * Creates a complete, ordered plan for crafting an item.
+     *
+     * @param targetMaterial
+     *            The final item to be crafted.
+     * @param quantity
+     *            The desired quantity of the final item.
+     * @return An Optional containing the full CraftingPlan, or empty if the item cannot be crafted.
+     */
+    public Optional<CraftingBlueprint> createCraftingBlueprint(Material targetMaterial, int quantity) {
+        if (targetMaterial == null) {
+            throw new IllegalArgumentException("targetMaterial cannot be null");
+        }
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("quantity must be positive, got: " + quantity);
+        }
+        if (!targetMaterial.isItem()) {
+            logger.warn("Cannot craft non-item material: " + targetMaterial);
+            return Optional.empty();
+        }
+        try {
+            Map<Ingredient, Integer> requiredItems = new HashMap<>();
+            requiredItems.put(Ingredient.of(targetMaterial), quantity);
+            Map<Ingredient, Integer> totalRawMaterials = new HashMap<>();
+            List<CraftingStep> orderedSteps = new ArrayList<>();
+            logger.debug("[RecipeService] Starting crafting plan for " + quantity + "x " + targetMaterial);
+            // Begin resolution with cycle detection
+            Set<Ingredient> resolutionStack = new HashSet<>();
+            resolveDependencies(requiredItems, totalRawMaterials, orderedSteps, resolutionStack, 0);
+            return Optional.of(new CraftingBlueprint(totalRawMaterials, orderedSteps));
+        } catch (StackOverflowError e) {
+            // Explicit handling for stack overflow (indicates circular dependency)
+            logger.error("Recipe resolution caused stack overflow (circular dependency?) for " + targetMaterial);
+            return Optional.empty();
+        } catch (IllegalStateException e) {
+            // Catch depth limit exceeded
+            logger.error("Failed to create crafting plan for " + targetMaterial + ": " + e.getMessage());
+            return Optional.empty();
+        } catch (Exception e) {
+            // Catch all other exceptions to prevent plugin crashes
+            logger.error("Unexpected error creating crafting plan for " + targetMaterial);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The core recursive function that performs a dependency-graph traversal (depth-first search)
+     * to calculate raw materials and determine the correct crafting order (topological sort).
+     *
+     * @param itemsToCraft
+     *            A map of materials and quantities needed at the current level of recursion.
+     * @param totalRawMaterials
+     *            A map that accumulates the final raw material shopping list.
+     * @param orderedSteps
+     *            A list that accumulates the correctly ordered crafting steps (post-order traversal).
+     * @param resolutionStack
+     *            A set to track the current resolution chain for cycle detection ONLY.
+     */
+    @SuppressWarnings("null")
+    private void resolveDependencies(
+            Map<Ingredient, Integer> itemsToCraft,
+            Map<Ingredient, Integer> totalRawMaterials,
+            List<CraftingStep> orderedSteps,
+            Set<Ingredient> resolutionStack,
+            int depth) {
+        // Depth limit check
+        if (depth > MAX_RESOLUTION_DEPTH) {
+            throw new IllegalStateException(
+                    String.format("Recipe resolution exceeded maximum depth of %d. Possible circular dependency.", MAX_RESOLUTION_DEPTH));
+        }
+        // Build memoization set once for O(1) lookups (was O(n) per ingredient)
+        Set<Ingredient> resolvedIngredients = orderedSteps.stream()
+                .map(CraftingStep::ingredientToCraft)
+                .collect(Collectors.toSet());
+        String indent = "  ".repeat(depth);
+        String itemsStr = itemsToCraft.entrySet().stream()
+                .map(e -> e.getValue() + "x " + e.getKey())
+                .collect(Collectors.joining(", "));
+        logger.debug(String.format("%s[Depth %d] Resolving dependencies for: {%s}", indent, depth, itemsStr));
+        for (Map.Entry<Ingredient, Integer> entry : itemsToCraft.entrySet()) {
+            Ingredient ingredient = entry.getKey();
+            int needed = entry.getValue();
+            // Memoization check - O(1) check for already-resolved ingredients
+            if (resolvedIngredients.contains(ingredient)) {
+                logger.debug(String.format("%s -> Already resolved %s. Skipping.", indent, ingredient));
+                continue;
+            }
+            // Cycle detection - Check if ingredient is in current resolution chain
+            if (resolutionStack.contains(ingredient)) {
+                throw new IllegalStateException("Circular recipe dependency detected: " + ingredient);
+            }
+            // Add to resolution stack for cycle detection
+            resolutionStack.add(ingredient);
+            // Wrap entire processing in try-finally for guaranteed cleanup
+            try {
+                Material representativeMaterial = ingredient.getPreferredMaterial();
+                // Terminal case: Raw or gatherable material
+                if (blockTagManager.isRawMaterial(representativeMaterial) || blockTagManager.isGatherable(representativeMaterial)) {
+                    logger.debug(String.format("%s -> Terminal node %s (is a raw/gatherable material). Adding to raw materials list.",
+                            indent, ingredient));
+                    totalRawMaterials.merge(ingredient, needed, Integer::sum);
+                    continue; // Early return - ingredient removed in finally block
+                }
+                // Find recipes for this ingredient
+                List<CraftingRecipe> recipes = findRecipesForIngredient(ingredient);
+                if (recipes.isEmpty()) {
+                    logger.debug(String.format("%s -> Terminal node %s (no recipe). Adding to raw materials list.", indent, ingredient));
+                    totalRawMaterials.merge(ingredient, needed, Integer::sum);
+                    continue; // Early return - ingredient removed in finally block
+                }
+                // Group recipes by their abstract ingredient signature
+                Map<Map<Ingredient, Integer>, List<CraftingRecipe>> recipeGroups = recipes.stream()
+                        .collect(Collectors.groupingBy(this::getIngredientSignature));
+                // Create CraftingPath objects for each group
+                List<CraftingPath> paths = recipeGroups.entrySet().stream()
+                        .map(groupEntry -> {
+                            int yield = groupEntry.getValue().get(0).getResult().getAmount();
+                            return new CraftingPath(groupEntry.getKey(), groupEntry.getValue(), yield);
+                        })
+                        .toList();
+                // Calculate crafts needed (using first path's yield as representative)
+                int representativeYield = paths.get(0).yield();
+                int craftsToPerform = (int) Math.ceil((double) needed / representativeYield);
+                logger.debug(String.format(
+                        "%s -> Found %d recipe(s) for %s, grouped into %d path(s). Representative yield: %d. Need %d craft(s).",
+                        indent, recipes.size(), ingredient, paths.size(), representativeYield, craftsToPerform));
+                // Collect all sub-ingredients from all paths
+                Map<Ingredient, Integer> allSubIngredients = new HashMap<>();
+                for (CraftingPath path : paths) {
+                    path.requirements().forEach((subIngredient, quantity) -> {
+                        allSubIngredients.merge(subIngredient, quantity * craftsToPerform, Integer::sum);
+                    });
+                }
+                // Recurse into sub-ingredients if any exist
+                if (!allSubIngredients.isEmpty()) {
+                    String subIngStr = allSubIngredients.entrySet().stream()
+                            .map(e -> e.getValue() + "x " + e.getKey())
+                            .collect(Collectors.joining(", "));
+                    logger.debug(String.format("%s -> All possible sub-ingredients needed: {%s}", indent, subIngStr));
+                    logger.debug(String.format("%s -> Descending into dependencies for %s...", indent, ingredient));
+                    // Pass resolutionStack down the chain
+                    resolveDependencies(allSubIngredients, totalRawMaterials, orderedSteps, resolutionStack, depth + 1);
+                }
+                // Add this ingredient to the ordered steps
+                orderedSteps.add(new CraftingStep(ingredient, paths));
+            } finally {
+                // Remove from resolution stack when done (backtracking)
+                // This allows the same ingredient to appear in different branches
+                resolutionStack.remove(ingredient);
+            }
+        }
+        logger.debug(String.format("%s[Depth %d] Finished resolving for: {%s}", indent, depth, itemsStr));
+    }
+
     /**
      * Finds all suitable CraftingRecipes for a given abstract ingredient.
+     * Thread-safe wrapper that delegates to main thread if needed.
      */
     private List<CraftingRecipe> findRecipesForIngredient(Ingredient ingredient) {
+        // Check if we're already on the main thread to avoid unnecessary executor overhead
+        if (Bukkit.isPrimaryThread()) {
+            return findRecipesForIngredientSync(ingredient);
+        }
+        // Otherwise, delegate to main thread and block (acceptable for planning phase)
+        CompletableFuture<List<CraftingRecipe>> future = CompletableFuture.supplyAsync(
+                () -> findRecipesForIngredientSync(ingredient),
+                IonNerrus.getInstance().getMainThreadExecutor());
+        try {
+            return future.get(); // Block until main thread completes the lookup
+        } catch (InterruptedException | ExecutionException e) {
+            logger.error("Failed to fetch recipes for ingredient: " + ingredient, e);
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Synchronous method must be called on the main server thread due to Bukkit API usage.
+     */
+    private List<CraftingRecipe> findRecipesForIngredientSync(Ingredient ingredient) {
         return ingredient.materials().stream()
                 .flatMap(material -> Bukkit.getServer().getRecipesFor(new ItemStack(material)).stream())
                 .filter(CraftingRecipe.class::isInstance)
@@ -243,11 +313,6 @@ public class RecipeService {
                 continue;
             Ingredient specificIngredient = resolveRecipeChoice(choice);
             if (specificIngredient != null) {
-                // This was the source of the bug. By removing the generalization here,
-                // a recipe requiring a specific log (ACACIA_LOG) will now correctly
-                // create a signature with that specific log, not the entire "wood" group.
-                // The generalization to tags (like any plank for a chest) still works
-                // because the RecipeChoice itself contains all the materials from the tag.
                 signature.merge(specificIngredient, 1, Integer::sum);
             }
         }
