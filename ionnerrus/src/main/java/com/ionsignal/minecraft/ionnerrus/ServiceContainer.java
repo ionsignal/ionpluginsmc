@@ -8,6 +8,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
+import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
+import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
@@ -16,9 +18,6 @@ import org.bukkit.plugin.Plugin;
 /**
  * Central service container managing the lifecycle of all plugin services.
  * Services are instantiated in explicit dependency order and exposed via typed getters.
- *
- * Thread Safety: All services are final fields set during initialization. After
- * initialization completes, all getters are thread-safe for concurrent access.
  */
 public class ServiceContainer {
     private final IonNerrus plugin;
@@ -38,14 +37,10 @@ public class ServiceContainer {
     // External services
     private final LLMService llmService;
     private final AgentService agentService;
-    private final ChatBubbleService chatBubbleService; // NOTE: Can be null if FancyHolograms fails to load
-
-    // HUD system fields
+    private final ChatBubbleService chatBubbleService;
     private final HudManager hudManager;
+    private final CraftEngineService craftEngineService;
 
-    /**
-     * Private constructor - use {@link #initialize(IonNerrus)} to create instances.
-     */
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
             PluginConfig config,
@@ -56,7 +51,8 @@ public class ServiceContainer {
             LLMService llmService,
             AgentService agentService,
             ChatBubbleService chatBubbleService,
-            HudManager hudManager) {
+            HudManager hudManager,
+            CraftEngineService craftEngineService) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -66,48 +62,42 @@ public class ServiceContainer {
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.agentService = agentService;
-        this.chatBubbleService = chatBubbleService; // Can be null
+        this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
+        this.craftEngineService = craftEngineService;
     }
 
-    /**
-     * Initializes all services in dependency order.
-     *
-     * @param plugin
-     *            The main plugin instance.
-     * @return A fully initialized ServiceContainer.
-     * @throws ServiceInitializationException
-     *             if any critical service fails to initialize.
-     */
     public static ServiceContainer initialize(IonNerrus plugin) {
         plugin.getLogger().info("Initializing service container...");
         try {
-            // Layer 1: Configuration (CRITICAL - no dependencies)
+            // Layer 1: Configuration
             PluginConfig config = new PluginConfig(plugin.getConfig());
-            // Layer 2: Platform-specific managers (CRITICAL)
+            // Layer 2: Platform-specific managers
             NerrusManager nerrusManager = new NerrusManager(plugin);
             if (!nerrusManager.initialize()) {
                 throw new ServiceInitializationException(
                         "Failed to initialize NerrusManager - incompatible server version?");
             }
-            // Layer 3: Content systems (CRITICAL)
+            // Layer 3: Content systems
             BlockTagManager blockTagManager = new BlockTagManager();
             RecipeService recipeService = new RecipeService(blockTagManager);
-            // Layer 4: Goal system (CRITICAL)
+            // Layer 4: Goal system
             GoalRegistry goalRegistry = new GoalRegistry();
             GoalFactory goalFactory = new GoalFactory(blockTagManager, recipeService);
             // Layer 5: External integrations
-            LLMService llmService = initializeLLMService(plugin); // CRITICAL
-            ChatBubbleService chatBubbleService = initializeChatBubbles(plugin); // NON-CRITICAL (can be null)
+            LLMService llmService = initializeLLMService(plugin);
+            ChatBubbleService chatBubbleService = initializeChatBubbles(plugin);
             HudManager hudManager = initializeHudManager(plugin);
-            // Layer 6: High-level services (CRITICAL)
+            CraftEngineService craftEngineService = initializeCraftEngine(plugin);
+            // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
+            nerrusManager.setCraftEngineService(craftEngineService);
+            // Layer 6: High-level services
             AgentService agentService = new AgentService(
                     plugin,
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
                     llmService);
-            // Register goal tool definitions (CRITICAL - one-time initialization)
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             plugin.getLogger().info("Service container initialized successfully.");
@@ -122,7 +112,8 @@ public class ServiceContainer {
                     llmService,
                     agentService,
                     chatBubbleService,
-                    hudManager);
+                    hudManager,
+                    craftEngineService);
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
@@ -179,7 +170,6 @@ public class ServiceContainer {
         try {
             // Create HudManager instance
             HudManager hudManager = new HudManager(plugin);
-            // registerDefaultHudElements(plugin, hudManager); // Moved to CraftEngineReloadListener..
             hudManager.finishRegistration();
             // Register as Bukkit event listener for resource pack generation
             // HudManager listens for AsyncResourcePackCacheEvent to inject shaders/fonts
@@ -207,6 +197,26 @@ public class ServiceContainer {
             e.printStackTrace();
             return null;
         }
+    }
+
+    /**
+     * Initializes the CraftEngine compatibility layer and uses reflection-based implementation to avoid
+     * compile-time dependency requirements.
+     */
+    private static CraftEngineService initializeCraftEngine(IonNerrus plugin) {
+        if (plugin.getServer().getPluginManager().isPluginEnabled("CraftEngine")) {
+            try {
+                // We use the implementation that utilizes pure reflection
+                CraftEngineService service = new CraftEngineServiceImpl();
+                plugin.getLogger().info("CraftEngine detected. Compatibility layer initialized.");
+                return service;
+            } catch (Exception e) {
+                plugin.getLogger().warning("CraftEngine detected but failed to initialize compatibility layer: " + e.getMessage());
+                e.printStackTrace();
+                return new CraftEngineService.NoOp();
+            }
+        }
+        return new CraftEngineService.NoOp();
     }
 
     public NerrusManager getNerrusManager() {
@@ -239,6 +249,10 @@ public class ServiceContainer {
 
     public AgentService getAgentService() {
         return agentService;
+    }
+
+    public CraftEngineService getCraftEngineService() {
+        return craftEngineService;
     }
 
     /**
