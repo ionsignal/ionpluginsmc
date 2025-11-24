@@ -106,7 +106,6 @@ public class GatherBlockGoal implements Goal {
                         break;
                 }
             }
-
             default -> logger.warning("GatherGoal received unknown message type: " + message.getClass().getName());
         }
     }
@@ -147,8 +146,8 @@ public class GatherBlockGoal implements Goal {
     }
 
     private Task createGatherOneBlockTask() {
-        // Search radius is hardcoded to 50 blocks
-        return new GatherBlockTask(materials, 50, attemptedLocations, contextToken);
+        // TODO: In a future update, calculate drops based on 'materials'
+        return new GatherBlockTask(materials, null, 50, attemptedLocations, contextToken);
     }
 
     private Task createUpdateCountTask() {

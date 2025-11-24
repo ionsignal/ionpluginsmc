@@ -4,14 +4,12 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.CollectItemResult;
+import com.ionsignal.minecraft.ionnerrus.persona.components.MovementCapability;
+import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.AStarPathfinder;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationHelper;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationParameters;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.Navigator;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 import com.ionsignal.minecraft.ionnerrus.util.search.BlockSearch;
 import com.ionsignal.minecraft.ionnerrus.util.search.strategy.StandardMovement;
@@ -26,8 +24,6 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 
 import org.bukkit.Location;
 import org.bukkit.World;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Item;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -71,35 +67,16 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
     @Override
     public CompletableFuture<CollectItemResult> execute(NerrusAgent agent) {
         if (targetItem == null || targetItem.isDead()) {
-            // Return the new result record for failure.
             return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.ITEM_GONE));
         }
         final long startTime = System.nanoTime();
         final Location agentLocation = agent.getPersona().getLocation();
         final World world = agentLocation.getWorld();
         if (world == null) {
-            // Return the new result record for failure.
             return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.NAVIGATION_FAILED));
         }
-        // Find a stable ground location for the item first.
-        Optional<Location> probableLandingZone = findItemLandingBlock(targetItem.getLocation(), 10);
-        if (probableLandingZone.isEmpty()) {
-            // Return the new result record for failure.
-            return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.NO_STANDPOINTS_FOUND));
-        }
-        final Location itemGroundLocation = probableLandingZone.get();
-        Navigator navigator = agent.getPersona().getNavigator();
-        CompletableFuture<CollectItemResult> finalResultFuture = new CompletableFuture<>();
-        // Set up a timeout for the entire operation.
-        finalResultFuture.orTimeout(COLLECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS).whenComplete((result, ex) -> {
-            if (ex != null) {
-                navigator.cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
-                // Return the new result record for failure.
-                finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.PICKUP_TIMEOUT));
-            }
-        });
-        // Step 1: Create a single WorldSnapshot for the entire operation.
-        double searchRadius = agentLocation.distance(itemGroundLocation) + 16;
+        final Location itemCurrentLocation = targetItem.getLocation();
+        double searchRadius = agentLocation.distance(itemCurrentLocation) + 16;
         int snapshotPadding = 16;
         BlockPos min = new BlockPos((int) (agentLocation.getX() - searchRadius - snapshotPadding),
                 (int) (agentLocation.getY() - searchRadius - snapshotPadding),
@@ -107,28 +84,42 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
         BlockPos max = new BlockPos((int) (agentLocation.getX() + searchRadius + snapshotPadding),
                 (int) (agentLocation.getY() + searchRadius + snapshotPadding),
                 (int) (agentLocation.getZ() + searchRadius + snapshotPadding));
+        MovementCapability movement = agent.getPersona().getPhysicalBody().movement();
+        CompletableFuture<CollectItemResult> finalResultFuture = new CompletableFuture<>();
+        // Set up a timeout for the entire operation.
+        finalResultFuture.orTimeout(COLLECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS).whenComplete((result, ex) -> {
+            if (ex != null) {
+                movement.stop();
+                finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.PICKUP_TIMEOUT));
+            }
+        });
+        // 1. Create Snapshot (Async)
         WorldSnapshot.create(world, min, max)
-                .thenComposeAsync(snapshot -> findOptimalApproachPath(agent, itemGroundLocation, snapshot),
-                        IonNerrus.getInstance().getOffloadThreadExecutor())
+                .thenComposeAsync(snapshot -> {
+                    Optional<Location> probableLandingZone = snapshot.findGroundBelow(itemCurrentLocation, 8);
+                    if (probableLandingZone.isEmpty()) {
+                        // Cannot find valid ground (void, water, or too high up)
+                        return CompletableFuture.completedFuture(Optional.<Path>empty());
+                    }
+                    return findOptimalApproachPath(agentLocation, probableLandingZone.get(), snapshot);
+                }, IonNerrus.getInstance().getOffloadThreadExecutor())
                 .thenComposeAsync(pathOptional -> {
                     if (pathOptional.isEmpty()) {
                         log(startTime, "NO_PATH_FOUND");
-                        // Return the new result record for failure.
                         finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.NO_PATH_FOUND));
                         return CompletableFuture.completedFuture(null);
                     }
                     log(startTime, "OPTIMAL_APPROACH_PATH_FOUND");
-                    return navigator.navigateTo(pathOptional.get());
+                    return movement.moveTo(pathOptional.get());
                 }, IonNerrus.getInstance().getMainThreadExecutor())
                 .thenAcceptAsync(navResult -> {
                     if (finalResultFuture.isDone()) {
                         return;
                     }
-                    if (navResult != NavigationResult.SUCCESS) {
-                        // Return the new result record for failure.
+                    if (navResult != MovementResult.SUCCESS) {
                         finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.NAVIGATION_FAILED));
                     } else {
-                        engageAndMonitor(agent, navigator, finalResultFuture);
+                        engageAndMonitor(agent, movement, finalResultFuture);
                     }
                 }, IonNerrus.getInstance().getMainThreadExecutor());
         return finalResultFuture;
@@ -139,7 +130,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
      * the skill's result future, resolving the race condition between the navigator's state and the
      * inventory check.
      */
-    private void engageAndMonitor(NerrusAgent agent, Navigator navigator,
+    private void engageAndMonitor(NerrusAgent agent, MovementCapability movement,
             CompletableFuture<CollectItemResult> finalResultFuture) {
         final int initialCount = countItems(agent, targetItem.getItemStack().getType());
         BukkitTask monitorTask = new BukkitRunnable() {
@@ -152,62 +143,41 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                 if (countItems(agent, targetItem.getItemStack().getType()) > initialCount) {
                     // Complete with a success record containing the collected item stack.
                     finalResultFuture.complete(CollectItemResult.success(targetItem.getItemStack()));
-                    navigator.finishEngaging(EngageResult.SUCCESS);
+                    movement.stop();
                     this.cancel();
                 }
             }
         }.runTaskTimer(IonNerrus.getInstance(), 0L, 5L);
+
         finalResultFuture.whenComplete((res, err) -> monitorTask.cancel());
-        CompletableFuture<EngageResult> engageFuture = navigator.engageOn(targetItem, 1.0 * 1.0);
-        // if (VISUALIZE_COLLECT) {
-        // IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-        // DebugVisualizer.highlightBlock(targetItem.getLocation(), 60, NamedTextColor.DARK_AQUA);
-        // });
-        // }
-        engageFuture.whenComplete((engageResult, throwable) -> {
+
+        agent.getPersona().getPhysicalBody().orientation().face(targetItem);
+
+        movement.engage(targetItem, 1.0 * 1.0).whenComplete((engageResult, throwable) -> {
             if (finalResultFuture.isDone()) {
+                return;
+            }
+            // if movement failed/timed out, check inventory one last time to avoid race condition where the
+            // item is picked up on the same tick the movement times out
+            if (engageResult != MovementResult.SUCCESS && countItems(agent, targetItem.getItemStack().getType()) > initialCount) {
+                finalResultFuture.complete(CollectItemResult.success(targetItem.getItemStack()));
                 return;
             }
             // Map the EngageResult to the new CollectItemResult status.
             CollectItemResult.Status statusToReport = switch (engageResult) {
                 case SUCCESS -> null; // Success is handled by the inventory monitor.
-                case TARGET_GONE -> CollectItemResult.Status.ITEM_GONE;
+                case TARGET_LOST -> CollectItemResult.Status.ITEM_GONE;
                 case STUCK -> CollectItemResult.Status.NAVIGATION_FAILED;
-                case TIMED_OUT -> CollectItemResult.Status.PICKUP_TIMEOUT;
+                case TIMEOUT -> CollectItemResult.Status.PICKUP_TIMEOUT;
                 case CANCELLED -> CollectItemResult.Status.CANCELLED;
+                case FAILURE -> throw new UnsupportedOperationException("Unimplemented case: " + engageResult);
+                case UNREACHABLE -> throw new UnsupportedOperationException("Unimplemented case: " + engageResult);
+                default -> throw new IllegalArgumentException("Unexpected value: " + engageResult);
             };
             if (statusToReport != null) {
                 finalResultFuture.complete(CollectItemResult.failure(statusToReport));
             }
         });
-    }
-
-    /**
-     * Finds the first solid surface directly below a starting location, simulating where a falling item
-     * would land. This is used to get a stable reference point for the collection search.
-     *
-     * @param startLocation
-     *            The location to start searching from (typically the item's current location).
-     * @param searchRange
-     *            The maximum number of blocks to search downwards.
-     * @return An Optional containing the Location of the passable block directly above the found
-     *         surface,
-     *         or an empty Optional if no surface is found within range.
-     */
-    private Optional<Location> findItemLandingBlock(Location startLocation, int searchRange) {
-        Block currentBlock = startLocation.getBlock();
-        // Search downwards from the item's current position.
-        for (int i = 0; i < searchRange; i++) {
-            // A landing zone is the first non-passable block we encounter.
-            // This correctly handles solid blocks, leaves, slabs, etc.
-            if (!NavigationHelper.isPassable(currentBlock)) {
-                // The reference point for our search should be the passable space *above* the solid surface.
-                return Optional.of(currentBlock.getRelative(BlockFace.UP).getLocation().add(0.5, 0, 0.5));
-            }
-            currentBlock = currentBlock.getRelative(BlockFace.DOWN);
-        }
-        // If we search the whole range and find nothing but air, there's no landing zone.
-        return Optional.empty();
     }
 
     /**
@@ -241,10 +211,12 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
      * Finds the optimal path to a valid standing spot near the item using an efficient
      * search-and-evaluate strategy.
      */
-    private CompletableFuture<Optional<Path>> findOptimalApproachPath(NerrusAgent agent, Location itemGroundLocation,
+    private CompletableFuture<Optional<Path>> findOptimalApproachPath(
+            Location agentLocation,
+            Location itemGroundLocation,
             WorldSnapshot snapshot) {
         return CompletableFuture.supplyAsync(() -> {
-            final Location agentLocation = agent.getPersona().getLocation();
+            // Removed agent.getPersona().getLocation() call; using passed parameter
             final double searchRadius = agentLocation.distance(itemGroundLocation) + 10.0;
             // Step 1: Use BlockSearch to find all reachable locations that are also valid approach points.
             ApproachPointProcessor processor = new ApproachPointProcessor(itemGroundLocation);

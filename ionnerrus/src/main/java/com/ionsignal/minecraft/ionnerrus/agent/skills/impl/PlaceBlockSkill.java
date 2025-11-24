@@ -4,30 +4,22 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
-import com.ionsignal.minecraft.ionnerrus.persona.action.ActionStatus;
-import com.ionsignal.minecraft.ionnerrus.persona.action.impl.FaceHeadBodyAction;
-import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
+import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
+import com.ionsignal.minecraft.ionnerrus.persona.components.results.ActionResult;
+import com.ionsignal.minecraft.ionnerrus.persona.components.results.LookResult;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.context.UseOnContext;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.block.state.BlockState;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
-import org.bukkit.craftbukkit.inventory.CraftItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.logging.Logger;
 
 /**
@@ -37,12 +29,10 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
 
     private final Material materialToPlace;
     private final Logger logger;
-    private final Executor mainThreadExecutor;
 
     public PlaceBlockSkill(Material materialToPlace) {
         this.materialToPlace = materialToPlace;
         this.logger = IonNerrus.getInstance().getLogger();
-        this.mainThreadExecutor = IonNerrus.getInstance().getMainThreadExecutor();
     }
 
     @Override
@@ -52,59 +42,66 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
             logger.warning("PlaceBlockSkill: Agent does not have " + materialToPlace);
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        // The logic is now a single, clean CompletableFuture chain.
-        // Step 1: Find a suitable spot to place the block (off-thread).
-        return findPlacementSpot(agent).thenCompose(placementSpotOpt -> {
-            if (placementSpotOpt.isEmpty()) {
-                logger.warning("PlaceBlockSkill: Could not find a valid spot to place the block.");
-                return CompletableFuture.completedFuture(Optional.empty());
-            }
-            Location placementSpot = placementSpotOpt.get();
-            // Step 2: Find a reachable spot to stand to perform the placement (off-thread).
-            return new FindNearbyReachableSpotSkill(placementSpot, 5).execute(agent).thenCompose(standingSpotOpt -> {
-                if (standingSpotOpt.isEmpty()) {
-                    logger.warning("PlaceBlockSkill: Found a placement spot but no reachable standing spot.");
-                    return CompletableFuture.completedFuture(Optional.empty());
-                }
-                Location standingSpot = standingSpotOpt.get();
-                // Step 3: Navigate to the standing spot.
-                return new NavigateToLocationSkill(standingSpot, placementSpot).execute(agent).thenComposeAsync(navResult -> {
-                    if (navResult != NavigateToLocationResult.SUCCESS) {
-                        logger.warning("PlaceBlockSkill: Failed to navigate to standing spot.");
+        // Capture state and use WorldSnapshot
+        final Location agentLoc = agent.getPersona().getLocation();
+        final World world = agentLoc.getWorld();
+        if (world == null) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        // Define snapshot bounds (Radius 5 + padding)
+        BlockPos center = new BlockPos(agentLoc.getBlockX(), agentLoc.getBlockY(), agentLoc.getBlockZ());
+        BlockPos min = center.offset(-6, -3, -6);
+        BlockPos max = center.offset(6, 3, 6);
+        // Create snapshot -> Find spot (Async) -> Process result
+        return WorldSnapshot.create(world, min, max)
+                .thenCompose(snapshot -> findPlacementSpot(agentLoc, snapshot)) // Pass captured loc and snapshot
+                .thenCompose(placementSpotOpt -> {
+                    // THREADING FIX END
+                    if (placementSpotOpt.isEmpty()) {
+                        logger.warning("PlaceBlockSkill: Could not find a valid spot to place the block.");
                         return CompletableFuture.completedFuture(Optional.empty());
                     }
-                    // This block MUST execute on the main thread to safely interact with the ActionController.
-                    logger.info("PlaceBlockSkill: Navigation successful. Scheduling face action.");
-                    // The constructor is now correct: (Location, turnBody, durationTicks).
-                    // durationTicks = -1 means it completes when the agent is facing the target.
-                    FaceHeadBodyAction faceAction = new FaceHeadBodyAction(placementSpot, true, -1);
-                    agent.getPersona().getActionController().schedule(faceAction);
-                    // We now correctly return the future from the action itself. The skill's execution
-                    // will pause here until the agent has physically turned to face the spot.
-                    return faceAction.getFuture().thenComposeAsync(faceStatus -> {
-                        if (faceStatus != ActionStatus.SUCCESS) {
-                            logger.warning("PlaceBlockSkill: Failed to face placement spot.");
+                    Location placementSpot = placementSpotOpt.get();
+                    // Find a reachable spot to stand to perform the placement (off-thread).
+                    return new FindNearbyReachableSpotSkill(placementSpot, 5).execute(agent).thenCompose(standingSpotOpt -> {
+                        if (standingSpotOpt.isEmpty()) {
+                            logger.warning("PlaceBlockSkill: Found a placement spot but no reachable standing spot.");
                             return CompletableFuture.completedFuture(Optional.empty());
                         }
-                        // Step 4: Play the placement animation. The main arm swing is used for block placement.
-                        agent.getPersona().playAnimation(PlayerAnimation.SWING_MAIN_ARM);
-                        // Step 5: Execute the NMS logic to place the block.
-                        return placeBlockFromInventory(agent, placementSpot);
-                    }, mainThreadExecutor); // Ensure the continuation also runs on the main thread.
-                }, mainThreadExecutor); // The composition after navigation must be on the main thread.
-            });
-        });
+                        Location standingSpot = standingSpotOpt.get();
+                        // Navigate to the standing spot.
+                        return new NavigateToLocationSkill(standingSpot, placementSpot).execute(agent).thenComposeAsync(navResult -> {
+                            if (navResult != NavigateToLocationResult.SUCCESS) {
+                                logger.warning("PlaceBlockSkill: Failed to navigate to standing spot.");
+                                return CompletableFuture.completedFuture(Optional.empty());
+                            }
+                            logger.info("PlaceBlockSkill: Navigation successful. Performing placement.");
+                            PhysicalBody body = agent.getPersona().getPhysicalBody();
+                            // Look at the spot
+                            return body.orientation().lookAt(placementSpot, true).thenCompose(lookResult -> {
+                                if (lookResult != LookResult.SUCCESS) {
+                                    logger.warning("PlaceBlockSkill: Failed to face placement spot.");
+                                    return CompletableFuture.completedFuture(Optional.empty());
+                                }
+                                // Delegate to the PhysicalBody to perform the action
+                                return body.actions().placeBlock(materialToPlace, placementSpot).thenApply(actionResult -> {
+                                    if (actionResult == ActionResult.SUCCESS) {
+                                        return Optional.of(placementSpot);
+                                    } else {
+                                        logger.warning("PlaceBlockSkill: Placement action failed.");
+                                        return Optional.empty();
+                                    }
+                                });
+                            });
+                        }, IonNerrus.getInstance().getMainThreadExecutor());
+                    });
+                });
     }
 
-    private CompletableFuture<Optional<Location>> findPlacementSpot(NerrusAgent agent) {
-        // This logic is computationally simple but involves Bukkit API, so it's safer to keep it
-        // off-thread.
+    private CompletableFuture<Optional<Location>> findPlacementSpot(Location agentLoc, WorldSnapshot snapshot) {
+        // Logic is now safe to run off-thread because it uses the immutable snapshot and captured location
         return CompletableFuture.supplyAsync(() -> {
-            Location agentLoc = agent.getPersona().getLocation();
-            World world = agentLoc.getWorld();
-            if (world == null)
-                return Optional.empty();
-
+            // No live Bukkit API calls here!
             // Search in expanding rings for a valid spot.
             for (int r = 1; r <= 5; r++) {
                 for (int dx = -r; dx <= r; dx++) {
@@ -114,11 +111,29 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
                             continue;
                         // Check slightly above, at, and below the agent's current y-level.
                         for (int dy = -1; dy <= 1; dy++) {
-                            Block potentialSpot = agentLoc.clone().add(dx, dy, dz).getBlock();
-                            Block blockBelow = potentialSpot.getRelative(BlockFace.DOWN);
-                            // A valid spot is passable (air, grass) and has a solid block underneath.
-                            if (potentialSpot.isPassable() && blockBelow.getType().isSolid()) {
-                                return Optional.of(potentialSpot.getLocation());
+                            // Use NMS BlockPos math
+                            BlockPos potentialPos = new BlockPos(
+                                    agentLoc.getBlockX() + dx,
+                                    agentLoc.getBlockY() + dy,
+                                    agentLoc.getBlockZ() + dz);
+                            BlockPos posBelow = potentialPos.below();
+                            BlockState state = snapshot.getBlockState(potentialPos);
+                            BlockState stateBelow = snapshot.getBlockState(posBelow);
+                            if (state == null || stateBelow == null)
+                                continue; // Out of snapshot bounds
+                            // Check 1: Is the target spot passable? (Air, grass, etc.)
+                            // We check if the collision shape is empty.
+                            boolean isPassable = state.getCollisionShape(EmptyBlockGetter.INSTANCE, potentialPos).isEmpty();
+                            // Check 2: Is there a solid block underneath to place on?
+                            // We check if the collision shape is NOT empty.
+                            boolean isSolidBelow = !stateBelow.getCollisionShape(EmptyBlockGetter.INSTANCE, posBelow).isEmpty();
+                            if (isPassable && isSolidBelow) {
+                                // Reconstruct Bukkit Location for the result
+                                return Optional.of(new Location(
+                                        agentLoc.getWorld(),
+                                        potentialPos.getX(),
+                                        potentialPos.getY(),
+                                        potentialPos.getZ()));
                             }
                         }
                     }
@@ -126,46 +141,5 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
             }
             return Optional.empty();
         }, IonNerrus.getInstance().getOffloadThreadExecutor());
-    }
-
-    private CompletableFuture<Optional<Location>> placeBlockFromInventory(NerrusAgent agent, Location location) {
-        // This entire method involves NMS and inventory manipulation, so it must run on the main thread.
-        // The supplyAsync call with the mainThreadExecutor ensures this.
-        return CompletableFuture.supplyAsync(() -> {
-            PersonaEntity personaEntity = agent.getPersona().getPersonaEntity();
-            PlayerInventory inventory = agent.getPersona().getInventory();
-            if (personaEntity == null || inventory == null)
-                return Optional.empty();
-            int slot = inventory.first(materialToPlace);
-            if (slot == -1)
-                return Optional.empty();
-            org.bukkit.inventory.ItemStack bukkitStack = inventory.getItem(slot);
-            if (bukkitStack == null)
-                return Optional.empty();
-            // Convert to NMS ItemStack
-            ItemStack nmsStack = CraftItemStack.asNMSCopy(bukkitStack);
-            Block blockBelow = location.getBlock().getRelative(BlockFace.DOWN);
-            BlockPos posBelow = new BlockPos(blockBelow.getX(), blockBelow.getY(), blockBelow.getZ());
-            // Create a fake "hit result" as if the player right-clicked the top face of the block below.
-            BlockHitResult hitResult = new BlockHitResult(
-                    new Vec3(location.getX(), location.getY() - 1, location.getZ()),
-                    Direction.UP, // The face that was "clicked"
-                    posBelow,
-                    false);
-            UseOnContext useOnContext = new UseOnContext(personaEntity.level(), personaEntity, InteractionHand.MAIN_HAND, nmsStack,
-                    hitResult);
-            nmsStack.useOn(useOnContext);
-            // Verify that the block was actually placed.
-            if (location.getBlock().getType() == materialToPlace) {
-                logger.info("Successfully placed " + materialToPlace + " at " + location.toVector());
-                bukkitStack.setAmount(bukkitStack.getAmount() - 1);
-                return Optional.of(location);
-            } else {
-                logger.warning("Failed to place " + materialToPlace + " at " + location.toVector() + ". The block is now "
-                        + location.getBlock().getType());
-                // It's possible the stack was consumed but placement failed. We don't handle that edge case yet.
-                return Optional.empty();
-            }
-        }, mainThreadExecutor);
     }
 }

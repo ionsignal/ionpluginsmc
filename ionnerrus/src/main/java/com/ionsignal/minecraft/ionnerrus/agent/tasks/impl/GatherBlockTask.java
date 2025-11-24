@@ -13,8 +13,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSki
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
 import org.bukkit.Location;
@@ -27,6 +26,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -34,20 +34,27 @@ import java.util.concurrent.Executor;
 import java.util.logging.Logger;
 
 public class GatherBlockTask implements Task {
+    private static final int MAX_RECURSION_DEPTH = 3;
     public static final boolean VISUALIZE_PATH = true;
 
+    private NerrusAgent agent;
+
+    private final Logger logger;
     private final Object contextToken;
     private final Executor mainThreadExecutor;
     private final Set<Location> attemptedLocations;
     private final Set<UUID> unreachableItems = new HashSet<>();
-    private final Set<Material> materials;
+    private final Set<Material> targetBlocks;
+    private final Set<Material> expectedDrops;
     private final int searchRadius;
-    private final Logger logger;
-    private volatile boolean cancelled = false;
-    private NerrusAgent agent;
 
-    public GatherBlockTask(Set<Material> materials, int searchRadius, Set<Location> attemptedLocations, Object contextToken) {
-        this.materials = materials;
+    private volatile boolean cancelled = false;
+
+    public GatherBlockTask(Set<Material> targetBlocks, Set<Material> expectedDrops, int searchRadius,
+            Set<Location> attemptedLocations,
+            Object contextToken) {
+        this.targetBlocks = targetBlocks;
+        this.expectedDrops = (expectedDrops == null || expectedDrops.isEmpty()) ? targetBlocks : expectedDrops;
         this.searchRadius = searchRadius;
         this.attemptedLocations = attemptedLocations;
         this.contextToken = contextToken;
@@ -59,7 +66,8 @@ public class GatherBlockTask implements Task {
     public void cancel() {
         this.cancelled = true;
         if (agent != null && agent.getPersona().isSpawned()) {
-            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
+            agent.getPersona().getPhysicalBody().actions().cancelAction();
+            agent.getPersona().getPhysicalBody().movement().stop();
         }
     }
 
@@ -78,14 +86,12 @@ public class GatherBlockTask implements Task {
         if (cancelled) {
             return CompletableFuture.completedFuture(null);
         }
-        return new FindCollectableBlockSkill(materials, searchRadius, attemptedLocations)
+        return new FindCollectableBlockSkill(targetBlocks, searchRadius, attemptedLocations)
                 .execute(agent)
                 .thenComposeAsync(result -> {
-                    // Early exit on cancellation without posting message
                     if (cancelled) {
                         return CompletableFuture.completedFuture(null);
                     }
-                    // Use switch on the new rich result status and post messages instead of blackboard
                     switch (result.status()) {
                         case SUCCESS:
                             CollectableBlock target = result.optimalTarget().get();
@@ -96,82 +102,116 @@ public class GatherBlockTask implements Task {
                                 }
                             });
                         case NO_TARGETS_FOUND:
-                            // Post message instead of blackboard write
                             agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.NO_BLOCKS_IN_RANGE));
                             return CompletableFuture.completedFuture(null);
                         case NO_STANDPOINTS_FOUND:
                         case NO_PATH_FOUND:
-                            // Post message instead of blackboard write
                             agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.NO_REACHABLE_BLOCKS_IN_RANGE));
                             return CompletableFuture.completedFuture(null);
                         default:
-                            // Should be unreachable.
                             return CompletableFuture.completedFuture(null);
                     }
                 }, mainThreadExecutor);
     }
 
+    // Added: Overload to support initial call with depth 0
     private CompletableFuture<Boolean> navigateToAndBreak(CollectableBlock target) {
-        // Use the new skill to navigate while looking at the target block.
+        return navigateToAndBreak(target, 0);
+    }
+
+    // Modified: Added recursionDepth parameter and logic to handle OBSTRUCTED result
+    private CompletableFuture<Boolean> navigateToAndBreak(CollectableBlock target, int recursionDepth) {
         if (VISUALIZE_PATH) {
             DebugVisualizer.displayPath(target.pathToStand(), 40);
         }
         NavigateToLocationSkill navSkill = new NavigateToLocationSkill(target.pathToStand(), target.blockLocation());
         return navSkill.execute(agent)
                 .thenCompose(navResult -> {
-                    // Split cancellation check from failure messaging (Issue #6)
-                    if (cancelled) {
-                        // Don't post message if cancelled
+                    if (cancelled)
                         return CompletableFuture.completedFuture(false);
-                    }
                     if (navResult != NavigateToLocationResult.SUCCESS) {
-                        // Post message instead of blackboard write
-                        agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                        // Only report failure on top-level to avoid spamming messages during recursion
+                        if (recursionDepth == 0) {
+                            agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                        }
                         return CompletableFuture.completedFuture(false);
                     }
                     return new EquipBestToolSkill(target.blockLocation().getBlock()).execute(agent);
                 })
                 .thenCompose(equipSuccess -> {
-                    // Split cancellation check from failure messaging (Issue #6)
-                    if (cancelled) {
-                        // Don't post message if cancelled
+                    if (cancelled)
                         return CompletableFuture.completedFuture(false);
-                    }
                     if (!equipSuccess) {
-                        // Post message instead of blackboard write
-                        agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                        if (recursionDepth == 0) {
+                            agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                        }
                         return CompletableFuture.completedFuture(false);
                     }
                     return new BreakBlockSkill(target.blockLocation()).execute(agent)
                             .thenCompose(breakResult -> {
-                                boolean wasSuccessful = breakResult == BreakBlockResult.SUCCESS
-                                        || breakResult == BreakBlockResult.ALREADY_BROKEN;
-                                // Split cancellation check from failure messaging (Issue #6)
-                                if (cancelled) {
-                                    // Don't post message if cancelled
+                                if (cancelled)
                                     return CompletableFuture.completedFuture(false);
+                                // Handle Success
+                                // Updated to use Record accessors
+                                boolean wasSuccessful = breakResult.status() == BreakBlockResult.Status.SUCCESS
+                                        || breakResult.status() == BreakBlockResult.Status.ALREADY_BROKEN;
+                                if (wasSuccessful) {
+                                    if (recursionDepth > 0) {
+                                        // If we were clearing an obstruction, return true so the parent can retry the main target
+                                        return CompletableFuture.completedFuture(true);
+                                    } else {
+                                        // If this was the main target, proceed to collect item
+                                        return collectNearbyItem(target.blockLocation());
+                                    }
                                 }
-                                if (!wasSuccessful) {
+                                // Handle Obstruction (Recursive Clearing)
+                                if (breakResult.status() == BreakBlockResult.Status.OBSTRUCTED
+                                        && recursionDepth < MAX_RECURSION_DEPTH
+                                        && breakResult.obstruction().isPresent()) {
+                                    Location obstructionLoc = breakResult.obstruction().get();
+                                    logger.info(String.format("[GatherBlockTask] Target at %s obstructed by %s. Recursing (Depth: %d)",
+                                            target.blockLocation().toVector(), obstructionLoc.toVector(), recursionDepth + 1));
+                                    // Create a "stand here" path since we are already close enough to see the obstruction
+                                    Path currentPath = new Path(List.of(agent.getPersona().getLocation()));
+                                    CollectableBlock obstructionTarget = new CollectableBlock(
+                                            obstructionLoc,
+                                            target.standingLocation(),
+                                            currentPath);
+                                    // Recurse to break the obstruction
+                                    return navigateToAndBreak(obstructionTarget, recursionDepth + 1).thenCompose(cleared -> {
+                                        if (cancelled)
+                                            return CompletableFuture.completedFuture(false);
+                                        if (cleared) {
+                                            // Obstruction cleared, retry original target
+                                            return navigateToAndBreak(target, recursionDepth);
+                                        } else {
+                                            // Failed to clear obstruction
+                                            if (recursionDepth == 0) {
+                                                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
+                                            }
+                                            return CompletableFuture.completedFuture(false);
+                                        }
+                                    });
+                                }
+                                // 3. Handle Failure
+                                if (recursionDepth == 0) {
                                     logger.warning("Failed to break block at " + target.blockLocation().toVector() + " for reason: "
-                                            + breakResult.name());
-                                    // Post message instead of blackboard write
+                                            + breakResult.status());
                                     agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
-                                    return CompletableFuture.completedFuture(false);
                                 }
-                                return collectNearbyItem(target.blockLocation());
+                                return CompletableFuture.completedFuture(false);
                             });
                 });
     }
 
     private void clearLookTarget() {
         if (agent != null && agent.getPersona().isSpawned() && agent.getPersona().getPersonaEntity() != null) {
-            agent.getPersona().getPersonaEntity().getLookControl().stopLooking();
+            agent.getPersona().getPhysicalBody().orientation().clearLookTarget();
         }
     }
 
     private CompletableFuture<Boolean> collectNearbyItem(Location brokenBlockLocation) {
         final CompletableFuture<Item> itemFuture = new CompletableFuture<>();
-        // Wait for the item to drop.
         new BukkitRunnable() {
             int ticks = 0;
 
@@ -182,41 +222,31 @@ public class GatherBlockTask implements Task {
                     this.cancel();
                     return;
                 }
-                logger.warning("[GatherBlockTask] Looking for dropped item.");
                 Item foundItem = findDroppedItem(brokenBlockLocation);
                 if (foundItem != null) {
                     itemFuture.complete(foundItem);
                     this.cancel();
-                } else if (ticks++ > 20) { // 1 second timeout
+                } else if (ticks++ > 20) {
                     logger.warning("[GatherBlockTask] Failed to find dropped item in 1 second timeout.");
                     itemFuture.complete(null);
                     this.cancel();
                 }
             }
-        }.runTaskTimer(IonNerrus.getInstance(), 2L, 2L); // Start after 2 ticks, check every 2 ticks.
+        }.runTaskTimer(IonNerrus.getInstance(), 2L, 2L);
         return itemFuture.thenComposeAsync(targetItem -> {
-            // Split cancellation check from failure messaging (Issue #6)
-            if (cancelled) {
-                // Don't post message if cancelled
+            if (cancelled)
                 return CompletableFuture.completedFuture(false);
-            }
             if (targetItem == null || targetItem.isDead()) {
                 logger.warning("Could not find dropped item after breaking block. This attempt failed.");
-                // Post message instead of blackboard write
                 agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
-                return CompletableFuture.completedFuture(false); // This collection attempt was not successful.
+                return CompletableFuture.completedFuture(false);
             }
             return new CollectItemSkill(targetItem).execute(agent)
                     .thenApply(collectResult -> {
                         boolean wasSuccessful = false;
                         switch (collectResult.status()) {
                             case SUCCESS:
-                                // Post message instead of blackboard write
-                                agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.SUCCESS));
-                                wasSuccessful = true;
-                                break;
-                            case ITEM_GONE: // If it's gone by the time we collect, that's also a success.
-                                // Post message instead of blackboard write
+                            case ITEM_GONE:
                                 agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.SUCCESS));
                                 wasSuccessful = true;
                                 break;
@@ -226,16 +256,13 @@ public class GatherBlockTask implements Task {
                                 logger.warning("Could not collect item because it is unreachable due to " + collectResult.status()
                                         + ". Blacklisting for this task.");
                                 unreachableItems.add(targetItem.getUniqueId());
-                                // Post message instead of blackboard write
                                 agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                                 break;
                             case PICKUP_TIMEOUT:
                                 logger.warning("Failed to collect item due to timeout.");
-                                // Post message instead of blackboard write
                                 agent.postMessage(contextToken, new GatherAttemptResult(GatherResult.FAILED_TO_COLLECT));
                                 break;
                             case CANCELLED:
-                                // Do nothing, wasSuccessful remains false.
                                 break;
                         }
                         return wasSuccessful;
@@ -251,8 +278,8 @@ public class GatherBlockTask implements Task {
         return nearby.stream()
                 .filter(e -> e instanceof Item && !e.isDead())
                 .map(e -> (Item) e)
-                .filter(item -> !unreachableItems.contains(item.getUniqueId())) // Filter out blacklisted items
-                .filter(item -> materials.contains(item.getItemStack().getType()))
+                .filter(item -> !unreachableItems.contains(item.getUniqueId()))
+                .filter(item -> expectedDrops.contains(item.getItemStack().getType()))
                 .min(Comparator.comparingDouble(i -> i.getLocation().distanceSquared(blockLocation)))
                 .orElse(null);
     }

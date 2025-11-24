@@ -13,8 +13,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.DropItemSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindTargetEntitySkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -92,15 +90,17 @@ public class GiveItemGoal implements Goal {
                 Optional.ofNullable(this.targetEntity).ifPresentOrElse(target -> {
                     logger.info("GiveItemGoal: Approaching and waiting for " + target.getName() + " to be ready.");
                     // Start the continuous follow behavior. The Navigator will handle all movement.
-                    agent.getPersona().getNavigator().followOn(target, 5.0, 2.5);
+                    // TODO: we need to re-enable follow
+                    // agent.getPersona().getNavigator().followOn(target, 5.0, 2.5);
                     agent.speak("Hey, " + params.targetName() + "! I have something for you!");
                     // Simultaneously, start checking if the player is ready for the interaction.
                     agent.setCurrentTask(createSkillTask(new CheckPlayerReadySkill(target, 20).execute(agent) // Increased timeout
                             .thenAccept(isReady -> {
                                 // This is the crucial cleanup step. We MUST stop the follow behavior
                                 // before proceeding, regardless of the outcome.
-                                agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
-                                        EngageResult.CANCELLED);
+                                // TODO: we need to re-enable follow
+                                // agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
+                                // EngageResult.CANCELLED);
                                 if (isReady) {
                                     state = State.DROPPING_ITEM;
                                 } else {
@@ -146,18 +146,22 @@ public class GiveItemGoal implements Goal {
         logger.warning("GiveItemGoal Failed: " + message);
         this.finalResult = new GoalResult.Failure(message);
         this.state = State.FAILED;
-        if (agent != null && agent.getPersona().getNavigator().isBusy()) {
-            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
-        }
+        // TODO: we need to re-enable follow
+        // if (agent != null && agent.getPersona().getNavigator().isBusy()) {
+        // agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
+        // EngageResult.CANCELLED);
+        // }
     }
 
     private void succeed(NerrusAgent agent, String message) {
         logger.info("GiveItemGoal Succeeded: " + message);
         this.finalResult = new GoalResult.Success(message);
         this.state = State.COMPLETED;
-        if (agent != null && agent.getPersona().getNavigator().isBusy()) {
-            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
-        }
+        // TODO: we need to re-enable follow
+        // if (agent != null && agent.getPersona().getNavigator().isBusy()) {
+        // agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
+        // EngageResult.CANCELLED);
+        // }
     }
 
     private Task createSkillTask(CompletableFuture<?> future) {
@@ -181,9 +185,11 @@ public class GiveItemGoal implements Goal {
     @Override
     public void stop(NerrusAgent agent) {
         // We must ensure the navigator's follow state is cancelled if the goal is stopped externally.
-        if (agent.getPersona().getNavigator().isBusy()) {
-            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
-        }
+        // TODO: we need to re-enable follow
+        // if (agent.getPersona().getNavigator().isBusy()) {
+        // agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
+        // EngageResult.CANCELLED);
+        // }
         if (!isFinished()) {
             fail(agent, "Goal was cancelled.");
         }
