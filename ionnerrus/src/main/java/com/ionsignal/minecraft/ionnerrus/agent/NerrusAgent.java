@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -12,6 +13,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignDirective;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.SetBusyWithDirective;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
+import com.ionsignal.minecraft.ionnerrus.agent.sensory.SensorySystem;
+import com.ionsignal.minecraft.ionnerrus.agent.sensory.impl.BukkitSensorySystem;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
@@ -28,6 +31,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CancellationException;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
@@ -39,6 +43,8 @@ public class NerrusAgent {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
+    private final SensorySystem sensorySystem;
+    private final AutonomyEngine autonomyEngine;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
     private final LinkedList<String> actionHistory = new LinkedList<>();
@@ -73,12 +79,40 @@ public class NerrusAgent {
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+        this.autonomyEngine = new AutonomyEngine(this);
+        this.sensorySystem = new BukkitSensorySystem(this);
     }
 
-    // Process one message per tick with priority-based message processing (goal mailbox first)
+    /**
+     * Bootstraps the agent's decision engine and should be called once after the agent is fully
+     * initialized and spawned.
+     */
+    public void start() {
+        // Trigger the first step. If no goal is assigned, this will
+        // fall through to the AutonomyEngine -> IdleGoal transition.
+        processNextStep();
+    }
+
+    /**
+     * Processes pending messages for the agent using a priority-based processing loop to ensure state
+     * consistency.
+     */
     public void processMessages() {
-        // Process goal-specific messages first
+        // Ensures working memory is updated every tick regardless of agent activity.
+        if (sensorySystem != null) {
+            sensorySystem.tick();
+        }
+        // Handle Interrupts (AssignGoal, etc.) immediately
+        Object globalHead = messages.peek();
+        if (isInterruptMessage(globalHead)) {
+            Object msg = messages.poll();
+            handleGlobalMessage(msg);
+            return; // Interrupts invalidate current state processing, so we stop here for this tick.
+        }
+        // Goal Data Processing: Handle mailbox messages (Results from skills)
         if (currentContext != null && currentContext.mailbox() != null) {
+            // Process one message per tick. This is sufficient for the Request/Response pattern of Tasks
+            // and prevents a flood of data from starving the global queue.
             Object goalMessage = currentContext.mailbox().poll();
             if (goalMessage != null) {
                 try {
@@ -87,20 +121,20 @@ public class NerrusAgent {
                     plugin.getLogger().log(Level.SEVERE,
                             "Error processing goal message for agent " + getName(), e);
                 }
-                return; // Process one message per tick
             }
         }
-        // Process global agent messages
-        Object message = messages.poll();
-        if (message == null) {
-            return; // No messages to process
-        }
-        switch (message) {
-            case AssignGoal cmd -> handleAssignGoal(cmd.goal(), cmd.parameters(), cmd.resultFuture());
-            case AssignDirective cmd -> handleAssignDirective(cmd.directive(), cmd.requester());
-            case SetBusyWithDirective cmd -> handleSetBusyWithDirective(cmd.isBusy());
-            case TaskCompleted event -> handleTaskCompleted(event.error());
-            default -> plugin.getLogger().warning("Unknown message type in agent " + getName() + ": " + message.getClass().getSimpleName());
+        // Handle TaskCompleted and other non-interrupt global messages
+        Object globalMsg = messages.poll();
+        if (globalMsg != null) {
+            // The Agent is about to make a decision based on incomplete state.
+            if (globalMsg instanceof TaskCompleted && currentContext != null && !currentContext.mailbox().isEmpty()) {
+                String pendingMsgType = currentContext.mailbox().peek().getClass().getSimpleName();
+                throw new IllegalStateException(String.format(
+                        "Agent '%s' received TaskCompleted while Goal Mailbox still has pending messages! "
+                                + "Next pending: %s. Tasks must not stream data faster than 1 msg/tick.",
+                        getName(), pendingMsgType));
+            }
+            handleGlobalMessage(globalMsg);
         }
     }
 
@@ -165,6 +199,28 @@ public class NerrusAgent {
             plugin.getLogger().info(String.format("[%s] Goal assignment was null. Agent is now idle.", getName()));
             this.currentContext = null;
             this.topLevelGoalFuture = null;
+            processNextStep();
+        }
+    }
+
+    private boolean isInterruptMessage(Object msg) {
+        return msg instanceof AssignGoal ||
+                msg instanceof AssignDirective ||
+                msg instanceof SetBusyWithDirective;
+    }
+
+    private void handleGlobalMessage(Object msg) {
+        try {
+            switch (msg) {
+                case AssignGoal cmd -> handleAssignGoal(cmd.goal(), cmd.parameters(), cmd.resultFuture());
+                case AssignDirective cmd -> handleAssignDirective(cmd.directive(), cmd.requester());
+                case SetBusyWithDirective cmd -> handleSetBusyWithDirective(cmd.isBusy());
+                case TaskCompleted event -> handleTaskCompleted(event.task(), event.error());
+                default -> plugin.getLogger()
+                        .warning("Unknown message type in agent " + getName() + ": " + msg.getClass().getSimpleName());
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "Error processing global message for agent " + getName(), e);
         }
     }
 
@@ -184,11 +240,24 @@ public class NerrusAgent {
         }
     }
 
-    private void handleTaskCompleted(Optional<Throwable> error) {
+    private void handleTaskCompleted(Task finishedTask, Optional<Throwable> error) {
+        if (this.currentTask != finishedTask) {
+            plugin.getLogger().info(String.format("[%s] Ignoring completion of stale task: %s (Current: %s)",
+                    getName(),
+                    finishedTask.getClass().getSimpleName(),
+                    this.currentTask != null ? this.currentTask.getClass().getSimpleName() : "null"));
+            return;
+        }
         String taskName = currentTask != null ? currentTask.getClass().getSimpleName() : "Unknown Task";
         if (error.isPresent()) {
-            plugin.getLogger().log(Level.SEVERE, String.format("[%s] Task %s failed with exception:", getName(), taskName), error.get());
-            speak("I ran into an unexpected problem with my task.");
+            // Filter out CancellationException to prevent false positive error logs
+            Throwable ex = error.get();
+            if (ex instanceof CancellationException) {
+                plugin.getLogger().info(String.format("[%s] Task %s was cancelled.", getName(), taskName));
+            } else {
+                plugin.getLogger().log(Level.SEVERE, String.format("[%s] Task %s failed with exception:", getName(), taskName), ex);
+                speak("I ran into an unexpected problem with my task.");
+            }
         } else {
             plugin.getLogger().info(String.format("[%s] Task %s completed successfully.", getName(), taskName));
         }
@@ -219,24 +288,38 @@ public class NerrusAgent {
             this.currentTask.execute(this)
                     .whenCompleteAsync((v, ex) -> {
                         // Send message instead of direct method call to avoid race conditions
-                        messages.offer(new TaskCompleted(Optional.ofNullable(ex != null ? ex.getCause() : null)));
+                        messages.offer(new TaskCompleted(task, Optional.ofNullable(ex != null ? ex.getCause() : null)));
                     }, IonNerrus.getInstance().getMainThreadExecutor());
         }
     }
 
     private void processNextStep() {
+        // If the agent has no active goal and no stack, consult the AutonomyEngine.
+        if (currentContext == null && goalStack.isEmpty()) {
+            if (autonomyEngine != null) {
+                Goal ambientGoal = autonomyEngine.suggestGoal(sensorySystem.getWorkingMemory()).orElse(null);
+                if (ambientGoal != null) {
+                    plugin.getLogger().info(String.format("[%s] Autonomy engine suggested goal: %s", getName(),
+                            ambientGoal.getClass().getSimpleName()));
+                    // Assign the goal via the message loop to ensure consistent state transitions.
+                    assignGoal(ambientGoal, null);
+                    return;
+                }
+            }
+        }
         if (currentContext == null) {
             return;
         }
-        plugin.getLogger()
-                .info(String.format("[%s] Processing goal: %s", getName(), currentContext.goal().getClass().getSimpleName()));
+        plugin.getLogger().info(String.format("[%s] Processing goal: %s", getName(),
+                currentContext.goal().getClass().getSimpleName()));
         currentContext.goal().process(this);
         if (currentTask != null) {
             return; // A new task was dispatched, wait for it to complete.
         }
         if (currentContext.goal().isFinished()) {
             plugin.getLogger().info(
-                    String.format("[%s] Goal %s reported as finished.", getName(), currentContext.goal().getClass().getSimpleName()));
+                    String.format("[%s] Goal %s reported as finished.", getName(),
+                            currentContext.goal().getClass().getSimpleName()));
             handleGoalCompletion(currentContext.goal().getFinalResult());
         }
     }
@@ -292,6 +375,7 @@ public class NerrusAgent {
                     }
                     currentContext = null;
                     topLevelGoalFuture = null;
+                    processNextStep();
                 } else {
                     // This was a sub-goal. Pop the parent and resume it.
                     GoalContext parentContext = goalStack.pop();
@@ -324,6 +408,10 @@ public class NerrusAgent {
 
     public Task getCurrentTask() {
         return currentTask;
+    }
+
+    public SensorySystem getSensorySystem() {
+        return sensorySystem;
     }
 
     public String getActivityDescription() {

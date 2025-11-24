@@ -93,9 +93,9 @@ public class PersonaInventoryMenu extends AbstractContainerMenu {
 
     @Override
     public void removed(@SuppressWarnings("null") @NotNull Player player) {
-        super.removed(player);
         this.personaInventory.stopOpen(player);
-        this.persona.stopViewing();
+        this.persona.doCloseContainer();
+        super.removed(player);
     }
 
     @Override

@@ -3,7 +3,6 @@ package com.ionsignal.minecraft.ionnerrus.persona.listeners;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaHolder;
-import com.ionsignal.minecraft.ionnerrus.persona.action.impl.FaceHeadBodyAction;
 import com.ionsignal.minecraft.ionnerrus.persona.event.PlayerLeftClickPersonaEvent;
 import com.ionsignal.minecraft.ionnerrus.persona.event.PlayerRightClickPersonaEvent;
 
@@ -48,11 +47,11 @@ public class PersonaInteractionListener implements Listener {
             PlayerLeftClickPersonaEvent customEvent = new PlayerLeftClickPersonaEvent(damager, persona);
             customEvent.callEvent();
             if (!customEvent.isCancelled()) {
-                if (persona.isInventoryLocked())
+                if (persona.getPhysicalBody().state().isInventoryOpen())
                     return; // Don't interrupt if inventory is open
-                // Look at the player for 5 seconds (100 ticks)
-                FaceHeadBodyAction faceAction = new FaceHeadBodyAction(damager, true, 100);
-                persona.getActionController().schedule(faceAction);
+                if (persona.isSpawned()) {
+                    persona.getPhysicalBody().orientation().face(damager);
+                }
             }
             // Always cancel the original event to prevent damage and knockback.
             event.setCancelled(true);

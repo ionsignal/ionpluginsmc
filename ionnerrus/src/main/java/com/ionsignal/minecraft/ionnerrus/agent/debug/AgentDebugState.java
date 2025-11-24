@@ -43,7 +43,8 @@ public record AgentDebugState(
         Task currentTask = agent.getCurrentTask();
         Path currentPath = null;
         if (agent.getPersona().isSpawned()) {
-            currentPath = agent.getPersona().getNavigator().getCurrentPath();
+            // TODO: We need to handle this using the new system
+            // currentPath = agent.getPersona().getNavigator().getCurrentPath();
         }
         // Get goal mailbox size for debugging message queue depth
         // Note: size() on ConcurrentLinkedQueue is O(n), acceptable for debug visualization
