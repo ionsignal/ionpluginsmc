@@ -51,10 +51,13 @@ public class AgentService {
             } else {
                 plugin.getLogger().warning("Could not fetch skin for '" + skinNameToFetch + "'. Spawning with default Steve/Alex skin.");
             }
-            plugin.getMainThreadExecutor().execute(() -> {
+            try {
                 persona.spawn(location);
+                agent.start();
                 plugin.getLogger().info("Successfully spawned agent: " + name);
-            });
+            } catch (Exception e) {
+                plugin.getLogger().severe("Error spawning agent " + name + ": " + e.getMessage());
+            }
         }, plugin.getMainThreadExecutor());
         return agent;
     }
@@ -90,18 +93,10 @@ public class AgentService {
             return;
         }
         plugin.getLogger().info("Despawning " + agents.size() + " agent(s)...");
-        // Make a copy to avoid ConcurrentModificationException
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
             try {
-                // Cancel any ongoing operations first
-                if (agent.getPersona().isSpawned()) {
-                    agent.getPersona().getNavigator().cancelCurrentOperation(
-                            com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult.CANCELLED,
-                            com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult.CANCELLED);
-                    agent.getPersona().getActionController().clear();
-                }
-                // Then despawn
+                // Persona.despawn() now handles stopping all physical operations safely
                 personaRegistry.deregister(agent.getPersona());
             } catch (Exception e) {
                 plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());

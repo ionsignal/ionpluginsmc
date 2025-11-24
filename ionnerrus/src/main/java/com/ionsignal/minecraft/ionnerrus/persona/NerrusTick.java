@@ -6,6 +6,7 @@ import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState;
 
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -27,12 +28,17 @@ public class NerrusTick extends BukkitRunnable {
         // Original persona ticking
         for (Persona persona : manager.getRegistry().getAll()) {
             if (persona.isSpawned()) {
+                // Check if this specific entity is paused via IonCore
+                if (isPaused(persona)) {
+                    continue; // Skip physics tick (freezes the agent)
+                }
                 try {
                     persona.tick();
                 } catch (Exception e) {
                     manager.getLogger().severe("Error ticking persona " + persona.getName() + " (" + persona.getUniqueId() + ")");
                     e.printStackTrace();
                 }
+
             }
         }
         // Process agent messages to drive the message processing loop
@@ -41,14 +47,11 @@ public class NerrusTick extends BukkitRunnable {
             for (NerrusAgent agent : plugin.getAgentService().getAgents()) {
                 try {
                     // Unified debug session integration check for active debug session for this agent
-                    Optional<DebugSession<com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState>> sessionOpt = IonCore
+                    Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore
                             .getDebugRegistry()
-                            .getActiveSession(
-                                    agent.getPersona().getUniqueId(),
-                                    com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState.class);
-
+                            .getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
                     if (sessionOpt.isPresent()) {
-                        DebugSession<com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState> session = sessionOpt.get();
+                        DebugSession<AgentDebugState> session = sessionOpt.get();
                         ExecutionController controller = session.getController().orElse(null);
                         // Complete visualization flow skips agent message processing if controller is paused to allow for
                         // inspection between ticks
@@ -57,8 +60,7 @@ public class NerrusTick extends BukkitRunnable {
                         }
                         // Update state snapshot and mark visualization dirty which captures the current agent state before
                         // processing next message
-                        com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState snapshot = com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState
-                                .snapshot(agent);
+                        AgentDebugState snapshot = AgentDebugState.snapshot(agent);
                         session.setState(snapshot); // Atomically marks visualization dirty
                         // Signal pause point to controller (non-blocking for TickBasedController)
                         if (controller != null) {
@@ -74,5 +76,17 @@ public class NerrusTick extends BukkitRunnable {
                 }
             }
         }
+    }
+
+    /**
+     * Helper to check if a Persona is currently paused by a debug session.
+     */
+    private boolean isPaused(Persona persona) {
+        Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore.getDebugRegistry()
+                .getActiveSession(persona.getUniqueId(), AgentDebugState.class);
+        return sessionOpt
+                .flatMap(DebugSession::getController)
+                .map(ExecutionController::isPaused)
+                .orElse(false);
     }
 }
