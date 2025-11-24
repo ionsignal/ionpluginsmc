@@ -1,20 +1,19 @@
 package com.ionsignal.minecraft.ionnerrus.persona;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.persona.action.ActionController;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.Navigator;
+import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
+import com.ionsignal.minecraft.ionnerrus.persona.components.impl.BukkitPhysicalBody;
 import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
+
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 
-import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.Container;
 import net.minecraft.world.level.GameType;
 
 import org.bukkit.Bukkit;
@@ -34,13 +33,11 @@ public class Persona {
     private final UUID uuid;
     private final EntityType entityType;
     private final NerrusManager manager;
-
-    private final Navigator navigator;
-    private final ActionController actionController;
     private final MetadataStorage metadata;
 
     private String name;
     private PersonaEntity personaEntity;
+    private PhysicalBody physicalBody;
     private Location lastLocation;
     private SkinData skinData;
 
@@ -49,24 +46,28 @@ public class Persona {
         this.uuid = uuid;
         this.name = name;
         this.entityType = entityType;
-        this.navigator = new Navigator(this);
-        this.actionController = new ActionController(this);
         this.metadata = new MetadataStorage();
     }
 
+    @SuppressWarnings("null")
     public void spawn(Location location) {
         if (isSpawned()) {
             despawn();
         }
+        // Set last location
         this.lastLocation = location.clone();
         ServerLevel world = ((CraftWorld) location.getWorld()).getHandle();
         GameProfile profile = createGameProfile(uuid, name, skinData);
         MinecraftServer server = world.getServer();
+        // Create NMS Entity
         this.personaEntity = new PersonaEntity(server, world, profile, this);
         personaEntity.setGameMode(GameType.SURVIVAL);
         personaEntity.setPos(location.getX(), location.getY(), location.getZ());
         personaEntity.setRot(location.getYaw(), location.getPitch());
         personaEntity.setYHeadRot(location.getYaw());
+        // Create Bridge
+        this.physicalBody = new BukkitPhysicalBody(this, this.personaEntity);
+        // Register in World
         ClientboundPlayerInfoUpdatePacket addPlayerPacket = ClientboundPlayerInfoUpdatePacket.createSinglePlayerInitializing(personaEntity,
                 false);
         for (org.bukkit.entity.Player onlinePlayer : Bukkit.getOnlinePlayers()) {
@@ -74,23 +75,39 @@ public class Persona {
             personaEntity.grantVisibility(onlinePlayer);
         }
         world.addFreshEntity(personaEntity);
+        // Register with CraftEngine to prevent NPEs during block interactions
+        manager.getCraftEngineService().registerPersona(personaEntity.getBukkitEntity());
+        // Register with NerrusManager
         manager.getRegistry().register(this);
     }
 
+    @SuppressWarnings("null")
     public void despawn() {
         if (!isSpawned()) {
             manager.getLogger().warning("Trying to despawn a `!isSpawned()` PersonaEntity.");
             return;
         }
+        // Unregister from CraftEngine
+        manager.getCraftEngineService().unregisterPersona(personaEntity.getBukkitEntity());
+        // Set last location
         this.lastLocation = getLocation();
-        int oldId = this.personaEntity.getId();
+        // Stop all physical operations
+        if (this.physicalBody != null) {
+            this.physicalBody.movement().stop();
+            this.physicalBody.orientation().clearLookTarget();
+            this.physicalBody.actions().cancelAction();
+        }
+        // Remove entity from world
         ClientboundPlayerInfoRemovePacket removePacket = new ClientboundPlayerInfoRemovePacket(java.util.List.of(personaEntity.getUUID()));
         for (org.bukkit.entity.Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             ((CraftPlayer) onlinePlayer).getHandle().connection.send(removePacket);
         }
         personaEntity.remove(net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+        // Cleanup references
+        int personaEntityId = this.personaEntity.getId();
         this.personaEntity = null;
-        manager.getRegistry().updateEntityId(this, oldId);
+        this.physicalBody = null;
+        manager.getRegistry().updateEntityId(this, personaEntityId);
     }
 
     public boolean isSpawned() {
@@ -101,11 +118,20 @@ public class Persona {
         if (!isSpawned()) {
             return;
         }
-        if (isInventoryLocked()) {
-            return;
+        if (physicalBody != null) {
+            physicalBody.tick();
         }
-        navigator.tick();
-        actionController.tick();
+    }
+
+    /**
+     * Gets the PhysicalBody interface for this Persona.
+     * This is the sole entry point for interacting with the physical world.
+     */
+    public PhysicalBody getPhysicalBody() {
+        if (!isSpawned() || this.physicalBody == null) {
+            throw new IllegalStateException("Cannot access PhysicalBody: Persona '" + getName() + "' is not spawned.");
+        }
+        return this.physicalBody;
     }
 
     public void teleport(Location location, TeleportCause cause) {
@@ -119,16 +145,7 @@ public class Persona {
     public void playAnimation(PlayerAnimation animation) {
         if (!isSpawned())
             return;
-        // Inlined from PersonaNMSBridge.playAnimation()
-        int animationId = switch (animation) {
-            case SWING_MAIN_ARM -> ClientboundAnimatePacket.SWING_MAIN_HAND;
-            case TAKE_DAMAGE -> 1;
-            case LEAVE_BED -> ClientboundAnimatePacket.WAKE_UP;
-            case SWING_OFF_HAND -> ClientboundAnimatePacket.SWING_OFF_HAND;
-            case CRITICAL_EFFECT -> ClientboundAnimatePacket.CRITICAL_HIT;
-            case MAGIC_CRITICAL_EFFECT -> ClientboundAnimatePacket.MAGIC_CRITICAL_HIT;
-        };
-        broadcastPacketToTrackers(new ClientboundAnimatePacket(personaEntity, animationId));
+        this.physicalBody.actions().playAnimation(animation);
     }
 
     public void speak(String message) {
@@ -140,6 +157,17 @@ public class Persona {
         if (plugin.getPluginConfig().isChatBubblesEnabled() && plugin.getChatBubbleService() != null) {
             plugin.getChatBubbleService().showBubble(this.getPersonaEntity().getBukkitEntity(), message);
         }
+    }
+
+    public Location getLocation() {
+        return isSpawned() ? this.physicalBody.state().getLocation() : lastLocation;
+    }
+
+    @Nullable
+    public PlayerInventory getInventory() {
+        if (!isSpawned())
+            return null;
+        return this.physicalBody.state().getInventory();
     }
 
     public UUID getUniqueId() {
@@ -171,38 +199,49 @@ public class Persona {
         }
     }
 
+    public NerrusManager getManager() {
+        return manager;
+    }
+
+    @Nullable
+    public Entity getEntity() {
+        return (this.personaEntity != null && this.personaEntity.isAlive()) ? this.personaEntity.getBukkitEntity() : null;
+    }
+
+    @Nullable
+    public PersonaEntity getPersonaEntity() {
+        return personaEntity;
+    }
+
+    public MetadataStorage getMetadata() {
+        return metadata;
+    }
+
+    public EntityType getEntityType() {
+        return entityType;
+    }
+
     private GameProfile createGameProfile(UUID uuid, String name, SkinData skin) {
         GameProfile profile = new GameProfile(uuid, name);
         if (skin != null) {
-            profile.getProperties().put("textures",
-                    new Property("textures", skin.texture(), skin.signature()));
+            profile.getProperties().put("textures", new Property("textures", skin.texture(), skin.signature()));
         }
         return profile;
     }
 
-    private void broadcastPacketToTrackers(net.minecraft.network.protocol.Packet<?> packet) {
-        ServerLevel level = personaEntity.level();
-        var trackedEntity = level.getChunkSource().chunkMap.entityMap.get(personaEntity.getId());
-        if (trackedEntity != null) {
-            trackedEntity.broadcast(packet);
-        }
-    }
-
+    @SuppressWarnings("null")
     private void refreshPlayerProfile() {
         GameProfile profile = personaEntity.getGameProfile();
         if (skinData != null) {
             profile.getProperties().removeAll("textures");
-            profile.getProperties().put("textures",
-                    new Property("textures", skinData.texture(), skinData.signature()));
+            profile.getProperties().put("textures", new Property("textures", skinData.texture(), skinData.signature()));
         }
-
         var trackedEntity = personaEntity.level().getChunkSource().chunkMap.entityMap.get(personaEntity.getId());
         if (trackedEntity != null) {
             ClientboundPlayerInfoRemovePacket removePacket = new ClientboundPlayerInfoRemovePacket(
                     java.util.List.of(personaEntity.getUUID()));
             ClientboundPlayerInfoUpdatePacket addPacket = ClientboundPlayerInfoUpdatePacket
                     .createPlayerInitializing(java.util.List.of(personaEntity));
-
             for (var connection : trackedEntity.seenBy) {
                 connection.send(removePacket);
                 connection.send(addPacket);
@@ -219,172 +258,5 @@ public class Persona {
                 false);
         viewerPlayer.connection.send(addPacket);
         personaEntity.grantVisibility(viewer);
-    }
-
-    /**
-     * Calculates how many ticks it will take this persona to break a block.
-     * Factors in tool efficiency, enchantments, and mining effects.
-     * 
-     * @param block
-     *            The block to break
-     * @return Number of ticks required, or Integer.MAX_VALUE if unbreakable
-     */
-    public int calculateBreakTicks(org.bukkit.block.Block block) {
-        if (!isSpawned()) {
-            return Integer.MAX_VALUE;
-        }
-        // Inlined from PersonaNMSBridge.calculateBreakTicks()
-        ServerLevel level = personaEntity.level();
-        net.minecraft.core.BlockPos blockPos = new net.minecraft.core.BlockPos(block.getX(), block.getY(), block.getZ());
-        net.minecraft.world.level.block.state.BlockState nmsBlockState = level.getBlockState(blockPos);
-        float hardness = nmsBlockState.getDestroySpeed(level, blockPos);
-        if (hardness < 0) {
-            return Integer.MAX_VALUE; // Unbreakable (e.g., bedrock)
-        }
-        if (hardness == 0) {
-            return 1; // Instantly breakable (e.g., flower)
-        }
-        float destroySpeed = getPlayerDestroySpeed(nmsBlockState);
-        boolean hasCorrectTool = personaEntity.hasCorrectToolForDrops(nmsBlockState);
-        float divisor = hasCorrectTool ? 30.0f : 100.0f;
-        float damagePerTick = destroySpeed / hardness / divisor;
-        if (damagePerTick <= 0) {
-            return Integer.MAX_VALUE;
-        }
-        return (int) Math.ceil(1.0 / damagePerTick);
-    }
-
-    /**
-     * Sends a block break animation packet to nearby players.
-     * 
-     * @param block
-     *            The block being broken
-     * @param stage
-     *            Break stage (0-9), or -1 to clear animation
-     */
-    public void sendBlockBreakAnimation(org.bukkit.block.Block block, int stage) {
-        if (!isSpawned()) {
-            return;
-        }
-        net.minecraft.network.protocol.game.ClientboundBlockDestructionPacket packet = new net.minecraft.network.protocol.game.ClientboundBlockDestructionPacket(
-                personaEntity.getId(),
-                new net.minecraft.core.BlockPos(block.getX(), block.getY(), block.getZ()),
-                stage);
-        broadcastPacketToTrackers(packet);
-    }
-
-    /**
-     * Destroys a block using this persona's game mode logic.
-     * 
-     * @param block
-     *            The block to destroy
-     * @return true if successfully destroyed, false if cancelled by plugin/world rules
-     */
-    public boolean destroyBlock(org.bukkit.block.Block block) {
-        if (!isSpawned()) {
-            return false;
-        }
-        // Inlined from PersonaNMSBridge.destroyBlock()
-        net.minecraft.server.level.ServerPlayerGameMode gameMode = personaEntity.gameMode;
-        net.minecraft.core.BlockPos blockPos = new net.minecraft.core.BlockPos(block.getX(), block.getY(), block.getZ());
-        return gameMode.destroyBlock(blockPos);
-    }
-
-    /**
-     * Helper method to calculate destroy speed with enchantments and effects.
-     * Extracted from PersonaNMSBridge for calculateBreakTicks().
-     */
-    private float getPlayerDestroySpeed(net.minecraft.world.level.block.state.BlockState nmsBlockState) {
-        var enchantmentRegistry = personaEntity.registryAccess().lookupOrThrow(net.minecraft.core.registries.Registries.ENCHANTMENT);
-        float speed = personaEntity.getInventory().getSelectedItem().getDestroySpeed(nmsBlockState);
-        if (speed > 1.0F) {
-            var efficiencyHolder = enchantmentRegistry.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.EFFICIENCY);
-            int efficiencyLevel = net.minecraft.world.item.enchantment.EnchantmentHelper.getItemEnchantmentLevel(
-                    efficiencyHolder,
-                    personaEntity.getMainHandItem());
-            if (efficiencyLevel > 0) {
-                speed += (float) (efficiencyLevel * efficiencyLevel + 1);
-            }
-        }
-        if (personaEntity.hasEffect(net.minecraft.world.effect.MobEffects.HASTE)) {
-            speed *= 1.0F + (float) (java.util.Objects.requireNonNull(
-                    personaEntity.getEffect(net.minecraft.world.effect.MobEffects.HASTE)).getAmplifier() + 1) * 0.2F;
-        }
-        if (personaEntity.hasEffect(net.minecraft.world.effect.MobEffects.MINING_FATIGUE)) {
-            float fatigueMultiplier = switch (java.util.Objects.requireNonNull(
-                    personaEntity.getEffect(net.minecraft.world.effect.MobEffects.MINING_FATIGUE)).getAmplifier()) {
-                case 0 -> 0.3F;
-                case 1 -> 0.09F;
-                case 2 -> 0.0027F;
-                default -> 8.1E-4F;
-            };
-            speed *= fatigueMultiplier;
-        }
-        var aquaHolder = enchantmentRegistry.getOrThrow(net.minecraft.world.item.enchantment.Enchantments.AQUA_AFFINITY);
-        int aquaLevel = net.minecraft.world.item.enchantment.EnchantmentHelper.getItemEnchantmentLevel(
-                aquaHolder,
-                personaEntity.getMainHandItem());
-        if (personaEntity.isEyeInFluid(net.minecraft.tags.FluidTags.WATER) && aquaLevel == 0) {
-            speed /= 5.0F;
-        }
-        if (!personaEntity.onGround()) {
-            speed /= 5.0F;
-        }
-
-        return speed;
-    }
-
-    public Location getLocation() {
-        return isSpawned() ? this.personaEntity.getBukkitEntity().getLocation() : lastLocation;
-    }
-
-    public Navigator getNavigator() {
-        return navigator;
-    }
-
-    public NerrusManager getManager() {
-        return manager;
-    }
-
-    @Nullable
-    public PlayerInventory getInventory() {
-        if (!isSpawned()) {
-            return null;
-        }
-        return this.personaEntity.getBukkitEntity().getInventory();
-    }
-
-    @Nullable
-    public Container getNmsInventory() {
-        if (!isSpawned()) {
-            return null;
-        }
-        return this.personaEntity.getInventory();
-    }
-
-    public boolean isInventoryLocked() {
-        return isSpawned() && personaEntity.isInventoryLocked();
-    }
-
-    @Nullable
-    public Entity getEntity() {
-        return (this.personaEntity != null && this.personaEntity.isAlive()) ? this.personaEntity.getBukkitEntity() : null;
-    }
-
-    @Nullable
-    public PersonaEntity getPersonaEntity() {
-        return personaEntity;
-    }
-
-    public ActionController getActionController() {
-        return actionController;
-    }
-
-    public MetadataStorage getMetadata() {
-        return metadata;
-    }
-
-    public EntityType getEntityType() {
-        return entityType;
     }
 }
