@@ -3,8 +3,9 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.PersonaEntity;
-import com.ionsignal.minecraft.ionnerrus.persona.platform.v1_21_R7.inventory.CraftingUtil;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
+import com.ionsignal.minecraft.ionnerrus.persona.inventory.CraftingUtil;
+
 import org.bukkit.Location;
 import org.bukkit.inventory.CraftingRecipe;
 import org.jetbrains.annotations.Nullable;

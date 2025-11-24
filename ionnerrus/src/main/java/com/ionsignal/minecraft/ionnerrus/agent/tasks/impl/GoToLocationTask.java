@@ -4,8 +4,6 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.EngageResult;
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.results.NavigationResult;
 import org.bukkit.Location;
 
 import java.util.concurrent.CompletableFuture;
@@ -32,7 +30,7 @@ public class GoToLocationTask implements Task {
     public void cancel() {
         this.cancelled = true;
         if (agent != null && agent.getPersona().isSpawned()) {
-            agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED, EngageResult.CANCELLED);
+            agent.getPersona().getPhysicalBody().movement().stop();
         }
     }
 
@@ -40,13 +38,16 @@ public class GoToLocationTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent) {
         this.agent = agent;
         this.cancelled = false;
-        // Use the skill for simple movement, no look target.
-        NavigateToLocationSkill navSkill = new NavigateToLocationSkill(this.targetLocation);
+        // Calculate a gaze target at eye-level above the destination
+        // This keeps the agent focused on where they are going, rather than staring blankly forward.
+        Location gazeTarget = this.targetLocation.clone().add(0, 1.6, 0);
+        // Use the skill with the explicit look target
+        NavigateToLocationSkill navSkill = new NavigateToLocationSkill(this.targetLocation, gazeTarget);
         return navSkill.execute(agent).thenAccept(navResult -> {
             if (cancelled)
                 return;
             if (agent.getPersona().isSpawned() && agent.getPersona().getPersonaEntity() != null) {
-                agent.getPersona().getPersonaEntity().getLookControl().stopLooking();
+                agent.getPersona().getPhysicalBody().orientation().clearLookTarget();
             }
             switch (navResult) {
                 case SUCCESS:
