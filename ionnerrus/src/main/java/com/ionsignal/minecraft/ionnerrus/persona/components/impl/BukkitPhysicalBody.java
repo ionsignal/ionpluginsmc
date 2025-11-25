@@ -21,6 +21,7 @@ import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -49,7 +50,7 @@ public class BukkitPhysicalBody implements PhysicalBody {
     private volatile CompletableFuture<ActionResult> activeAction;
 
     // Internal state for tracking Navigator completion
-    private volatile MovementResult pendingNavigationResult;
+    private MovementResult pendingNavigationResult;
 
     // Locks for synchronization
     private final Object movementLock = new Object();
@@ -116,21 +117,27 @@ public class BukkitPhysicalBody implements PhysicalBody {
     }
 
     private void tickMovement() {
-        // Navigator runs first to determine Intent for this tick.
-        navigator.tick();
-        // Locomotion runs second to Execute that intent (or continue maneuver).
-        locomotionController.tick();
-        MovementResult result = pendingNavigationResult;
-        if (result != null) {
-            CompletableFuture<MovementResult> future;
-            synchronized (movementLock) {
-                future = activeMovement;
+        // Variables to hold state we extract from the lock
+        CompletableFuture<MovementResult> futureToComplete = null;
+        MovementResult resultToComplete = null;
+        synchronized (movementLock) {
+            // 1. Run the Logic (Protected)
+            navigator.tick();
+            locomotionController.tick();
+            // 2. Check for completion (Atomic State Extraction)
+            // We read AND clear the state in the same atomic transaction.
+            if (pendingNavigationResult != null) {
+                futureToComplete = activeMovement;
+                resultToComplete = pendingNavigationResult;
+                // Cleanup internal state immediately
                 activeMovement = null;
                 pendingNavigationResult = null;
             }
-            if (future != null && !future.isDone()) {
-                future.complete(result);
-            }
+        }
+        // 3. Notify Listeners (Outside the lock)
+        // We are now safe to run arbitrary code (callbacks) without holding the lock.
+        if (futureToComplete != null && !futureToComplete.isDone()) {
+            futureToComplete.complete(resultToComplete);
         }
     }
 
@@ -141,7 +148,7 @@ public class BukkitPhysicalBody implements PhysicalBody {
             Optional<Location> override = locomotionController.getOrientationOverride();
             if (override.isPresent()) {
                 // Priority 1: Physics/Maneuver Override
-                orientationController.tickOverride(override.get());
+                orientationController.tickOverride(override.get(), locomotionController.shouldLockBodyRotation());
             } else {
                 // Priority 2: High-Level Logic (Tracking/Looking)
                 orientationController.tick(movement().isMoving());
@@ -208,6 +215,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
         return new MovementCapability() {
             @Override
             public CompletableFuture<MovementResult> moveTo(Location target) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.moveTo(target) must be called on the main server thread.");
+                }
                 synchronized (movementLock) {
                     validateMovement();
                     CompletableFuture<MovementResult> future = new CompletableFuture<>();
@@ -222,6 +232,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public CompletableFuture<MovementResult> moveTo(Path path) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.moveTo(path) must be called on the main server thread.");
+                }
                 synchronized (movementLock) {
                     validateMovement();
                     CompletableFuture<MovementResult> future = new CompletableFuture<>();
@@ -236,6 +249,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public CompletableFuture<MovementResult> engage(Entity target, double stopDistanceSquared) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.engage() must be called on the main server thread.");
+                }
                 synchronized (movementLock) {
                     validateMovement();
                     CompletableFuture<MovementResult> future = new CompletableFuture<>();
@@ -243,6 +259,23 @@ public class BukkitPhysicalBody implements PhysicalBody {
                     pendingNavigationResult = null;
                     navigator.engageOn(target, stopDistanceSquared).whenComplete((result, ex) -> {
                         pendingNavigationResult = (ex != null) ? MovementResult.STUCK : result;
+                    });
+                    return future;
+                }
+            }
+
+            @Override
+            public CompletableFuture<MovementResult> follow(Entity target, double followDistance, double stopDistance) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.follow() must be called on the main server thread.");
+                }
+                synchronized (movementLock) {
+                    validateMovement();
+                    CompletableFuture<MovementResult> future = new CompletableFuture<>();
+                    activeMovement = future;
+                    pendingNavigationResult = null;
+                    navigator.followOn(target, followDistance, stopDistance).whenComplete((result, ex) -> {
+                        pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
                     });
                     return future;
                 }
@@ -256,6 +289,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public void stop() {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.stop() must be called on the main server thread.");
+                }
                 synchronized (movementLock) {
                     // Navigator cancel call needs a result, but since we are stopping,
                     // the future will be completed by the navigator's completion handler
@@ -279,6 +315,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
         return new OrientationCapability() {
             @Override
             public CompletableFuture<LookResult> lookAt(Location target, boolean turnBody) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.lookAt(target, turnBody) must be called on the main server thread.");
+                }
                 synchronized (orientationLock) {
                     return orientationController.lookAt(target, turnBody);
                 }
@@ -286,6 +325,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public void face(Location target, boolean turnBody) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.face(target, turnBody) must be called on the main server thread.");
+                }
                 synchronized (orientationLock) {
                     orientationController.face(target, turnBody);
                 }
@@ -293,6 +335,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public void face(Entity target) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.face(entity) must be called on the main server thread.");
+                }
                 synchronized (orientationLock) {
                     orientationController.face(target);
                 }
@@ -300,6 +345,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public void clearLookTarget() {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.clearLookTarget() must be called on the main server thread.");
+                }
                 synchronized (orientationLock) {
                     orientationController.clear();
                 }
@@ -311,6 +359,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
         return new ActionCapability() {
             @Override
             public CompletableFuture<ActionResult> breakBlock(Block target) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.breakBlock(target) must be called on the main server thread.");
+                }
                 synchronized (actionLock) {
                     if (isBusy()) {
                         throw new IllegalStateException("Cannot break block: Action in progress");
@@ -323,6 +374,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public CompletableFuture<ActionResult> placeBlock(Material material, Location target) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.placeBlock(material, target) must be called on the main server thread.");
+                }
                 synchronized (actionLock) {
                     if (isBusy()) {
                         throw new IllegalStateException("Cannot place block: Action in progress");
@@ -349,6 +403,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public CompletableFuture<ActionResult> swapItems(int sourceSlot, int destinationSlot) {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.swapItems() must be called on the main server thread.");
+                }
                 synchronized (actionLock) {
                     if (isBusy()) {
                         throw new IllegalStateException("Cannot swap items: Action in progress");
@@ -362,6 +419,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
             @Override
             public void cancelAction() {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.cancelAction() must be called on the main server thread.");
+                }
                 synchronized (actionLock) {
                     actionController.clear();
                     if (activeAction != null && !activeAction.isDone()) {
@@ -391,16 +451,25 @@ public class BukkitPhysicalBody implements PhysicalBody {
         return new StateCapability() {
             @Override
             public Location getLocation() {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.getLocation() must be called on the main server thread.");
+                }
                 return personaEntity.getBukkitEntity().getLocation();
             }
 
             @Override
             public @Nullable PlayerInventory getInventory() {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.getInventory() must be called on the main server thread.");
+                }
                 return personaEntity.getBukkitEntity().getInventory();
             }
 
             @Override
             public boolean isAlive() {
+                if (!Bukkit.isPrimaryThread()) {
+                    throw new IllegalStateException("PhysicalBody.isAlive() must be called on the main server thread.");
+                }
                 return personaEntity.isAlive() && personaEntity.valid;
             }
 
