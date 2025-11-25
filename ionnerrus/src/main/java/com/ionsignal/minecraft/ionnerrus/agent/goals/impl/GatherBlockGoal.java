@@ -147,7 +147,7 @@ public class GatherBlockGoal implements Goal {
 
     private Task createGatherOneBlockTask() {
         // TODO: In a future update, calculate drops based on 'materials'
-        return new GatherBlockTask(materials, null, 50, attemptedLocations, contextToken);
+        return new GatherBlockTask(materials, null, 48, attemptedLocations, contextToken);
     }
 
     private Task createUpdateCountTask() {

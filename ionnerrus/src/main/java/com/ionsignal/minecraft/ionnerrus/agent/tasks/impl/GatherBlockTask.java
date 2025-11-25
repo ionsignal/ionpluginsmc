@@ -14,7 +14,11 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.PathNode;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
+
+import net.minecraft.core.BlockPos;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -172,7 +176,10 @@ public class GatherBlockTask implements Task {
                                     logger.info(String.format("[GatherBlockTask] Target at %s obstructed by %s. Recursing (Depth: %d)",
                                             target.blockLocation().toVector(), obstructionLoc.toVector(), recursionDepth + 1));
                                     // Create a "stand here" path since we are already close enough to see the obstruction
-                                    Path currentPath = new Path(List.of(agent.getPersona().getLocation()));
+                                    Location agentLoc = agent.getPersona().getLocation();
+                                    BlockPos agentPos = new BlockPos(agentLoc.getBlockX(), agentLoc.getBlockY(), agentLoc.getBlockZ());
+                                    PathNode startNode = new PathNode(agentPos, MovementType.WALK, 0.5);
+                                    Path currentPath = new Path(List.of(startNode), agentLoc.getWorld());
                                     CollectableBlock obstructionTarget = new CollectableBlock(
                                             obstructionLoc,
                                             target.standingLocation(),

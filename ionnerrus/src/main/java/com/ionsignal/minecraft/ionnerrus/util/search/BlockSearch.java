@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.util.search;
 
-import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationHelper;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
 
 import net.minecraft.core.BlockPos;
@@ -84,7 +83,7 @@ public final class BlockSearch {
         if (world == null)
             return results;
 
-        Optional<Location> groundOpt = NavigationHelper.findGround(start, 10);
+        Optional<Location> groundOpt = snapshot.findGroundBelow(start, 10);
         if (groundOpt.isEmpty())
             return results;
         BlockPos startPos = new BlockPos(groundOpt.get().getBlockX(), groundOpt.get().getBlockY(), groundOpt.get().getBlockZ());
