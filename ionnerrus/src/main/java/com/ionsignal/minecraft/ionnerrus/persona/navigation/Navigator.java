@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.LocomotionController;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
+import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
@@ -12,17 +13,22 @@ import org.bukkit.entity.Entity;
 import java.util.concurrent.CompletableFuture;
 
 public class Navigator {
+    private static final boolean DEBUG_VISUALIZATION = true;
+
     // Movement constants
     private static final float DEFAULT_MOVEMENT_SPEED = 1.0f;
 
     // Stuck check constants
     private static final int STUCK_TIME_THRESHOLD_TICKS = 40;
     private static final int STUCK_CHECK_INTERVAL_TICKS = 10;
-    private static final double STUCK_DISTANCE_THRESHOLD_SQUARED = 0.25; // 0.1 * 0.1 blocks
+    private static final double STUCK_DISTANCE_THRESHOLD_SQUARED = 0.25;
 
     // Deceleration constants
-    private static final double DECELERATION_DISTANCE_SQUARED = 1.5 * 1.5; // Start slowing down 2 blocks away
-    private static final float MIN_DECELERATION_SPEED = 0.1f; // Don't slow down to a crawl
+    private static final double DECELERATION_DISTANCE_SQUARED = 1.5 * 1.5;
+    private static final float MIN_DECELERATION_SPEED = 0.1f;
+
+    // Repath constants
+    private static final int REPATH_INTERVAL_TICKS = 20;
 
     private final Persona persona;
     private final LocomotionController locomotion;
@@ -46,13 +52,12 @@ public class Navigator {
     private int ticksSinceStuckCheck;
     private int totalTicksStuck;
 
-    // New fields for Following State
+    // Following State
     private Entity followTarget;
     private double followDistanceSquared;
     private double stopDistanceSquared;
     private Path currentFollowPath;
     private int ticksUntilNextRepath;
-    private static final int REPATH_INTERVAL_TICKS = 20; // Repath every second if needed
 
     public Navigator(Persona persona, LocomotionController locomotion) {
         this.persona = persona;
@@ -76,6 +81,9 @@ public class Navigator {
         AStarPathfinder.findPath(persona.getLocation(), target, params).thenAcceptAsync(pathOptional -> {
             if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
                 currentPath = pathOptional.get();
+                if (DEBUG_VISUALIZATION) {
+                    DebugVisualizer.displayPath(currentPath, 30);
+                }
                 pathFollower = new PathFollower(currentPath);
             } else {
                 finishPathing(MovementResult.UNREACHABLE);
@@ -142,10 +150,20 @@ public class Navigator {
             }
             return;
         }
-        // Stuck detection runs for any active state.
-        if (isBusy() && checkIfStuck()) {
+        // PHASE 3 UPDATE: Check for geometric deviation (Tether Snap)
+        if (state == State.PATH_FOLLOWING && pathFollower != null && pathFollower.isOffPath()) {
+            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " deviated from path (Tether Snap).");
             log();
-            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " is stuck! Failing current task.");
+            finishPathing(MovementResult.STUCK);
+            return;
+        }
+        // Standard Stuck detection (Temporal)
+        // We pause stuck detection if the LocomotionController is performing a Maneuver (Jump/Drop) because
+        // maneuvers have their own internal timeouts, and often require special timeout handling
+        if (isBusy() && !locomotion.isManeuvering() && checkIfStuck()) {
+            log();
+            persona.getManager().getPlugin().getLogger()
+                    .warning("Persona " + persona.getName() + " is stuck (Temporal). Failing current task.");
             if (state == State.PATH_FOLLOWING) {
                 finishPathing(MovementResult.STUCK);
             } else if (state == State.ENGAGING) {
@@ -175,6 +193,13 @@ public class Navigator {
         if (pathFollower == null) {
             return;
         }
+        // Check if blocked by dynamic obstacle
+        if (locomotion.isBlocked()) {
+            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " collision detected (Bumper).");
+            // Immediately triggers stuck
+            finishPathing(MovementResult.STUCK);
+            return;
+        }
         Location currentLocation = persona.getLocation();
         if (pathFollower.isFinished(currentLocation)) {
             // Only finish pathing if the state is actually PATH_FOLLOWING.
@@ -186,14 +211,17 @@ public class Navigator {
         // Delegate steering calculation to PathFollower and execution to LocomotionController
         SteeringResult result = pathFollower.calculateSteering(currentLocation);
         float currentSpeed = getSpeed();
-        // Apply deceleration logic for WALK type
+        // Apply deceleration logic
         if (result.movementType() == SteeringResult.MovementType.WALK) {
             Path pathToFollow = (state == State.FOLLOWING) ? currentFollowPath : currentPath;
             if (pathToFollow != null) {
-                Location finalDestination = pathToFollow.getPoint(pathToFollow.size() - 1);
-                double distanceToFinalSq = currentLocation.distanceSquared(finalDestination);
-                if (distanceToFinalSq < DECELERATION_DISTANCE_SQUARED) {
-                    double speedScale = Math.sqrt(distanceToFinalSq) / Math.sqrt(DECELERATION_DISTANCE_SQUARED);
+                // Use new spline length for accurate deceleration
+                double distRemaining = pathToFollow.getLength() - pathFollower.getCurrentDist();
+                // We use the square root of the constant because distRemaining is linear.
+                // Constant is 1.5 * 1.5, so threshold is 1.5 meters.
+                double decelerationThreshold = Math.sqrt(DECELERATION_DISTANCE_SQUARED);
+                if (distRemaining < decelerationThreshold) {
+                    double speedScale = distRemaining / decelerationThreshold;
                     currentSpeed = (float) Math.max(MIN_DECELERATION_SPEED, currentSpeed * speedScale);
                 }
             }
@@ -227,7 +255,7 @@ public class Navigator {
 
     private void tickFollowing() {
         if (followTarget == null || followTarget.isDead()) {
-            finishFollowing(MovementResult.TARGET_LOST); // Target is gone
+            finishFollowing(MovementResult.TARGET_LOST);
             return;
         }
         Location agentLocation = persona.getLocation();
@@ -236,38 +264,34 @@ public class Navigator {
         if (distanceSq < stopDistanceSquared) {
             // Use locomotion stop instead of direct entity access
             locomotion.stop();
-            currentFollowPath = null; // We are close, no path needed.
+            currentFollowPath = null;
             pathFollower = null;
-        } else if (distanceSq < followDistanceSquared
-                && !NavigationHelper.isObstacleDirectlyInFront(agentLocation, targetLocation)
-                && NavigationHelper.hasLineOfSight(agentLocation, targetLocation, agentLocation.getWorld())) {
-            // Direct Steering Zone: Move directly towards target.
-            // For direct steering, we still need a ground-based target.
-            // This is a fast check that prevents running into walls.
-            Location steerTarget = followTarget.isOnGround()
-                    ? targetLocation
-                    : NavigationHelper.findGround(targetLocation, 5).orElse(targetLocation);
-            // Send direct steering intent
-            SteeringResult result = new SteeringResult(steerTarget, SteeringResult.MovementType.WALK);
+        } else if (distanceSq < followDistanceSquared) {
+            SteeringResult result = new SteeringResult(targetLocation, SteeringResult.MovementType.WALK);
             locomotion.drive(result, getSpeed());
             currentFollowPath = null;
             pathFollower = null;
         } else {
-            // Pathfinding Zone: Too far or no line of sight.
+            // Pathfinding Zone
             ticksUntilNextRepath--;
             // Target moved from path end
             boolean needsRepath = currentFollowPath == null || pathFollower == null || pathFollower.isFinished(agentLocation)
                     || ticksUntilNextRepath <= 0 ||
-                    currentFollowPath.getPoint(currentFollowPath.size() - 1).distanceSquared(targetLocation) > 4.0;
+                    currentFollowPath.getPointAtDistance(currentFollowPath.getLength()).distanceSquared(targetLocation) > 4.0;
             if (needsRepath) {
                 ticksUntilNextRepath = REPATH_INTERVAL_TICKS;
-                Location pathTarget = NavigationHelper.findGround(targetLocation, 20).orElse(targetLocation);
-                AStarPathfinder.findPath(agentLocation, pathTarget, NavigationParameters.DEFAULT)
+                // Use helper to find ground
+                // Note: findGround in helper needs update or we use AStarPathfinder's internal logic
+                // For now, assume targetLocation is valid
+                AStarPathfinder.findPath(agentLocation, targetLocation, NavigationParameters.DEFAULT)
                         .thenAcceptAsync(pathOpt -> {
                             if (state != State.FOLLOWING)
                                 return; // State changed while pathfinding
                             if (pathOpt.isPresent() && !pathOpt.get().isEmpty()) {
                                 currentFollowPath = pathOpt.get();
+                                if (DEBUG_VISUALIZATION) {
+                                    DebugVisualizer.displayPath(currentFollowPath, REPATH_INTERVAL_TICKS + 5);
+                                }
                                 pathFollower = new PathFollower(currentFollowPath);
                             } else {
                                 currentFollowPath = null; // Path failed, will try again
@@ -283,13 +307,10 @@ public class Navigator {
 
     /**
      * Checks if the persona is stuck by monitoring its movement over time.
-     * This method is called by the main tick loop for any active state.
      * 
      * @return true if the persona is considered stuck, false otherwise.
      */
     private boolean checkIfStuck() {
-        // Check locomotion state instead of raw entity move control if we are waiting/stopped, we aren't
-        // stuck.
         if (state == State.IDLE) {
             totalTicksStuck = 0;
             return false;
@@ -336,7 +357,6 @@ public class Navigator {
                 finishFollowing(reason);
                 break;
             case IDLE:
-                // Nothing to do
                 break;
         }
     }
@@ -363,20 +383,14 @@ public class Navigator {
     }
 
     private void reset() {
-        // Stop locomotion controller
         locomotion.stop();
-        // Reset future
         this.navigationFuture = null;
-        // Reset path state
         this.currentPath = null;
         this.pathFollower = null;
-        // Reset engage state
         this.engageFuture = null;
         this.engageTarget = null;
-        // Reset follow state
         this.followTarget = null;
         this.currentFollowPath = null;
-        // Reset to idle
         this.state = State.IDLE;
     }
 
@@ -395,20 +409,7 @@ public class Navigator {
         sb.append(String.format("  - Current Location: (%s, %.2f, %.2f, %.2f)\n",
                 currentPos.getWorld().getName(), currentPos.getX(), currentPos.getY(), currentPos.getZ()));
         if (state == State.PATH_FOLLOWING && currentPath != null && pathFollower != null && !currentPath.isEmpty()) {
-            sb.append("  - Following Path (").append(currentPath.size()).append(" points total):\n");
-            int currentIndex = pathFollower.getCurrentIndex();
-            // Show a few points before and after the current target for context.
-            int start = Math.max(0, currentIndex - 2);
-            int end = Math.min(currentPath.size(), currentIndex + 5);
-            for (int i = start; i < end; i++) {
-                Location point = currentPath.getPoint(i);
-                String prefix = (i == currentIndex) ? " -> " : "    ";
-                sb.append(prefix).append(String.format("[%d] (%.1f, %.1f, %.1f)\n", i, point.getX(), point.getY(), point.getZ()));
-            }
-        } else if (state == State.ENGAGING && engageTarget != null) {
-            Location targetPos = engageTarget.getLocation();
-            sb.append("  - Engaging Target: ").append(engageTarget.getType())
-                    .append(String.format(" at (%.2f, %.2f, %.2f)\n", targetPos.getX(), targetPos.getY(), targetPos.getZ()));
+            sb.append("  - Following Path (").append(currentPath.size()).append(" points total)\n");
         }
         persona.getManager().getPlugin().getLogger().warning(sb.toString());
         // Log a 5-block radius area scan to the console for visual debugging.

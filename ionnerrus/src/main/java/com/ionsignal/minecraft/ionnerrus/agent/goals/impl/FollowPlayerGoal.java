@@ -70,12 +70,22 @@ public class FollowPlayerGoal implements Goal {
     private void startFollowing(NerrusAgent agent, LivingEntity target) {
         state = State.FOLLOWING;
         followStartTimeMillis = System.currentTimeMillis();
-        // TODO: we need to re-enable follow
-        // followFuture = agent.getPersona().getNavigator().followOn(target, params.followDistance(),
-        // params.stopDistance());
+        // Track the target
+        agent.getPersona().getPhysicalBody().orientation().face(target);
+        // Start following
+        followFuture = agent.getPersona().getPhysicalBody().movement()
+                .follow(target, params.followDistance(), params.stopDistance());
         followFuture.whenCompleteAsync((result, throwable) -> {
+            // If the goal is already finished (e.g. success via timeout), ignore this callback
+            if (isFinished()) {
+                return;
+            }
             cancelTimeoutTask();
             if (throwable != null) {
+                // Cancellation is expected if we stop manually
+                if (throwable instanceof java.util.concurrent.CancellationException) {
+                    return;
+                }
                 agent.postMessage(contextToken, new GoalResult.Failure("An error occurred while following: " + throwable.getMessage()));
             } else {
                 agent.postMessage(contextToken,
@@ -92,10 +102,10 @@ public class FollowPlayerGoal implements Goal {
                     long elapsedMillis = System.currentTimeMillis() - followStartTimeMillis;
                     if (elapsedMillis >= durationMillis) {
                         agent.speak("I'm done following.");
-                        // TODO: we need to re-enable follow
-                        // Cancel the navigation operation cleanly
-                        // agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
-                        // EngageResult.CANCELLED);
+                        // Stop movement via PhysicalBody
+                        agent.getPersona().getPhysicalBody().movement().stop();
+                        // Release orientation on success
+                        agent.getPersona().getPhysicalBody().orientation().clearLookTarget();
                         // Use message queue instead of direct state mutation
                         agent.postMessage(contextToken, new GoalResult.Success(
                                 String.format("I followed %s for %.1f seconds as requested.",
@@ -130,9 +140,10 @@ public class FollowPlayerGoal implements Goal {
     public void stop(NerrusAgent agent) {
         cancelTimeoutTask();
         if (state == State.FOLLOWING) {
-            // TODO: we need to re-enable follow
-            // agent.getPersona().getNavigator().cancelCurrentOperation(NavigationResult.CANCELLED,
-            // EngageResult.CANCELLED);
+            // Stop movement via PhysicalBody
+            agent.getPersona().getPhysicalBody().movement().stop();
+            // Release the orientation lock
+            agent.getPersona().getPhysicalBody().orientation().clearLookTarget();
         }
         if (!isFinished()) {
             fail("Follow goal was cancelled.");
