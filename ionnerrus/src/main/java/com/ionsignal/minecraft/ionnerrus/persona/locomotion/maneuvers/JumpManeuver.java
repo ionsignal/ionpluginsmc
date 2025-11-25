@@ -52,7 +52,7 @@ public class JumpManeuver implements Maneuver {
         // 1. Forward Momentum: CRITICAL
         // We must continuously feed the MoveControl to keep moving through the air.
         // NMS resets zza/xxa every tick if not set.
-        double speed = entity.getAttributeValue(Attributes.MOVEMENT_SPEED) * 1.3; // Slight boost for air control
+        double speed = entity.getAttributeValue(Attributes.MOVEMENT_SPEED) * 1.3; // TODO: make boost dynamic
         entity.getMoveControl().setWantedPosition(
                 targetWaypoint.getX(),
                 targetWaypoint.getY(),

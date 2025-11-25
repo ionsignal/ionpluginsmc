@@ -24,6 +24,12 @@ public interface Maneuver {
     void tick(PersonaEntity entity);
 
     /**
+     * Called when the maneuver is finished or interrupted to clean up state. (e.g., stopping jump
+     * control input).
+     */
+    void stop(PersonaEntity entity);
+
+    /**
      * Checks if the maneuver has completed (successfully or failed).
      * 
      * @return true if the maneuver is finished and control should return to the Navigator.
@@ -41,8 +47,11 @@ public interface Maneuver {
     }
 
     /**
-     * Called when the maneuver is finished or interrupted to clean up state. (e.g., stopping jump
-     * control input).
+     * Determines if the body rotation should be locked to the head rotation during this maneuver.
+     * 
+     * @return true to lock body (Jump), false to allow independent movement (Drop).
      */
-    void stop(PersonaEntity entity);
+    default boolean shouldLockBody() {
+        return true; // Default to safe, locked behavior (e.g. for Jumps)
+    }
 }

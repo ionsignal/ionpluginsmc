@@ -33,12 +33,24 @@ public class DropManeuver implements Maneuver {
     @Override
     public void start(PersonaEntity entity) {
         ticks = 0;
+        // PHASE 4 UPDATE: Explicitly disable sneaking.
+        // Minecraft physics prevents entities from walking off ledges while sneaking.
+        entity.setShiftKeyDown(false);
+    }
+
+    @Override
+    public void stop(PersonaEntity entity) {
+        // no-op
     }
 
     @Override
     @SuppressWarnings("null")
     public void tick(PersonaEntity entity) {
         ticks++;
+        // Ensure sneaking remains disabled throughout the maneuver
+        if (entity.isShiftKeyDown()) {
+            entity.setShiftKeyDown(false);
+        }
         // We must continuously feed the MoveControl to walk off the ledge.
         // We use standard movement speed.
         double speed = entity.getAttributeValue(Attributes.MOVEMENT_SPEED);
@@ -84,7 +96,7 @@ public class DropManeuver implements Maneuver {
     }
 
     @Override
-    public void stop(PersonaEntity entity) {
-        // no-op
+    public boolean shouldLockBody() {
+        return false; // Look at the landing, but let MoveControl drive the body
     }
 }

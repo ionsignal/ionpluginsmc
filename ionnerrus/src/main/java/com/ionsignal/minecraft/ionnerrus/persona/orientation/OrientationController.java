@@ -84,15 +84,17 @@ public class OrientationController {
 
     /**
      * Forces the persona to look at a specific target for this tick only.
-     * This bypasses internal state (tracking/static targets) but does NOT clear them.
-     * Used by Locomotion maneuvers (e.g., jumping) which require precise facing.
-     *
+     * 
      * @param target
      *            The location to force-face.
+     * @param lockBody
+     *            Whether to force the body to align with the head.
      */
-    public void tickOverride(Location target) {
-        // Maneuvers usually imply physical commitment, so we LOCK the body.
-        lookControl.setBodyMode(PersonaLookControl.BodyMode.LOCKED);
+    public void tickOverride(Location target, boolean lockBody) {
+        // If locking is requested, use LOCKED.
+        // If not, use EXTERNAL. This allows LookControl to rotate the head,
+        // while MoveControl (running in aiStep) rotates the body naturally.
+        lookControl.setBodyMode(lockBody ? PersonaLookControl.BodyMode.LOCKED : PersonaLookControl.BodyMode.EXTERNAL);
         lookControl.setLookAt(target.getX(), target.getY(), target.getZ());
         lookControl.tick();
     }

@@ -1,154 +1,143 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
-import net.minecraft.core.Direction;
-import net.minecraft.world.level.EmptyBlockGetter;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Tag;
-import org.bukkit.World;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
-import org.bukkit.craftbukkit.block.CraftBlock;
-import org.bukkit.util.Vector;
 
-import java.util.Optional;
-
+/**
+ * Stateless utility for geometric analysis.
+ * Operates on NMS BlockGetter to support both ServerLevel (Sync) and WorldSnapshot (Async).
+ */
 public final class NavigationHelper {
     private NavigationHelper() {
     }
 
     /**
+     * Performs a ray-trace (clip) to detect physical obstructions.
+     *
+     * @param level
+     *            The world accessor.
+     * @param start
+     *            The starting vector.
+     * @param end
+     *            The ending vector.
+     * @return The hit result. If type is MISS, the path is clear.
+     */
+    @SuppressWarnings("null")
+    public static BlockHitResult rayTrace(BlockGetter level, Vec3 start, Vec3 end) {
+        return level.clip(new ClipContext(
+                start,
+                end,
+                ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE,
+                CollisionContext.empty()));
+    }
+
+    /**
      * Checks if a given block is a valid spot for a Persona to stand on.
      * A valid spot has a walkable surface below and two passable blocks of space for the body.
-     *
-     * @param block
-     *            The block representing the feet location.
-     * @return true if the location is a valid standing spot.
      */
-    public static boolean isValidStandingSpot(Block block) {
-        // Check for a walkable surface below using NMS
-        Block groundBlock = block.getRelative(BlockFace.DOWN);
-        Block headBlock = block.getRelative(BlockFace.UP);
-        BlockState groundState = ((CraftBlock) groundBlock).getNMS();
-        boolean canStandOn = groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, ((CraftBlock) groundBlock).getPosition(), Direction.UP);
-        // || Tag.LEAVES.isTagged(groundBlock.getType());
+    @SuppressWarnings("null")
+    public static boolean isValidStandingSpot(BlockGetter level, BlockPos pos) {
+        // Check for a walkable surface below
+        BlockPos below = pos.below();
+        BlockState groundState = level.getBlockState(below);
+        // Check face solidity
+        boolean canStandOn = groundState.isFaceSturdy(level, below, Direction.UP);
+        // Fallback for leaves/tags if needed, though collision check usually suffices
+        if (!canStandOn && Tag.LEAVES.isTagged(groundState.getBukkitMaterial())) {
+            // Leaves are technically standable in Minecraft physics
+            canStandOn = true;
+        }
         if (!canStandOn) {
             return false;
         }
         // Check for two blocks of passable space for the body and head.
-        return isPassable(block) && isPassable(headBlock);
+        return isPassable(level, pos) && isPassable(level, pos.above());
     }
 
     /**
      * Checks if a block is passable for a Persona (e.g., air, water, non-colliding blocks).
-     *
-     * @param block
-     *            The block to check.
-     * @return true if the block is passable.
      */
-    public static boolean isPassable(Block block) {
-        Material mat = block.getType();
+    @SuppressWarnings("null")
+    public static boolean isPassable(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        Material mat = state.getBukkitMaterial();
         if (Tag.LEAVES.isTagged(mat)) {
-            return false;
+            return false; // Personas treat leaves as obstacles for pathing
         }
-        if (mat.isAir() || mat == Material.WATER) {
+        if (state.isAir() || mat == Material.WATER) {
             return true;
         }
-        BlockState state = ((CraftBlock) block).getNMS();
-        return state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
+        // Use NMS collision shape check
+        VoxelShape shape = state.getCollisionShape(level, pos);
+        return shape.isEmpty();
     }
 
     /**
-     * Finds the nearest valid ground location by searching vertically from a starting point.
-     * It searches downwards first, then upwards.
-     *
-     * @param start
-     *            The starting location for the search.
-     * @param searchRange
-     *            The maximum vertical distance to search in each direction.
-     * @return An Optional containing the ground Location if found, otherwise an empty Optional.
+     * Calculates the horizontal clearance radius around a specific node.
+     * Used by AStarPathfinder to populate path metadata.
+     * 
+     * @param level
+     *            The world accessor.
+     * @param center
+     *            The center position to check.
+     * @param maxRadius
+     *            The maximum radius to check (optimization cap).
+     * @return Distance in blocks to the nearest obstruction.
      */
-    public static Optional<Location> findGround(Location start, int searchRange) {
-        // Search down first to find the landing spot.
-        Block currentBlock = start.getBlock();
-        for (int i = 0; i < searchRange; i++) {
-            if (isValidStandingSpot(currentBlock)) {
-                // Return the center of the block.
-                return Optional.of(currentBlock.getLocation().add(0.5, 0, 0.5));
+    public static double calculateClearance(BlockGetter level, BlockPos center, double maxRadius) {
+        double minDistance = maxRadius;
+        // Simple radial check in 8 directions + diagonals
+        // We check at the feet level and head level
+        int checkRadius = (int) Math.ceil(maxRadius);
+        for (int x = -checkRadius; x <= checkRadius; x++) {
+            for (int z = -checkRadius; z <= checkRadius; z++) {
+                if (x == 0 && z == 0)
+                    continue;
+                double dist = Math.sqrt(x * x + z * z);
+                if (dist > maxRadius)
+                    continue;
+                BlockPos checkPos = center.offset(x, 0, z);
+                // Check feet and head
+                if (!isPassable(level, checkPos) || !isPassable(level, checkPos.above())) {
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                    }
+                }
             }
-            currentBlock = currentBlock.getRelative(BlockFace.DOWN);
         }
-        // If not found, search up from the original start point.
-        currentBlock = start.getBlock().getRelative(BlockFace.UP);
-        for (int i = 0; i < searchRange; i++) {
-            if (isValidStandingSpot(currentBlock)) {
-                return Optional.of(currentBlock.getLocation().add(0.5, 0, 0.5));
-            }
-            currentBlock = currentBlock.getRelative(BlockFace.UP);
-        }
-        return Optional.empty(); // No valid ground found in range.
+        return minDistance;
     }
 
     /**
-     * Checks for a clear line of sight between two points. This check is robust, using
-     * NavigationHelper.isPassable to correctly identify obstacles like leaves and fences, and also
-     * detects potential drop-offs.
-     *
-     * @param from
-     *            The starting location (e.g., agent's eyes).
-     * @param to
-     *            The target location.
-     * @param world
-     *            The world to perform the check in.
-     * @return true if there is a clear, safe line of sight.
+     * Checks if a landing spot is safe for a drop maneuver.
      */
-    public static boolean hasLineOfSight(Location from, Location to, World world) {
-        Location eyeLocation = from.clone().add(0, 1.6, 0); // Approx eye height
-        Vector direction = to.toVector().subtract(eyeLocation.toVector());
-        double distance = direction.length();
-        if (distance < 1.0) {
-            return true; // Too close to have an obstacle
-        }
-        direction.normalize();
-        // Raycast step; smaller step for more accuracy in dense environments
-        for (double d = 0.5; d < distance; d += 0.5) {
-            Location checkLoc = eyeLocation.clone().add(direction.clone().multiply(d));
-            // Check if a block is not passable, which blocks line of sight.
-            if (!NavigationHelper.isPassable(checkLoc.getBlock())) {
-                return false;
-            }
-            // Check for a drop-off. If the block below our path is passable, it's a cliff
-            Location groundCheckLoc = checkLoc.clone().subtract(0, 2.2, 0);
-            if (NavigationHelper.isPassable(groundCheckLoc.getBlock())) {
-                return false; // Path goes over a ledge, break line of sight.
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Performs a short-range "bumper check" to see if there is an impassable obstacle directly in the
-     * Persona's path. This is used to prevent direct steering from running into low obstacles like
-     * fences or 1-block-high ledges that the eye-level line-of-sight check might miss.
-     *
-     * @param from
-     *            The Persona's current location (feet).
-     * @param to
-     *            The target's location.
-     * @return true if there is an obstacle, false otherwise.
-     */
-    public static boolean isObstacleDirectlyInFront(Location from, Location to) {
-        Vector direction = to.toVector().subtract(from.toVector());
-        direction.setY(0);
-        if (direction.lengthSquared() < 1.0) {
+    @SuppressWarnings("null")
+    public static boolean isSafeLanding(BlockGetter level, BlockPos pos) {
+        // Must be a valid standing spot
+        if (!isValidStandingSpot(level, pos)) {
             return false;
         }
-        direction.normalize();
-        Location checkLocation = from.clone().add(direction.multiply(0.6));
-        Block feetBlock = checkLocation.getBlock();
-        return !isPassable(feetBlock);
+        BlockState ground = level.getBlockState(pos.below());
+        Material mat = ground.getBukkitMaterial();
+        // Avoid obvious hazards
+        if (mat == Material.MAGMA_BLOCK || mat == Material.CACTUS || mat == Material.SWEET_BERRY_BUSH) {
+            return false;
+        }
+        // Avoid fluids at the landing spot (unless we can swim, but this is for dropping)
+        if (!level.getFluidState(pos).isEmpty()) {
+            return false;
+        }
+        return true;
     }
 }
