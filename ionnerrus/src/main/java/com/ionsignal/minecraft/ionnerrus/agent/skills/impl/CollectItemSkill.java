@@ -268,6 +268,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
      *            The thread-safe world snapshot to check against.
      * @return true if there is an unobstructed line of sight, false otherwise.
      */
+    @SuppressWarnings("null")
     private boolean hasLineOfSightToItem(Location from, Location to, WorldSnapshot snapshot) {
         Location eyeLocation = from.clone().add(0, 1.6, 0); // Agent's approximate eye height
         Location targetLocation = to.clone().add(0, 0.25, 0); // Item's approximate center
