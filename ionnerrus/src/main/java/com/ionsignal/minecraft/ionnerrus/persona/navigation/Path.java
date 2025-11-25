@@ -1,8 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import net.minecraft.core.BlockPos;
-
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.util.Vector;
@@ -11,150 +9,154 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 /**
- * Represents a sequence of locations for an entity to follow.
- * This class is immutable after creation.
+ * Represents a sequence of locations for an entity to follow, enriched with metadata.
+ * Acts as a spline for continuous interpolation.
  */
 public class Path {
+    @SuppressWarnings("unused")
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
-    private final List<Location> points;
-    private final List<Location> waypoints;
-    private double cachedLength = -1.0;
+
+    private final List<PathNode> nodes;
+    private final World world;
+
+    // Cached data for spline interpolation
+    private final double[] cumulativeDistances;
+    private final double totalLength;
+
+    // Legacy support
+    private final List<Location> legacyPoints;
 
     /**
-     * Constructs a new Path from a list of BlockPos objects.
-     * The BlockPos coordinates are converted to centered Locations and a simplified
-     * list of waypoints is generated.
+     * Constructs a new Path from enriched PathNodes.
      *
-     * @param positions
-     *            The list of BlockPos objects representing the path.
+     * @param nodes
+     *            The list of PathNodes.
      * @param world
      *            The world in which the path exists.
      */
-    public Path(List<BlockPos> positions, World world) {
-        List<Location> initialPoints = positions.stream()
-                .map(pos -> new Location(world, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5))
-                .collect(Collectors.toUnmodifiableList());
-        this.points = initialPoints;
-        this.waypoints = initialPoints;
-        // this.debug(this.waypoints);
-    }
+    public Path(List<PathNode> nodes, World world) {
+        this.nodes = Collections.unmodifiableList(nodes);
+        this.world = world;
 
-    /**
-     * Constructs a new Path from a pre-existing list of Locations.
-     * A simplified list of waypoints is generated from the provided points.
-     *
-     * @param points
-     *            The list of locations.
-     */
-    public Path(List<Location> points) {
-        this.points = Collections.unmodifiableList(new ArrayList<>(points));
-        this.waypoints = this.points;
-        // this.debug(this.waypoints);
-    }
+        // Pre-calculate spline distances
+        this.cumulativeDistances = new double[nodes.size()];
+        this.legacyPoints = new ArrayList<>(nodes.size());
 
-    @SuppressWarnings("unused")
-    private void debug(List<Location> waypoints) {
-        StringBuilder sb = new StringBuilder("Path created with " + waypoints.size() + " waypoints:");
-        for (int i = 0; i < waypoints.size(); i++) {
-            Location loc = waypoints.get(i);
-            sb.append(String.format("\n [%d] -> (%.1f, %.1f, %.1f)", i, loc.getX(), loc.getY(), loc.getZ()));
+        double lengthAccumulator = 0.0;
+        if (!nodes.isEmpty()) {
+            cumulativeDistances[0] = 0.0;
+            legacyPoints.add(nodes.get(0).toLocation(world));
+
+            for (int i = 1; i < nodes.size(); i++) {
+                Location prev = nodes.get(i - 1).toLocation(world);
+                Location curr = nodes.get(i).toLocation(world);
+
+                lengthAccumulator += prev.distance(curr);
+                cumulativeDistances[i] = lengthAccumulator;
+                legacyPoints.add(curr);
+            }
         }
-        LOGGER.info(sb.toString());
+        this.totalLength = lengthAccumulator;
     }
 
     /**
-     * Gets the simplified list of waypoints for navigation.
-     *
-     * @return An unmodifiable list of waypoint locations.
+     * Interpolates a point along the path spline at the given distance from the start.
+     * 
+     * @param distance
+     *            The distance in meters from the start of the path.
+     * @return The interpolated Location.
      */
+    public Location getPointAtDistance(double distance) {
+        if (nodes.isEmpty())
+            return null;
+        if (distance <= 0)
+            return nodes.get(0).toLocation(world);
+        if (distance >= totalLength)
+            return nodes.get(nodes.size() - 1).toLocation(world);
+        // Binary search for the segment
+        int index = findSegmentIndex(distance);
+        // Linear Interpolation
+        double distA = cumulativeDistances[index];
+        double distB = cumulativeDistances[index + 1];
+        double segmentLength = distB - distA;
+        if (segmentLength < 0.001)
+            return nodes.get(index).toLocation(world);
+        double t = (distance - distA) / segmentLength;
+        Location locA = nodes.get(index).toLocation(world);
+        Location locB = nodes.get(index + 1).toLocation(world);
+        // Lerp
+        Vector vecA = locA.toVector();
+        Vector vecB = locB.toVector();
+        Vector result = vecA.add(vecB.subtract(vecA).multiply(t));
+        return result.toLocation(world);
+    }
+
+    /**
+     * Retrieves the metadata for the node preceding the given distance.
+     */
+    public PathNode getNodeAtDistance(double distance) {
+        if (nodes.isEmpty())
+            return null;
+        if (distance <= 0)
+            return nodes.get(0);
+        if (distance >= totalLength)
+            return nodes.get(nodes.size() - 1);
+
+        int index = findSegmentIndex(distance);
+        return nodes.get(index);
+    }
+
+    private int findSegmentIndex(double distance) {
+        // Binary search to find i such that cumulativeDistances[i] <= distance < cumulativeDistances[i+1]
+        int low = 0;
+        int high = cumulativeDistances.length - 1;
+
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            double midVal = cumulativeDistances[mid];
+
+            if (midVal < distance) {
+                low = mid + 1;
+            } else if (midVal > distance) {
+                high = mid - 1;
+            } else {
+                return mid; // Exact match
+            }
+        }
+        // low is the insertion point. We want the index below it.
+        return Math.max(0, Math.min(low - 1, cumulativeDistances.length - 2));
+    }
+
+    public double getLength() {
+        return totalLength;
+    }
+
+    // --- Legacy / Compatibility Methods ---
+
     public List<Location> waypoints() {
-        return waypoints;
+        return legacyPoints;
     }
 
-    /**
-     * Gets the full, detailed list of locations that make up this path.
-     *
-     * @return An unmodifiable list of locations.
-     */
-    // CHANGE: Renamed to getPoints and made package-private for controlled access.
-    List<Location> getPoints() {
-        return points;
-    }
-
-    /**
-     * Checks if the path contains any points.
-     *
-     * @return true if the path is empty, false otherwise.
-     */
     public boolean isEmpty() {
-        return points.isEmpty();
+        return nodes.isEmpty();
     }
 
-    /**
-     * Gets the number of points in the detailed path.
-     *
-     * @return The size of the path.
-     */
     public int size() {
-        return points.size();
+        return nodes.size();
     }
 
-    /**
-     * Gets a specific point from the detailed path by its index.
-     * 
-     * @param index
-     *            The index of the point.
-     * @return The Location at the specified index.
-     * @throws IndexOutOfBoundsException
-     *             if the index is out of range.
-     */
     public Location getPoint(int index) {
-        if (index < 0 || index >= points.size()) {
-            throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + points.size());
-        }
-        return points.get(index);
+        return legacyPoints.get(index);
     }
 
-    /**
-     * Calculates the normalized direction vector from one point to the next in the path.
-     * 
-     * @param index
-     *            The starting index of the path segment.
-     * @return A normalized Vector representing the direction of travel. Returns a zero vector if at the end of the path.
-     */
     public Vector getDirectionAtIndex(int index) {
-        if (index < 0 || index >= points.size() - 1) {
+        if (index < 0 || index >= legacyPoints.size() - 1) {
             return new Vector(0, 0, 0);
         }
-        Location current = points.get(index);
-        Location next = points.get(index + 1);
+        Location current = legacyPoints.get(index);
+        Location next = legacyPoints.get(index + 1);
         return next.toVector().subtract(current.toVector()).normalize();
-    }
-
-    /**
-     * Calculates the total geometric length of the path by summing the distances
-     * between consecutive waypoints. The result is cached after the first calculation.
-     *
-     * @return The total length of the path.
-     */
-    public double getLength() {
-        if (cachedLength >= 0) {
-            return cachedLength;
-        }
-        if (waypoints.size() < 2) {
-            this.cachedLength = 0.0;
-            return 0.0;
-        }
-        // Use waypoints for length calculation for efficiency,
-        // as they represent the key turns.
-        double totalLength = 0.0;
-        for (int i = 1; i < waypoints.size(); i++) {
-            totalLength += waypoints.get(i - 1).distance(waypoints.get(i));
-        }
-        this.cachedLength = totalLength;
-        return this.cachedLength;
     }
 }

@@ -42,6 +42,8 @@ import org.jetbrains.annotations.Nullable;
 public class WorldSnapshot implements BlockGetter {
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
     private static final double WARN_THRESHOLD_MS = 100.0;
+    private static final int MAX_SNAPSHOT_DIMENSION = 128; // 8 chunks
+
     private final Map<Long, ChunkSnapshot> chunkSnapshots;
     private final int worldMinHeight;
     private final int worldMaxHeight;
@@ -78,6 +80,15 @@ public class WorldSnapshot implements BlockGetter {
      */
     public static CompletableFuture<WorldSnapshot> create(World world, BlockPos corner1, BlockPos corner2) {
         long startTime = System.nanoTime();
+        // Clamp request size to prevent massive lag spikes on main thread
+        int deltaX = Math.abs(corner1.getX() - corner2.getX());
+        int deltaZ = Math.abs(corner1.getZ() - corner2.getZ());
+        if (deltaX > MAX_SNAPSHOT_DIMENSION || deltaZ > MAX_SNAPSHOT_DIMENSION) {
+            throw new IllegalArgumentException(String.format(
+                    "Requested WorldSnapshot is too large (%dx%d). Max allowed is %dx%d. " +
+                            "Check pathfinding bounds calculation.",
+                    deltaX, deltaZ, MAX_SNAPSHOT_DIMENSION, MAX_SNAPSHOT_DIMENSION));
+        }
         // Calculate the range of chunks needed.
         int minChunkX = corner1.getX() >> 4;
         int maxChunkX = corner2.getX() >> 4;

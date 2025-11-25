@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -16,13 +17,13 @@ import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.World;
 
-import java.util.Optional;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.PriorityQueue;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
@@ -95,12 +96,12 @@ public class AStarPathfinder {
         while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
             Node currentNode = openSet.poll();
             if (currentNode.pos.equals(actualEndPos)) {
-                Path path = reconstructPath(currentNode);
+                // PHASE 2: Enrich the path with metadata before returning
+                Path path = reconstructAndEnrichPath(currentNode);
                 long endTime = System.nanoTime();
-                long durationNanos = endTime - startTime;
-                double durationMillis = durationNanos / 1000000.0;
+                double durationMillis = (endTime - startTime) / 1000000.0;
                 if (durationMillis > WARN_THRESHOLD_MS) {
-                    LOGGER.warning(String.format("Path found after in %.3f ms %d iterations with %d points.", durationMillis, iterations,
+                    LOGGER.warning(String.format("Path found in %.3f ms %d iterations with %d points.", durationMillis, iterations,
                             path.size()));
                 }
                 return Optional.of(path);
@@ -117,6 +118,52 @@ public class AStarPathfinder {
         return Optional.empty();
     }
 
+    /**
+     * Reconstructs the path and calculates metadata (Clearance, MovementType) for each node. This runs
+     * on the async thread.
+     */
+    private Path reconstructAndEnrichPath(Node endNode) {
+        LinkedList<BlockPos> rawPositions = new LinkedList<>();
+        Node currentNode = endNode;
+        while (currentNode != null) {
+            rawPositions.addFirst(currentNode.pos);
+            currentNode = currentNode.parent;
+        }
+        List<PathNode> enrichedNodes = new ArrayList<>(rawPositions.size());
+        for (int i = 0; i < rawPositions.size(); i++) {
+            BlockPos current = rawPositions.get(i);
+            BlockPos next = (i < rawPositions.size() - 1) ? rawPositions.get(i + 1) : null;
+            // Calculate Clearance (Drivability)
+            // We check a radius of up to 2.0 blocks.
+            double clearance = NavigationHelper.calculateClearance(snapshot, current, 2.0);
+            // Determine Movement Type
+            MovementType type = MovementType.WALK; // Default
+            if (next != null) {
+                if (isWater(current) || isWater(next)) {
+                    type = MovementType.SWIM;
+                } else {
+                    int yDiff = next.getY() - current.getY();
+                    if (yDiff > 0) {
+                        type = MovementType.JUMP;
+                    } else if (yDiff < 0) {
+                        // Ledge Detection:
+                        // We check the block at the destination X/Z, but at the CURRENT Y-1 level.
+                        // If that space is AIR, we are walking off a ledge (DROP).
+                        // If that space is SOLID, we are walking down a surface/stair (WALK).
+                        BlockPos ledgeCheck = new BlockPos(next.getX(), current.getY() - 1, next.getZ());
+                        // Use NavigationHelper to check passability (Air/Water = Passable = Drop)
+                        if (NavigationHelper.isPassable(snapshot, ledgeCheck)) {
+                            type = MovementType.DROP;
+                        }
+                        // Else: It is solid, so we treat it as a standard WALK down.
+                    }
+                }
+            }
+            enrichedNodes.add(new PathNode(current, type, clearance));
+        }
+        return new Path(enrichedNodes, this.world);
+    }
+
     private BlockPos resolveStartPosition(BlockPos pos) {
         if (isWater(pos) && params.canSwim()) {
             return pos;
@@ -124,6 +171,7 @@ public class AStarPathfinder {
         return findGround(pos);
     }
 
+    @SuppressWarnings("null")
     private List<Node> getNeighbors(Node node) {
         List<Node> neighbors = new ArrayList<>();
         BlockPos currentPos = node.pos;
@@ -286,6 +334,7 @@ public class AStarPathfinder {
         return true;
     }
 
+    @SuppressWarnings("null")
     private boolean isPassableWithCollisionCheck(BlockPos pos) {
         BlockState state = snapshot.getBlockState(pos);
         if (state == null)
@@ -303,13 +352,11 @@ public class AStarPathfinder {
         if (state == null)
             return false;
         Material mat = state.getBukkitMaterial();
-        return Tag.SLABS.isTagged(mat) ||
-                Tag.STAIRS.isTagged(mat) ||
-                Tag.FENCES.isTagged(mat) ||
-                Tag.WALLS.isTagged(mat) ||
-                Tag.FENCE_GATES.isTagged(mat);
+        return Tag.SLABS.isTagged(mat) || Tag.STAIRS.isTagged(mat) || Tag.FENCES.isTagged(mat) ||
+                Tag.WALLS.isTagged(mat) || Tag.FENCE_GATES.isTagged(mat);
     }
 
+    @SuppressWarnings("null")
     private boolean checkPartialBlockClearance(BlockPos from, BlockPos to, BlockPos corner1, BlockPos corner2) {
         // Use collision shapes to determine if diagonal movement is possible
         BlockState state1 = snapshot.getBlockState(corner1);
@@ -343,6 +390,7 @@ public class AStarPathfinder {
         return true;
     }
 
+    @SuppressWarnings("null")
     private boolean isWaterWithSurface(BlockPos pos) {
         if (!isWater(pos))
             return false;
@@ -350,8 +398,8 @@ public class AStarPathfinder {
         if (above == null)
             return false;
         Material mat = above.getBukkitMaterial();
-        return mat == Material.LILY_PAD || Tag.WOOL_CARPETS.isTagged(mat) ||
-                (mat.isSolid() && above.getCollisionShape(EmptyBlockGetter.INSTANCE, pos.above()).isEmpty());
+        return mat == Material.LILY_PAD || Tag.WOOL_CARPETS.isTagged(mat)
+                || (mat.isSolid() && above.getCollisionShape(EmptyBlockGetter.INSTANCE, pos.above()).isEmpty());
     }
 
     private boolean isFallPathClear(BlockPos takeoffPos, BlockPos landingPos) {
@@ -377,6 +425,7 @@ public class AStarPathfinder {
         return true;
     }
 
+    @SuppressWarnings("null")
     private boolean isValidStandingPos(BlockPos pos) {
         BlockState ground = snapshot.getBlockState(pos.below());
         if (ground == null) {
@@ -416,6 +465,7 @@ public class AStarPathfinder {
         return mat == Material.WATER || mat.isAir();
     }
 
+    @SuppressWarnings("null")
     private boolean isAirOrPassable(BlockState state) {
         if (state == null)
             return false;
@@ -526,15 +576,16 @@ public class AStarPathfinder {
         return Math.abs(a.getX() - b.getX()) + Math.abs(a.getY() - b.getY()) + Math.abs(a.getZ() - b.getZ());
     }
 
-    private Path reconstructPath(Node endNode) {
-        LinkedList<BlockPos> path = new LinkedList<>();
-        Node currentNode = endNode;
-        while (currentNode != null) {
-            path.addFirst(currentNode.pos);
-            currentNode = currentNode.parent;
-        }
-        return new Path(path, this.world);
-    }
+    // Dead code?
+    // private Path reconstructPath(Node endNode) {
+    // LinkedList<BlockPos> path = new LinkedList<>();
+    // Node currentNode = endNode;
+    // while (currentNode != null) {
+    // path.addFirst(currentNode.pos);
+    // currentNode = currentNode.parent;
+    // }
+    // return new Path(path, this.world);
+    // }
 
     private static class Node implements Comparable<Node> {
         final BlockPos pos;
