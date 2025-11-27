@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
 
 import org.bukkit.Location;
@@ -100,10 +101,35 @@ public class PathFollower {
         Location targetLoc = path.getPointAtDistance(targetDist);
         PathNode immediateNext = path.getNodeAtDistance(currentDist + 0.1);
         if (immediateNext != null && immediateNext.type() != MovementType.WALK) {
-            type = immediateNext.type();
-            // If we switched type due to proximity, ensure we target the maneuver node
-            // so the logic below can project through it.
-            targetDist = currentDist + 0.1;
+            boolean shouldOverride = true;
+            // [DEBUG] Precision logging for "Double Jump" detection
+            // Only log if we are triggering a JUMP while already at/above the node's Y level
+            if (immediateNext.type() == MovementType.JUMP && currentPos.getY() >= immediateNext.pos().getY() - 0.05) {
+                IonNerrus.getInstance().getLogger().info(String.format(
+                        "[PathFollower] SUSPICIOUS JUMP TRIGGER: AgentY=%.2f, NodeY=%d, Dist=%.2f, NodeDist=%.2f",
+                        currentPos.getY(), immediateNext.pos().getY(), currentDist, currentDist + 0.1));
+            }
+            // Calculate the destination of this maneuver segment
+            Location maneuverDest = path.getSegmentDestination(currentDist + 0.1);
+            // Ask the MovementType if we are already inside the completion zone
+            if (maneuverDest != null && immediateNext.type().isInsideCompletionBounds(currentPos, maneuverDest)) {
+                // We are physically at the destination of the jump/drop.
+                // Therefore, the command to Jump/Drop is obsolete.
+                shouldOverride = false;
+            }
+            if (shouldOverride) {
+                type = immediateNext.type();
+                // Target the maneuver node so downstream projection logic can work
+                targetDist = currentDist + 0.1;
+            } else {
+                // Push the target PAST the maneuver node to the destination.
+                // This prevents the agent from getting "stuck" with a backward/stationary target.
+                double segmentEnd = path.getNextNodeDistance(currentDist + 0.1);
+                // Add small epsilon to ensure we're clearly past the node
+                targetDist = segmentEnd + 0.1;
+                // Update targetLoc since we're not entering the JUMP/DROP projection block below
+                targetLoc = path.getPointAtDistance(targetDist);
+            }
         }
         // If the target node is a transition (Jump/Drop), we must not stop AT the node.
         // We must target the destination of the maneuver (the landing spot).

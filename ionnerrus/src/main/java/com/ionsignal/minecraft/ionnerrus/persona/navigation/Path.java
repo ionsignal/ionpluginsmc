@@ -62,6 +62,20 @@ public class Path {
     }
 
     /**
+     * Retrieves the destination location of the segment occurring at the given distance.
+     * For a segment A -> B, if distance falls between A and B, this returns B.
+     */
+    public Location getSegmentDestination(double distance) {
+        if (nodes.isEmpty()) {
+            return null;
+        }
+        int index = findSegmentIndex(distance);
+        // The destination is the NEXT node.
+        int nextIndex = Math.min(index + 1, nodes.size() - 1);
+        return nodes.get(nextIndex).toLocation(world);
+    }
+
+    /**
      * Interpolates a point along the path spline at the given distance from the start.
      * 
      * @param distance
@@ -106,6 +120,27 @@ public class Path {
 
         int index = findSegmentIndex(distance);
         return nodes.get(index);
+    }
+
+    /**
+     * Retrieves the cumulative distance to the END of the segment containing the given distance.
+     * For a segment A -> B where distance falls between A and B, this returns the distance to B.
+     *
+     * @param distance
+     *            The current distance along the path.
+     * @return The cumulative distance to the next node, or totalLength if at/past the end.
+     */
+    public double getNextNodeDistance(double distance) {
+        if (nodes.isEmpty() || nodes.size() < 2) {
+            return totalLength;
+        }
+        if (distance >= totalLength) {
+            return totalLength;
+        }
+        int index = findSegmentIndex(distance);
+        int nextIndex = index + 1;
+        // Clamp to array bounds (handles edge case at final segment)
+        return nextIndex < cumulativeDistances.length ? cumulativeDistances[nextIndex] : totalLength;
     }
 
     private int findSegmentIndex(double distance) {
