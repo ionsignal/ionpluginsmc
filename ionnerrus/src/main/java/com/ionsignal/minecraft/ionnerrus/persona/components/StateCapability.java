@@ -1,9 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.components;
 
-import net.minecraft.world.Container;
-
 import org.bukkit.Location;
-import org.bukkit.block.Block;
 import org.bukkit.inventory.PlayerInventory;
 
 import javax.annotation.Nullable;

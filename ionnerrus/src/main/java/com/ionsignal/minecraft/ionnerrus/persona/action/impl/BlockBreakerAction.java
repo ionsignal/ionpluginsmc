@@ -118,6 +118,7 @@ public class BlockBreakerAction implements Action {
         return (int) Math.ceil(1.0 / damagePerTick);
     }
 
+    @SuppressWarnings("null")
     private void broadcast(net.minecraft.network.protocol.Packet<?> packet) {
         if (personaEntity == null)
             return;

@@ -28,6 +28,7 @@ public class PersonaMoveControl extends MoveControl {
     }
 
     @Override
+    @SuppressWarnings("null")
     public void tick() {
         if (this.operation != Operation.MOVE_TO) {
             if (this.operation == Operation.WAIT) {

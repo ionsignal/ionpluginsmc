@@ -48,6 +48,7 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
     protected final PersonaJumpControl jumpControl;
     protected final PersonaLookControl lookControl;
 
+    @SuppressWarnings("null")
     public PersonaEntity(MinecraftServer server, ServerLevel level, GameProfile gameProfile, Persona persona) {
         super(server, level, gameProfile,
                 new ClientInformation(
@@ -102,6 +103,7 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
     }
 
     @Override
+    @SuppressWarnings("null")
     public @NotNull Component getDisplayName() {
         return Component.literal(this.persona.getName());
     }
