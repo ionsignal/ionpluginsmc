@@ -28,6 +28,7 @@ public class Navigator {
     private static final float MIN_DECELERATION_SPEED = 0.1f;
 
     // Repath constants
+    private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = 50.0;
     private static final int REPATH_INTERVAL_TICKS = 20;
 
     private final Persona persona;
@@ -148,6 +149,13 @@ public class Navigator {
             if (isBusy()) {
                 cancelCurrentOperation(MovementResult.CANCELLED);
             }
+            return;
+        }
+        if (locomotion.isBlocked()) {
+            locomotion.clearBlocked();
+            persona.getManager().getPlugin().getLogger()
+                    .warning("Persona " + persona.getName() + " collision detected (Bumper). Reporting Stuck.");
+            finishPathing(MovementResult.STUCK);
             return;
         }
         // PHASE 3 UPDATE: Check for geometric deviation (Tether Snap)
@@ -275,9 +283,11 @@ public class Navigator {
             // Pathfinding Zone
             ticksUntilNextRepath--;
             // Target moved from path end
-            boolean needsRepath = currentFollowPath == null || pathFollower == null || pathFollower.isFinished(agentLocation)
-                    || ticksUntilNextRepath <= 0 ||
-                    currentFollowPath.getPointAtDistance(currentFollowPath.getLength()).distanceSquared(targetLocation) > 4.0;
+            boolean needsRepath = currentFollowPath == null || pathFollower == null ||
+                    pathFollower.isFinished(agentLocation) ||
+                    ticksUntilNextRepath <= 0 ||
+                    currentFollowPath.getPointAtDistance(currentFollowPath.getLength())
+                            .distanceSquared(targetLocation) > FOLLOW_DISTANCE_THRESHOLD_SQUARED;
             if (needsRepath) {
                 ticksUntilNextRepath = REPATH_INTERVAL_TICKS;
                 // Use helper to find ground
