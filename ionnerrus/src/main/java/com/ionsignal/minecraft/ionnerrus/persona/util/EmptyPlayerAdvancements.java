@@ -136,7 +136,8 @@ public class EmptyPlayerAdvancements extends PlayerAdvancements {
         }
 
         @Override
-        public <T> RegistryOps<T> createSerializationContext(@SuppressWarnings("null") DynamicOps<T> dynamicOps) {
+        @SuppressWarnings("null")
+        public <T> RegistryOps<T> createSerializationContext(DynamicOps<T> dynamicOps) {
             return RegistryOps.create(dynamicOps, this);
         }
     }

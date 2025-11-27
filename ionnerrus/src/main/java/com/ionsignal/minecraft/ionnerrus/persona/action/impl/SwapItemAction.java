@@ -66,6 +66,7 @@ public class SwapItemAction implements Action {
         }
     }
 
+    @SuppressWarnings("null")
     private void broadcast(PersonaEntity entity, net.minecraft.network.protocol.Packet<?> packet) {
         ServerLevel level = entity.level();
         var trackedEntity = level.getChunkSource().chunkMap.entityMap.get(entity.getId());

@@ -118,6 +118,7 @@ public class PlaceBlockAction implements Action {
         }
     }
 
+    @SuppressWarnings("null")
     private void broadcast(net.minecraft.network.protocol.Packet<?> packet) {
         if (personaEntity == null)
             return;
