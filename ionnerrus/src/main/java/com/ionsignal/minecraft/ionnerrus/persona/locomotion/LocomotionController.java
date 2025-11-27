@@ -67,8 +67,6 @@ public class LocomotionController {
      * 3. If No Maneuver -> Process currentIntent (Start new maneuver or Apply standard movement).
      */
     public void tick() {
-        // Reset blockage state at the start of every tick
-        this.blocked = false;
         // Maneuver Priority
         if (currentManeuver != null) {
             currentManeuver.tick(entity);
@@ -241,6 +239,11 @@ public class LocomotionController {
             return currentManeuver.getOrientationTarget();
         }
         return Optional.empty();
+    }
+
+    // Add explicit clear method
+    public void clearBlocked() {
+        this.blocked = false;
     }
 
     /**
