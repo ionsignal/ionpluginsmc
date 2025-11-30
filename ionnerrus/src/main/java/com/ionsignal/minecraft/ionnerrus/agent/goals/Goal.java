@@ -1,24 +1,30 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 
 public interface Goal {
     /**
      * Called when the goal is first assigned to the agent.
      * Use this to set up the initial state or speak an introductory message.
-     */
-    void start(NerrusAgent agent);
-
-    /**
-     * Called by the agent to determine the next task to execute.
-     * The implementation can use the agent's state and blackboard to make a
-     * decision.
      * 
      * @param agent
      *            The agent executing the goal.
-     * @return The next Task to execute, or null if the goal is complete.
+     * @param token
+     *            The execution token for this goal's lifecycle.
      */
-    void process(NerrusAgent agent);
+    void start(NerrusAgent agent, ExecutionToken token);
+
+    /**
+     * Called by the agent to determine the next task to execute.
+     * The implementation can use the agent's state and blackboard to make a decision.
+     * 
+     * @param agent
+     *            The agent executing the goal.
+     * @param token
+     *            The execution token for this goal's lifecycle.
+     */
+    void process(NerrusAgent agent, ExecutionToken token);
 
     /**
      * Called on a parent goal when a sub-goal it requested has finished.
@@ -28,8 +34,10 @@ public interface Goal {
      *            The agent executing the goal.
      * @param subGoalResult
      *            The result of the completed sub-goal.
+     * @param token
+     *            The execution token for this goal's lifecycle.
      */
-    default void resume(NerrusAgent agent, GoalResult subGoalResult) {
+    default void resume(NerrusAgent agent, GoalResult subGoalResult, ExecutionToken token) {
         // Default implementation is empty.
     }
 
@@ -37,15 +45,18 @@ public interface Goal {
      * Called when a message is dispatched to this goal from an async operation.
      * This method is always invoked on the main server thread, making it safe to mutate goal state.
      * 
-     * Async callbacks should post messages via {@link NerrusAgent#postMessage(Object)} rather than
+     * Async callbacks should post messages via {@link NerrusAgent#postMessage(Object, Object)} rather
+     * than
      * directly mutating goal state. The default implementation does nothing.
      *
      * @param agent
      *            The agent executing the goal.
      * @param message
      *            The message payload (commonly {@link GoalResult} for async operation outcomes).
+     * @param token
+     *            The execution token for this goal's lifecycle.
      */
-    default void onMessage(NerrusAgent agent, Object message) {
+    default void onMessage(NerrusAgent agent, Object message, ExecutionToken token) {
         // Default implementation is empty - override in goals that need message handling.
     }
 
@@ -67,11 +78,4 @@ public interface Goal {
      * @return A GoalResult object containing the outcome and a descriptive message.
      */
     GoalResult getFinalResult();
-
-    /**
-     * Gets the goals unique identifier
-     *
-     * @return A Object that acts as an instance identifier for this goal.
-     */
-    Object getContextToken();
 }
