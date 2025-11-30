@@ -2,6 +2,8 @@ package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -12,9 +14,11 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignDirective;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.SetBusyWithDirective;
+import com.ionsignal.minecraft.ionnerrus.agent.messages.SystemError;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
 import com.ionsignal.minecraft.ionnerrus.agent.sensory.SensorySystem;
 import com.ionsignal.minecraft.ionnerrus.agent.sensory.impl.BukkitSensorySystem;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
@@ -31,6 +35,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Function;
 import java.util.concurrent.CancellationException;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -58,12 +63,18 @@ public class NerrusAgent {
 
     /**
      * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
-     * isolated message queue.
+     * isolated message queue and execution controller.
      */
     public record GoalContext(
             Goal goal,
             Object parameters,
+            ExecutionController controller,
             ConcurrentLinkedQueue<Object> mailbox) {
+
+        public ExecutionToken token() {
+            return controller.getToken();
+        }
+
         /**
          * Posts a message to this context's mailbox.
          * Thread-safe and can be called from any thread.
@@ -155,21 +166,24 @@ public class NerrusAgent {
     private void handleAssignGoal(Goal goal, Object parameters, CompletableFuture<GoalResult> resultFuture) {
         String goalName = goal != null ? goal.getClass().getSimpleName() : "null";
         plugin.getLogger().info(String.format("[%s] Received AssignGoal: %s", getName(), goalName));
-        // Stop and clear the entire goal stack, starting with the current goal.
-        if (this.currentContext != null || !goalStack.isEmpty()) {
-            plugin.getLogger().info(String.format("[%s] Clearing existing goal stack (current: %s, stack size: %d)",
-                    getName(),
-                    currentContext != null ? currentContext.goal().getClass().getSimpleName() : "none",
-                    goalStack.size()));
-            if (this.currentContext != null) {
-                this.currentContext.goal().stop(this);
-            }
+        // Cancel existing execution hierarchy
+        if (this.currentContext != null) {
+            plugin.getLogger().info(String.format("[%s] Cancelling current goal context: %s",
+                    getName(), currentContext.goal().getClass().getSimpleName()));
+            this.currentContext.controller().cancel();
+            this.currentContext.goal().stop(this);
+            this.currentContext.controller().close();
+        }
+        if (!goalStack.isEmpty()) {
+            plugin.getLogger().info(String.format("[%s] Cancelling goal stack (size: %d)", getName(), goalStack.size()));
             for (GoalContext context : goalStack) {
+                context.controller().cancel();
                 context.goal().stop(this);
+                context.controller().close();
             }
             this.goalStack.clear();
         }
-        // If a previous top-level goal was running, handle its future.
+        // Handle previous top-level future
         if (this.topLevelGoalFuture != null && !this.topLevelGoalFuture.isDone()) {
             if (goal == null) {
                 plugin.getLogger().info(String.format("[%s] Cancelling top-level goal future due to stop command.", getName()));
@@ -179,21 +193,18 @@ public class NerrusAgent {
                 this.topLevelGoalFuture.complete(new GoalResult.Failure("Goal was cancelled by a new assignment."));
             }
         }
-        // Cancel any active task.
-        if (this.currentTask != null) {
-            plugin.getLogger().info(String.format("[%s] Cancelling active task: %s", getName(), currentTask.getClass().getSimpleName()));
-            this.currentTask.cancel();
-            this.currentTask = null;
-        }
-        // Set up the new top-level goal.
+        // Set up the new top-level goal
         if (goal != null) {
             plugin.getLogger().info(String.format("[%s] Starting new top-level goal: %s", getName(), goalName));
+            // Create Root Controller
+            ExecutionController rootController = ExecutionController.create();
             this.currentContext = new GoalContext(
                     goal,
                     parameters,
+                    rootController,
                     new ConcurrentLinkedQueue<>());
             this.topLevelGoalFuture = resultFuture;
-            this.currentContext.goal().start(this);
+            this.currentContext.goal().start(this, this.currentContext.token());
             processNextStep();
         } else {
             plugin.getLogger().info(String.format("[%s] Goal assignment was null. Agent is now idle.", getName()));
@@ -277,7 +288,16 @@ public class NerrusAgent {
     private void handleGoalMessage(Object payload) {
         Goal currentGoal = getCurrentGoal();
         if (currentGoal != null) {
-            currentGoal.onMessage(this, payload);
+            // Give the active task first opportunity to handle the message allowing our `Task` implementations
+            // to handle tactical logic (like Repathing.)
+            if (currentTask != null) {
+                currentTask.onMessage(this, payload, currentContext.token());
+            }
+            currentGoal.onMessage(this, payload, currentContext.token());
+            // Check for completion after processing a message such message-driven goals finish naturally.
+            if (currentGoal.isFinished()) {
+                handleGoalCompletion(currentGoal.getFinalResult());
+            }
         }
     }
 
@@ -285,7 +305,14 @@ public class NerrusAgent {
         this.currentTask = task;
         if (this.currentTask != null) {
             plugin.getLogger().info(String.format("[%s] Executing new task: %s", getName(), task.getClass().getSimpleName()));
-            this.currentTask.execute(this)
+            // Pass the ExecutionToken to the task assuming currentContext is not null here because tasks are
+            // assigned by Goals. If currentContext is null (legacy/edge case), we might need a fallback, but
+            // strictly speaking, tasks belong to goals now.
+            ExecutionToken token = (currentContext != null) ? currentContext.token() : null;
+            if (token == null) {
+                plugin.getLogger().warning("Task assigned without an active GoalContext! Cancellation may not work correctly.");
+            }
+            this.currentTask.execute(this, token)
                     .whenCompleteAsync((v, ex) -> {
                         // Send message instead of direct method call to avoid race conditions
                         messages.offer(new TaskCompleted(task, Optional.ofNullable(ex != null ? ex.getCause() : null)));
@@ -312,7 +339,7 @@ public class NerrusAgent {
         }
         plugin.getLogger().info(String.format("[%s] Processing goal: %s", getName(),
                 currentContext.goal().getClass().getSimpleName()));
-        currentContext.goal().process(this);
+        currentContext.goal().process(this, currentContext.token());
         if (currentTask != null) {
             return; // A new task was dispatched, wait for it to complete.
         }
@@ -345,6 +372,8 @@ public class NerrusAgent {
                         return;
                     }
                 }
+                // Create Child Controller linked to current token
+                ExecutionController childController = ExecutionController.createChild(currentContext.token());
                 // Push current goal onto the stack.
                 plugin.getLogger().info(String.format("[%s] Pushing %s to stack. Stack size is now %d.", getName(),
                         currentContext.goal().getClass().getSimpleName(), goalStack.size() + 1));
@@ -356,8 +385,9 @@ public class NerrusAgent {
                     this.currentContext = new GoalContext(
                             subGoal,
                             prerequisite.parameters(),
+                            childController,
                             new ConcurrentLinkedQueue<>());
-                    this.currentContext.goal().start(this);
+                    this.currentContext.goal().start(this, this.currentContext.token());
                     processNextStep(); // Immediately process the new sub-goal.
                 } catch (Exception e) {
                     String errorMessage = "Failed to create prerequisite goal '" + prerequisite.goalName() + "': " + e.getMessage();
@@ -366,6 +396,14 @@ public class NerrusAgent {
                 }
             }
             default -> {
+                // Goal Finished (Success or Failure)
+                // Detach controller from parent to prevent memory leaks
+                // Terminate the Execution Lifecycle.
+                // This triggers the ExecutionToken to fire all 'onCancel' callbacks.
+                // Crucially, this forces BukkitPhysicalBody to stop movement immediately.
+                currentContext.controller().cancel();
+                // Detach controller from parent to prevent memory leaks.
+                currentContext.controller().close();
                 if (goalStack.isEmpty()) {
                     // This was the top-level goal. Complete its future and we're done.
                     plugin.getLogger().info(String.format("[%s] Top-level goal %s finished. Result: %s", getName(), completedGoalName,
@@ -382,7 +420,7 @@ public class NerrusAgent {
                     plugin.getLogger().info(String.format("[%s] Sub-goal %s finished. Popping %s from stack. Resuming parent.",
                             getName(), completedGoalName, parentContext.goal().getClass().getSimpleName()));
                     this.currentContext = parentContext;
-                    this.currentContext.goal().resume(this, result);
+                    this.currentContext.goal().resume(this, result, this.currentContext.token());
                     processNextStep(); // Immediately process the resumed parent goal.
                 }
             }
@@ -433,27 +471,42 @@ public class NerrusAgent {
     }
 
     /**
-     * Posts a message to the current goal's mailbox from an async operation where the message will be
-     * queued in the goal's private mailbox and dispatched on the main server thread during the next
-     * tick.
+     * Posts a message to the current goal's mailbox from an async operation.
      * 
-     * This method is thread-safe and intended for use by async callbacks (e.g., task completions). Note
-     * that if no goal is currently active, the message is discarded with a warning.
+     * The message is queued ONLY if the provided ExecutionToken matches the currently active
+     * goal context. This prevents stale async callbacks (from cancelled tasks) from corrupting
+     * the state of a new, unrelated goal.
      * 
+     * @param token
+     *            The execution token bound to the operation producing this message.
      * @param payload
-     *            The message payload (typically a result record from skill execution).
+     *            The message payload.
      */
-    public void postMessage(Object contextToken, Object payload) {
-        if (currentContext != null && currentContext.mailbox() != null) {
-            if (currentContext.goal().getContextToken() == contextToken) {
-                currentContext.mailbox().offer(payload);
+    public void postMessage(ExecutionToken token, Object payload) {
+        // We check ID equality to ensure it's the same logical execution context
+        // Capture the context reference to prevent race conditions if it becomes null mid-execution
+        GoalContext context = this.currentContext;
+        if (context != null && context.mailbox() != null) {
+            // Validate that the message belongs to the currently active goal lifecycle
+            if (context.token().getId().equals(token.getId())) {
+                context.mailbox().offer(payload);
             } else {
-                plugin.getLogger().warning("Attempted to post message to goal, but context token does not match. " +
-                        "Message discarded: " + payload.getClass().getSimpleName());
+                // Debug-level logging for stale messages is preferred over Warnings.
+                // Stale messages are a normal occurrence when a goal is cancelled (e.g., by an interrupt)
+                // but an async task from that goal completes a few milliseconds later.
+                if (plugin.getLogger().isLoggable(Level.FINE)) {
+                    plugin.getLogger().fine(String.format(
+                            "[%s] Stale message discarded (Token Mismatch). Msg: %s",
+                            getName(), payload.getClass().getSimpleName()));
+                }
             }
         } else {
-            plugin.getLogger().warning("Attempted to post message to goal, but no active context exists. " +
-                    "Message discarded: " + payload.getClass().getSimpleName());
+            // If context is null, the agent is likely shutting down or between states.
+            if (plugin.getLogger().isLoggable(Level.FINE)) {
+                plugin.getLogger().fine(String.format(
+                        "[%s] Message discarded (No Context). Msg: %s",
+                        getName(), payload.getClass().getSimpleName()));
+            }
         }
     }
 
@@ -502,5 +555,40 @@ public class NerrusAgent {
             return currentContext.mailbox().size();
         }
         return 0;
+    }
+
+    /**
+     * Executes a skill and automatically bridges the result to the mailbox.
+     * This enforces the "Trigger -> Bridge -> React" pattern using ExecutionTokens.
+     *
+     * @param skill
+     *            The skill to execute.
+     * @param token
+     *            The current execution token.
+     * @param mapper
+     *            A function that converts the Skill result into a Message Record.
+     * @param <R>
+     *            The return type of the Skill.
+     */
+    public <R> void executeSkill(Skill<R> skill, ExecutionToken token, Function<R, Object> mapper) {
+        // We capture the token passed in (which should be the current context's token)
+        // and pass it to the async callback to ensure the response is routed correctly.
+        skill.execute(this, token).whenCompleteAsync((result, ex) -> {
+            // 1. Handle Crashes/Exceptions
+            if (ex != null) {
+                Throwable cause = ex instanceof java.util.concurrent.CompletionException ? ex.getCause() : ex;
+                this.postMessage(token, new SystemError(cause));
+                return;
+            }
+            // 2. Map Result to Message
+            try {
+                Object message = mapper.apply(result);
+                // 3. Post to Mailbox using the captured token
+                this.postMessage(token, message);
+            } catch (Exception mapEx) {
+                plugin.getLogger().log(Level.SEVERE, "Error mapping skill result to message", mapEx);
+                this.postMessage(token, new SystemError(mapEx));
+            }
+        }, plugin.getMainThreadExecutor());
     }
 }
