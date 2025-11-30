@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
@@ -23,7 +24,8 @@ public class CountItemsSkill implements Skill<Map<Material, Integer>> {
     }
 
     @Override
-    public CompletableFuture<Map<Material, Integer>> execute(NerrusAgent agent) {
+    @SuppressWarnings("null")
+    public CompletableFuture<Map<Material, Integer>> execute(NerrusAgent agent, ExecutionToken token) {
         PlayerInventory inventory = agent.getPersona().getInventory();
         Map<Material, Integer> counts = new HashMap<>();
         if (inventory == null) {

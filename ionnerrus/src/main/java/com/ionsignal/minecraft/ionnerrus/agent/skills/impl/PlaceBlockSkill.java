@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
@@ -36,7 +37,7 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
     }
 
     @Override
-    public CompletableFuture<Optional<Location>> execute(NerrusAgent agent) {
+    public CompletableFuture<Optional<Location>> execute(NerrusAgent agent, ExecutionToken token) {
         PlayerInventory inventory = agent.getPersona().getInventory();
         if (inventory == null || !inventory.contains(materialToPlace)) {
             logger.warning("PlaceBlockSkill: Agent does not have " + materialToPlace);
@@ -63,41 +64,43 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
                     }
                     Location placementSpot = placementSpotOpt.get();
                     // Find a reachable spot to stand to perform the placement (off-thread).
-                    return new FindNearbyReachableSpotSkill(placementSpot, 5).execute(agent).thenCompose(standingSpotOpt -> {
+                    return new FindNearbyReachableSpotSkill(placementSpot, 5).execute(agent, token).thenCompose(standingSpotOpt -> {
                         if (standingSpotOpt.isEmpty()) {
                             logger.warning("PlaceBlockSkill: Found a placement spot but no reachable standing spot.");
                             return CompletableFuture.completedFuture(Optional.empty());
                         }
                         Location standingSpot = standingSpotOpt.get();
                         // Navigate to the standing spot.
-                        return new NavigateToLocationSkill(standingSpot, placementSpot).execute(agent).thenComposeAsync(navResult -> {
-                            if (navResult != NavigateToLocationResult.SUCCESS) {
-                                logger.warning("PlaceBlockSkill: Failed to navigate to standing spot.");
-                                return CompletableFuture.completedFuture(Optional.empty());
-                            }
-                            logger.info("PlaceBlockSkill: Navigation successful. Performing placement.");
-                            PhysicalBody body = agent.getPersona().getPhysicalBody();
-                            // Look at the spot
-                            return body.orientation().lookAt(placementSpot, true).thenCompose(lookResult -> {
-                                if (lookResult != LookResult.SUCCESS) {
-                                    logger.warning("PlaceBlockSkill: Failed to face placement spot.");
-                                    return CompletableFuture.completedFuture(Optional.empty());
-                                }
-                                // Delegate to the PhysicalBody to perform the action
-                                return body.actions().placeBlock(materialToPlace, placementSpot).thenApply(actionResult -> {
-                                    if (actionResult == ActionResult.SUCCESS) {
-                                        return Optional.of(placementSpot);
-                                    } else {
-                                        logger.warning("PlaceBlockSkill: Placement action failed.");
-                                        return Optional.empty();
+                        return new NavigateToLocationSkill(standingSpot, placementSpot).execute(agent, token)
+                                .thenComposeAsync(navResult -> {
+                                    if (navResult != NavigateToLocationResult.SUCCESS) {
+                                        logger.warning("PlaceBlockSkill: Failed to navigate to standing spot.");
+                                        return CompletableFuture.completedFuture(Optional.empty());
                                     }
-                                });
-                            });
-                        }, IonNerrus.getInstance().getMainThreadExecutor());
+                                    logger.info("PlaceBlockSkill: Navigation successful. Performing placement.");
+                                    PhysicalBody body = agent.getPersona().getPhysicalBody();
+                                    // Look at the spot
+                                    return body.orientation().lookAt(placementSpot, true).thenCompose(lookResult -> {
+                                        if (lookResult != LookResult.SUCCESS) {
+                                            logger.warning("PlaceBlockSkill: Failed to face placement spot.");
+                                            return CompletableFuture.completedFuture(Optional.empty());
+                                        }
+                                        // Delegate to the PhysicalBody to perform the action
+                                        return body.actions().placeBlock(materialToPlace, placementSpot, token).thenApply(actionResult -> {
+                                            if (actionResult == ActionResult.SUCCESS) {
+                                                return Optional.of(placementSpot);
+                                            } else {
+                                                logger.warning("PlaceBlockSkill: Placement action failed.");
+                                                return Optional.empty();
+                                            }
+                                        });
+                                    });
+                                }, IonNerrus.getInstance().getMainThreadExecutor());
                     });
                 });
     }
 
+    @SuppressWarnings("null")
     private CompletableFuture<Optional<Location>> findPlacementSpot(Location agentLoc, WorldSnapshot snapshot) {
         // Logic is now safe to run off-thread because it uses the immutable snapshot and captured location
         return CompletableFuture.supplyAsync(() -> {

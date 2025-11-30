@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -11,6 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
 import net.kyori.adventure.text.format.NamedTextColor;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -30,7 +32,7 @@ public class BreakBlockSkill implements Skill<BreakBlockResult> {
     }
 
     @Override
-    public CompletableFuture<BreakBlockResult> execute(NerrusAgent agent) {
+    public CompletableFuture<BreakBlockResult> execute(NerrusAgent agent, ExecutionToken token) {
         Persona persona = agent.getPersona();
         Block block = blockLocation.getBlock();
         if (!persona.isSpawned()) {
@@ -70,11 +72,12 @@ public class BreakBlockSkill implements Skill<BreakBlockResult> {
                         }
                     }
                     // Path is clear (or we hit the target), proceed to physical action on main thread
-                    return executePhysicalBreak(persona, targetCenter, block);
+                    return executePhysicalBreak(persona, targetCenter, block, token);
                 }, IonNerrus.getInstance().getMainThreadExecutor());
     }
 
-    private CompletableFuture<BreakBlockResult> executePhysicalBreak(Persona persona, Location lookTarget, Block block) {
+    private CompletableFuture<BreakBlockResult> executePhysicalBreak(Persona persona, Location lookTarget, Block block,
+            ExecutionToken token) {
         if (VISUALIZE_BREAK) {
             DebugVisualizer.highlightBlock(blockLocation, 10, NamedTextColor.GREEN);
         }
@@ -83,7 +86,7 @@ public class BreakBlockSkill implements Skill<BreakBlockResult> {
                     if (lookResult != LookResult.SUCCESS) {
                         return CompletableFuture.completedFuture(ActionResult.FAILURE);
                     }
-                    return persona.getPhysicalBody().actions().breakBlock(block);
+                    return persona.getPhysicalBody().actions().breakBlock(block, token);
                 })
                 .thenApply(result -> result == ActionResult.SUCCESS
                         ? BreakBlockResult.success()

@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.CollectableBlock;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlockResult;
@@ -55,7 +56,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
     }
 
     @Override
-    public CompletableFuture<FindCollectableBlockResult> execute(NerrusAgent agent) {
+    public CompletableFuture<FindCollectableBlockResult> execute(NerrusAgent agent, ExecutionToken token) {
         Location start = agent.getPersona().getLocation();
         World world = start.getWorld();
         if (world == null) {
@@ -95,7 +96,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                         log(startTime, FindCollectableBlockResult.Status.NO_TARGETS_FOUND);
                         return FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND, allFoundMaterials);
                     }
-                    Optional<CollectableBlock> finalTarget = evaluateCandidates(start, candidates, snapshot);
+                    Optional<CollectableBlock> finalTarget = evaluateCandidates(start, candidates, snapshot, token);
                     // Construct the final result using the new factory methods, passing the found materials.
                     FindCollectableBlockResult finalResult = finalTarget
                             .map(target -> FindCollectableBlockResult.success(target, allFoundMaterials))
@@ -119,7 +120,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
      * It now considers path length and block exposure to find the truly optimal target.
      */
     private Optional<CollectableBlock> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates,
-            WorldSnapshot snapshot) {
+            WorldSnapshot snapshot, ExecutionToken token) {
         // Step 1: De-duplicate targets, keeping only the best standing spot for each.
         // This ensures we don't pathfind to the same block multiple times from different spots.
         Map<Location, CollectionCandidate> bestCandidates = new HashMap<>();
@@ -146,7 +147,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 });
             }
             Optional<Path> pathOpt = AStarPathfinder
-                    .findPath(agentLocation, candidate.standingSpot(), NavigationParameters.DEFAULT, snapshot)
+                    .findPath(agentLocation, candidate.standingSpot(), NavigationParameters.DEFAULT, snapshot, token)
                     .join();
             if (pathOpt.isPresent()) {
                 Path path = pathOpt.get();
@@ -169,6 +170,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
      * Calculate a block's exposure score. A higher score means more faces are exposed to air, making it
      * easier to break.
      */
+    @SuppressWarnings("null")
     private int calculateExposureScore(Location blockLocation, WorldSnapshot snapshot) {
         int score = 0;
         BlockPos centerPos = new BlockPos(blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
@@ -215,6 +217,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
          * Iterate through pre-computed spherical offsets to find targets within reach.
          */
         @Override
+        @SuppressWarnings("null")
         public List<CollectionCandidate> process(BlockSearch.TraversalNode node, World world, WorldSnapshot snapshot) {
             List<CollectionCandidate> found = new ArrayList<>();
             BlockPos standingPos = node.pos();
