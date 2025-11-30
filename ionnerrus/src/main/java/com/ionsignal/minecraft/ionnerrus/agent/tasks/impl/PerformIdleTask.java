@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.sensory.WorkingMemory;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 
@@ -10,7 +11,6 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CancellationException;
 
 /**
  * A task that runs for a specific duration, actively updating the agent's
@@ -28,7 +28,7 @@ public class PerformIdleTask implements Task {
     }
 
     @Override
-    public CompletableFuture<Void> execute(NerrusAgent agent) {
+    public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
         // Schedule a repeating task on the main thread to monitor sensory data
         this.task = new BukkitRunnable() {
             @Override
@@ -60,17 +60,6 @@ public class PerformIdleTask implements Task {
                 }
             }
         }.runTaskTimer(IonNerrus.getInstance(), 0L, 1L);
-
         return future;
-    }
-
-    @Override
-    public void cancel() {
-        if (task != null && !task.isCancelled()) {
-            task.cancel();
-        }
-        if (!future.isDone()) {
-            future.completeExceptionally(new CancellationException("Idle task cancelled"));
-        }
     }
 }

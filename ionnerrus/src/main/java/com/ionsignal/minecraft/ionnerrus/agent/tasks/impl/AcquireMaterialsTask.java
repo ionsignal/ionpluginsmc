@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.Ingredient;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService.CraftingPath;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService.CraftingStep;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalPrerequisite;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal.AcquisitionResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
@@ -41,7 +42,6 @@ public class AcquireMaterialsTask implements Task {
     private final Ingredient targetIngredient;
     private final int targetQuantity;
     private final BlockTagManager blockTagManager;
-    private final Object contextToken;
     private final Logger logger;
     private volatile boolean cancelled = false;
 
@@ -57,22 +57,21 @@ public class AcquireMaterialsTask implements Task {
 
     public AcquireMaterialsTask(
             RecipeService.CraftingBlueprint plan, Ingredient targetIngredient,
-            int targetQuantity, BlockTagManager blockTagManager, Object contextToken) {
+            int targetQuantity, BlockTagManager blockTagManager) {
         this.plan = plan;
         this.targetIngredient = targetIngredient;
         this.targetQuantity = targetQuantity;
         this.blockTagManager = blockTagManager;
-        this.contextToken = contextToken;
         this.logger = IonNerrus.getInstance().getLogger();
     }
 
     @Override
-    public CompletableFuture<Void> execute(NerrusAgent agent) {
+    public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
         // Phase 1: Initialize state-holding maps
         this.shoppingList = new HashMap<>();
         this.executionPlan = new HashMap<>();
         // Phase 2: Scan environment
-        return performEnvironmentalScan(agent)
+        return performEnvironmentalScan(agent, token)
                 .thenCompose(nearbyMaterials -> {
                     if (cancelled) {
                         return CompletableFuture.failedFuture(
@@ -81,12 +80,11 @@ public class AcquireMaterialsTask implements Task {
                     // Phase 3: Set up resolution helpers
                     Map<Ingredient, CraftingStep> stepLookup = plan.craftingSteps().stream()
                             .collect(Collectors.toMap(CraftingStep::ingredientToCraft, step -> step));
-                    MemoizedCostCalculator calculator = new MemoizedCostCalculator(
-                            agent, stepLookup, nearbyMaterials);
+                    MemoizedCostCalculator calculator = new MemoizedCostCalculator(agent, stepLookup, nearbyMaterials);
                     // Phase 4: Recursive resolution
-                    return resolveIngredient(
+                    return resolveIngredient(agent, token,
                             targetIngredient, targetQuantity, stepLookup,
-                            agent, nearbyMaterials, calculator, 0)
+                            nearbyMaterials, calculator, 0)
                                     .thenCompose(v -> {
                                         if (cancelled) {
                                             return CompletableFuture.failedFuture(
@@ -95,16 +93,16 @@ public class AcquireMaterialsTask implements Task {
                                         logger.info("[AcquireMaterialsTask] Resolution complete.");
                                         logger.info("[AcquireMaterialsTask] Final Shopping List: " + this.shoppingList);
                                         // Phase 5: Find first missing material
-                                        return determineFirstMissingMaterial(agent, this.shoppingList)
+                                        return determineFirstMissingMaterial(agent, this.shoppingList, token)
                                                 .thenAccept(missingMaterialOpt -> {
                                                     // PHASE 8 CHANGE: Post message instead of blackboard write
                                                     if (missingMaterialOpt.isPresent()) {
                                                         // Need a prerequisite
                                                         GoalPrerequisite prereq = createPrerequisiteFor(missingMaterialOpt.get());
-                                                        agent.postMessage(contextToken, AcquisitionResult.prerequisite(prereq));
+                                                        agent.postMessage(token, AcquisitionResult.prerequisite(prereq));
                                                     } else {
                                                         // All materials ready
-                                                        agent.postMessage(contextToken, AcquisitionResult.success(this.executionPlan));
+                                                        agent.postMessage(token, AcquisitionResult.success(this.executionPlan));
                                                     }
                                                 });
                                     });
@@ -116,8 +114,9 @@ public class AcquireMaterialsTask implements Task {
      * It checks inventory, calculates deficits, and recursively calls itself for sub-ingredients if
      * necessary.
      */
-    private CompletableFuture<Void> resolveIngredient(Ingredient ingredient, int quantity, Map<Ingredient, CraftingStep> stepLookup,
-            NerrusAgent agent, Set<Material> nearbyMaterials, MemoizedCostCalculator calculator, int depth) {
+    private CompletableFuture<Void> resolveIngredient(NerrusAgent agent, ExecutionToken token, Ingredient ingredient, int quantity,
+            Map<Ingredient, CraftingStep> stepLookup,
+            Set<Material> nearbyMaterials, MemoizedCostCalculator calculator, int depth) {
         if (cancelled) {
             return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
         }
@@ -130,7 +129,7 @@ public class AcquireMaterialsTask implements Task {
 
         // Create and memoize the future for this ingredient's resolution process.
         @SuppressWarnings("null")
-        CompletableFuture<Void> resolutionFuture = new CountItemsSkill(ingredient.materials()).execute(agent)
+        CompletableFuture<Void> resolutionFuture = new CountItemsSkill(ingredient.materials()).execute(agent, token)
                 .thenCompose(inventory -> {
                     if (cancelled) {
                         return CompletableFuture.failedFuture(new InterruptedException("Task cancelled."));
@@ -171,7 +170,7 @@ public class AcquireMaterialsTask implements Task {
 
                     // Recursive Step: The item is craftable and we have a deficit.
                     CraftingStep step = stepLookup.get(ingredient);
-                    return chooseBestPath(step, agent, stepLookup, nearbyMaterials, calculator)
+                    return chooseBestPath(step, agent, stepLookup, nearbyMaterials, calculator, token)
                             .thenCompose(chosenPath -> {
                                 // --- START MODIFICATION ---
                                 String pathIngredients = chosenPath.requirements().entrySet().stream()
@@ -192,12 +191,13 @@ public class AcquireMaterialsTask implements Task {
                                 if (deficit > 0) {
                                     craftsToPerform = (int) Math.ceil((double) deficit / chosenPath.yield());
                                 }
-
                                 List<CompletableFuture<Void>> childFutures = new ArrayList<>();
                                 for (Map.Entry<Ingredient, Integer> req : chosenPath.requirements().entrySet()) {
                                     // RECURSIVE CALL for each sub-ingredient.
-                                    childFutures.add(resolveIngredient(req.getKey(), req.getValue() * craftsToPerform, stepLookup, agent,
-                                            nearbyMaterials, calculator, depth + 1));
+                                    childFutures.add(resolveIngredient(
+                                            agent, token,
+                                            req.getKey(), req.getValue() * craftsToPerform,
+                                            stepLookup, nearbyMaterials, calculator, depth + 1));
                                 }
                                 return CompletableFuture.allOf(childFutures.toArray(new CompletableFuture[0]));
                             });
@@ -208,12 +208,12 @@ public class AcquireMaterialsTask implements Task {
 
     @SuppressWarnings("null")
     private CompletableFuture<CraftingPath> chooseBestPath(CraftingStep step, NerrusAgent agent, Map<Ingredient, CraftingStep> stepLookup,
-            Set<Material> nearbyMaterials, MemoizedCostCalculator calculator) {
+            Set<Material> nearbyMaterials, MemoizedCostCalculator calculator, ExecutionToken token) {
         List<CompletableFuture<Map.Entry<CraftingPath, Integer>>> scoredPathFutures = new ArrayList<>();
         for (CraftingPath path : step.paths()) {
             CompletableFuture<Integer> totalPathCost = CompletableFuture.completedFuture(0);
             for (Ingredient requirement : path.requirements().keySet()) {
-                totalPathCost = totalPathCost.thenCombine(calculator.calculateCost(requirement), Integer::sum);
+                totalPathCost = totalPathCost.thenCombine(calculator.calculateCost(requirement, token), Integer::sum);
             }
             scoredPathFutures.add(totalPathCost.thenApply(cost -> Map.entry(path, cost)));
         }
@@ -226,11 +226,11 @@ public class AcquireMaterialsTask implements Task {
     }
 
     private CompletableFuture<Optional<Map.Entry<Ingredient, Integer>>> determineFirstMissingMaterial(NerrusAgent agent,
-            Map<Ingredient, Integer> shoppingList) {
+            Map<Ingredient, Integer> shoppingList, ExecutionToken token) {
         Set<Material> allRequiredMaterials = shoppingList.keySet().stream()
                 .flatMap(ing -> ing.materials().stream())
                 .collect(Collectors.toSet());
-        return new CountItemsSkill(allRequiredMaterials).execute(agent).thenApply(inventory -> {
+        return new CountItemsSkill(allRequiredMaterials).execute(agent, token).thenApply(inventory -> {
             for (Map.Entry<Ingredient, Integer> required : shoppingList.entrySet()) {
                 Ingredient ingredient = required.getKey();
                 int requiredAmount = required.getValue();
@@ -260,13 +260,13 @@ public class AcquireMaterialsTask implements Task {
         return new GoalPrerequisite("REQUEST_ITEM", new RequestItemParameters(preferredMaterial.name(), quantity));
     }
 
-    private CompletableFuture<Set<Material>> performEnvironmentalScan(NerrusAgent agent) {
+    private CompletableFuture<Set<Material>> performEnvironmentalScan(NerrusAgent agent, ExecutionToken token) {
         Set<Material> materialsToScanFor = getAllGatherableMaterialsFromPlan();
         if (materialsToScanFor.isEmpty()) {
             return CompletableFuture.completedFuture(Set.of());
         }
         return new FindCollectableBlockSkill(materialsToScanFor, 64, new HashSet<>())
-                .execute(agent)
+                .execute(agent, token)
                 .thenApply(scanResult -> {
                     logger.info("AcquireMaterialsTask: Environmental scan found materials: " + scanResult.allFoundMaterials());
                     return scanResult.allFoundMaterials();
@@ -288,11 +288,6 @@ public class AcquireMaterialsTask implements Task {
         return gatherable;
     }
 
-    @Override
-    public void cancel() {
-        this.cancelled = true;
-    }
-
     private class MemoizedCostCalculator {
         private final Map<Ingredient, CompletableFuture<Integer>> memo = new HashMap<>();
         private final NerrusAgent agent;
@@ -305,12 +300,12 @@ public class AcquireMaterialsTask implements Task {
             this.nearbyAvailableMaterials = nearbyMaterials;
         }
 
-        public CompletableFuture<Integer> calculateCost(Ingredient ingredient) {
+        @SuppressWarnings("null")
+        public CompletableFuture<Integer> calculateCost(Ingredient ingredient, ExecutionToken token) {
             if (memo.containsKey(ingredient)) {
                 return memo.get(ingredient);
             }
-            @SuppressWarnings("null")
-            CompletableFuture<Integer> costFuture = new CountItemsSkill(ingredient.materials()).execute(agent)
+            CompletableFuture<Integer> costFuture = new CountItemsSkill(ingredient.materials()).execute(agent, token)
                     .thenCompose(inventory -> {
                         if (inventory.values().stream().mapToInt(Integer::intValue).sum() > 0)
                             return CompletableFuture.completedFuture(0);
@@ -326,7 +321,7 @@ public class AcquireMaterialsTask implements Task {
                         for (CraftingPath path : step.paths()) {
                             CompletableFuture<Integer> totalPathCost = CompletableFuture.completedFuture(0);
                             for (Ingredient subIngredient : path.requirements().keySet()) {
-                                totalPathCost = totalPathCost.thenCombine(calculateCost(subIngredient), Integer::sum);
+                                totalPathCost = totalPathCost.thenCombine(calculateCost(subIngredient, token), Integer::sum);
                             }
                             pathCostFutures.add(totalPathCost);
                         }
