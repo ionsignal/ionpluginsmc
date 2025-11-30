@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
@@ -16,12 +17,11 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
  * the LLM from misusing other tools for a task it cannot perform.
  */
 public class BuildGoal implements Goal {
-    private final Object contextToken = new Object();
     private boolean finished = false;
     private GoalResult finalResult;
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         // This goal provides immediate feedback to the LLM.
         this.finalResult = new GoalResult.Failure(
                 "The objective failed because my building capabilities are not yet enabled. I cannot construct complex structures.");
@@ -29,7 +29,7 @@ public class BuildGoal implements Goal {
     }
 
     @Override
-    public void process(NerrusAgent agent) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
         // No-op, the goal is finished immediately.
     }
 
@@ -46,11 +46,6 @@ public class BuildGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 
     public record BuildParameters(

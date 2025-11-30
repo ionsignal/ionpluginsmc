@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
@@ -16,7 +17,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
 
 public class RequestItemGoal implements Goal {
-    private final Object contextToken = new Object();
     private final RequestItemParameters params;
     private final Material materialToRequest;
     private boolean finished = false;
@@ -28,20 +28,20 @@ public class RequestItemGoal implements Goal {
     }
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         // The skill itself handles the speaking.
     }
 
     @Override
-    public void process(NerrusAgent agent) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
         if (isFinished() || agent.getCurrentTask() != null) {
             return;
         }
 
         Task requestTask = new Task() {
             @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
-                return new RequestItemSkill(materialToRequest, params.quantity()).execute(agent)
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
+                return new RequestItemSkill(materialToRequest, params.quantity()).execute(agent, token)
                         .handle((success, ex) -> {
                             if (ex != null) {
                                 if (ex.getCause() instanceof TimeoutException || ex instanceof TimeoutException) {
@@ -59,11 +59,6 @@ public class RequestItemGoal implements Goal {
                             finished = true;
                             return null;
                         });
-            }
-
-            @Override
-            public void cancel() {
-                // The skill's future is handled by the chain.
             }
         };
 
@@ -86,11 +81,6 @@ public class RequestItemGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 
     public static class Provider implements GoalProvider {
