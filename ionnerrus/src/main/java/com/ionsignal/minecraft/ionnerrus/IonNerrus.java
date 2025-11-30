@@ -87,9 +87,8 @@ public class IonNerrus extends JavaPlugin {
             ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
-                    services.getChatBubbleService(), // Can be null
-                    services.getHudManager() // Can be null
-            );
+                    services.getChatBubbleService(),
+                    services.getHudManager());
             listenerRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register listeners: " + e.getMessage());
@@ -140,8 +139,8 @@ public class IonNerrus extends JavaPlugin {
             ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
-                    services.getChatBubbleService(), // Can be null
-                    services.getHudManager()); // Can be null
+                    services.getChatBubbleService(),
+                    services.getHudManager());
             listenerRegistrar.unregisterAll();
         } catch (Exception e) {
             getLogger().severe("Error unregistering listeners: " + e.getMessage());
