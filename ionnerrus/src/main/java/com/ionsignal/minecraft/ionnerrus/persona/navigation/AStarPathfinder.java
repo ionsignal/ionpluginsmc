@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
 
 import net.minecraft.core.BlockPos;
@@ -24,6 +25,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.PriorityQueue;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
@@ -37,17 +39,27 @@ public class AStarPathfinder {
     private final World world;
     private final NavigationParameters params;
     private final WorldSnapshot snapshot;
+    private final ExecutionToken token;
 
-    private AStarPathfinder(BlockPos startPos, BlockPos endPos, World world, NavigationParameters params, WorldSnapshot snapshot) {
+    private AStarPathfinder(
+            BlockPos startPos,
+            BlockPos endPos,
+            World world,
+            NavigationParameters params,
+            WorldSnapshot snapshot,
+            ExecutionToken token) {
         this.startPos = startPos;
         this.endPos = endPos;
         this.world = world;
         this.params = params;
         this.snapshot = snapshot;
+        this.token = token;
     }
 
     // Create a snapshot and call the new overloaded method.
-    public static CompletableFuture<Optional<Path>> findPath(Location start, Location end, NavigationParameters params) {
+    public static CompletableFuture<Optional<Path>> findPath(
+            Location start, Location end,
+            NavigationParameters params, ExecutionToken token) {
         BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
         BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
         int padding = 16; // Accounts for more complex pathing scenarios like falling around obstacles
@@ -59,19 +71,21 @@ public class AStarPathfinder {
                 Math.max(startPos.getX(), endPos.getX()) + padding,
                 Math.max(startPos.getY(), endPos.getY()) + padding,
                 Math.max(startPos.getZ(), endPos.getZ()) + padding);
-        // Asynchronously create the snapshot, then compose it with a call to the other findPath method.
-        // `thenCompose` is used to flatten the CompletableFuture<CompletableFuture<...>> result.
+        // Asynchronously create the snapshot, then compose it with `findPath`
         return WorldSnapshot.create(start.getWorld(), min, max)
-                .thenCompose(snapshot -> findPath(start, end, params, snapshot));
+                .thenCompose(snapshot -> findPath(start, end, params, snapshot, token));
     }
 
-    // Accepts a pre-existing WorldSnapshot for thread-safe, efficient pathfinding.
-    public static CompletableFuture<Optional<Path>> findPath(Location start, Location end, NavigationParameters params,
-            WorldSnapshot snapshot) {
+    // Update signature to accept ExecutionToken
+    public static CompletableFuture<Optional<Path>> findPath(
+            Location start, Location end,
+            NavigationParameters params,
+            WorldSnapshot snapshot,
+            ExecutionToken token) {
         BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
         BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
         return CompletableFuture.supplyAsync(
-                () -> new AStarPathfinder(startPos, endPos, start.getWorld(), params, snapshot).calculatePath(),
+                () -> new AStarPathfinder(startPos, endPos, start.getWorld(), params, snapshot, token).calculatePath(),
                 IonNerrus.getInstance().getOffloadThreadExecutor());
     }
 
@@ -94,9 +108,14 @@ public class AStarPathfinder {
         long startTime = System.nanoTime();
         int iterations = 0;
         while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
+            // Async Cancellation Check
+            // This allows the heavy calculation to abort immediately if the main thread cancels the goal.
+            if (token != null && !token.isActive()) {
+                throw new CancellationException("Pathfinding cancelled via execution token");
+            }
             Node currentNode = openSet.poll();
             if (currentNode.pos.equals(actualEndPos)) {
-                // PHASE 2: Enrich the path with metadata before returning
+                // Enrich the path with metadata before returning
                 Path path = reconstructAndEnrichPath(currentNode);
                 long endTime = System.nanoTime();
                 double durationMillis = (endTime - startTime) / 1000000.0;
@@ -575,17 +594,6 @@ public class AStarPathfinder {
         // Manhattan distance is a good, fast heuristic for grid-based worlds
         return Math.abs(a.getX() - b.getX()) + Math.abs(a.getY() - b.getY()) + Math.abs(a.getZ() - b.getZ());
     }
-
-    // Dead code?
-    // private Path reconstructPath(Node endNode) {
-    // LinkedList<BlockPos> path = new LinkedList<>();
-    // Node currentNode = endNode;
-    // while (currentNode != null) {
-    // path.addFirst(currentNode.pos);
-    // currentNode = currentNode.parent;
-    // }
-    // return new Path(path, this.world);
-    // }
 
     private static class Node implements Comparable<Node> {
         final BlockPos pos;

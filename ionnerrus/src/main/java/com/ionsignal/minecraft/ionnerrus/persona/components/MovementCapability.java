@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.components;
 
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 
@@ -18,20 +19,24 @@ public interface MovementCapability {
      *
      * @param target
      *            The destination location.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future that completes with the result of the navigation.
      * @throws IllegalStateException
      *             if a movement is already active.
      */
-    CompletableFuture<MovementResult> moveTo(Location target);
+    CompletableFuture<MovementResult> moveTo(Location target, ExecutionToken token);
 
     /**
      * Initiates navigation along a pre-calculated path.
      *
      * @param path
      *            The path to follow.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future that completes with the result of the navigation.
      */
-    CompletableFuture<MovementResult> moveTo(Path path);
+    CompletableFuture<MovementResult> moveTo(Path path, ExecutionToken token);
 
     /**
      * Engages (moves towards) a potentially dynamic entity target.
@@ -40,9 +45,11 @@ public interface MovementCapability {
      *            The entity to engage.
      * @param stopDistanceSquared
      *            The squared distance at which to stop.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future that completes with the result of the engagement.
      */
-    CompletableFuture<MovementResult> engage(Entity target, double stopDistanceSquared);
+    CompletableFuture<MovementResult> engage(Entity target, double stopDistanceSquared, ExecutionToken token);
 
     /**
      * Follows a dynamic entity target, maintaining a specific distance.
@@ -53,10 +60,12 @@ public interface MovementCapability {
      *            The distance at which to start moving towards the target.
      * @param stopDistance
      *            The distance at which to stop moving.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future that completes with the result of the follow operation (usually cancelled or
      *         target lost).
      */
-    CompletableFuture<MovementResult> follow(Entity target, double followDistance, double stopDistance);
+    CompletableFuture<MovementResult> follow(Entity target, double followDistance, double stopDistance, ExecutionToken token);
 
     /**
      * Cancels active movement (idempotent).

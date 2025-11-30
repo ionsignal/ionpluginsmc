@@ -1,10 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.persona.components;
 
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.ActionResult;
+
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -25,9 +28,11 @@ public interface ActionCapability {
      *
      * @param target
      *            The block to break.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future with the result of the break operation.
      */
-    CompletableFuture<ActionResult> breakBlock(Block target);
+    CompletableFuture<ActionResult> breakBlock(Block target, ExecutionToken token);
 
     /**
      * Places a block from inventory.
@@ -40,9 +45,11 @@ public interface ActionCapability {
      *            The material to place.
      * @param target
      *            The location to place the block.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future with the result of the placement.
      */
-    CompletableFuture<ActionResult> placeBlock(Material material, Location target);
+    CompletableFuture<ActionResult> placeBlock(Material material, Location target, ExecutionToken token);
 
     /**
      * Swaps items between two slots in the inventory.
@@ -51,9 +58,11 @@ public interface ActionCapability {
      *            The slot index to move from.
      * @param destinationSlot
      *            The slot index to move to.
+     * @param token
+     *            The execution token bound to the lifecycle of the request.
      * @return A future with the result of the swap.
      */
-    CompletableFuture<ActionResult> swapItems(int sourceSlot, int destinationSlot);
+    CompletableFuture<ActionResult> swapItems(int sourceSlot, int destinationSlot, ExecutionToken token);
 
     /**
      * Plays a visual animation on the persona.

@@ -18,6 +18,10 @@ public enum MovementResult {
      */
     STUCK,
     /**
+     * The dynamic target (e.g., entity) is far enough for a repath.
+     */
+    REPATH_NEEDED,
+    /**
      * The dynamic target (e.g., entity) disappeared or became invalid.
      */
     TARGET_LOST,

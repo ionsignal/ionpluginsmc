@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.MetadataKeys;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
@@ -7,10 +8,15 @@ import com.ionsignal.minecraft.ionnerrus.persona.locomotion.LocomotionController
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 
+import com.google.common.base.Preconditions;
+
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class Navigator {
     private static final boolean DEBUG_VISUALIZATION = true;
@@ -28,8 +34,7 @@ public class Navigator {
     private static final float MIN_DECELERATION_SPEED = 0.1f;
 
     // Repath constants
-    private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = 50.0;
-    private static final int REPATH_INTERVAL_TICKS = 20;
+    private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = 144.0;
 
     private final Persona persona;
     private final LocomotionController locomotion;
@@ -44,6 +49,7 @@ public class Navigator {
     private Path currentPath;
     private PathFollower pathFollower;
     private CompletableFuture<MovementResult> navigationFuture;
+    private boolean isPathfinding = false;
 
     // Engaging State
     private Entity engageTarget;
@@ -58,7 +64,8 @@ public class Navigator {
     private double followDistanceSquared;
     private double stopDistanceSquared;
     private Path currentFollowPath;
-    private int ticksUntilNextRepath;
+
+    // TODO: FIX Navigator State Naming Ambiguity [navigationFuture/engageFuture] (Severity: LOW)
 
     public Navigator(Persona persona, LocomotionController locomotion) {
         this.persona = persona;
@@ -66,12 +73,13 @@ public class Navigator {
     }
 
     // Overload existing method for backward compatibility
-    public CompletableFuture<MovementResult> navigateTo(Location target) {
-        return navigateTo(target, NavigationParameters.DEFAULT);
+    public CompletableFuture<MovementResult> navigateTo(Location target, ExecutionToken token) {
+        return navigateTo(target, NavigationParameters.DEFAULT, token);
     }
 
     // The new primary navigation method
-    public CompletableFuture<MovementResult> navigateTo(Location target, NavigationParameters params) {
+    public CompletableFuture<MovementResult> navigateTo(Location target, NavigationParameters params, ExecutionToken token) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Async navigation access detected!");
         if (isBusy()) {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
@@ -79,21 +87,35 @@ public class Navigator {
         navigationFuture = new CompletableFuture<>();
         resetStuckDetection();
         // Initiate pathfinding
-        AStarPathfinder.findPath(persona.getLocation(), target, params).thenAcceptAsync(pathOptional -> {
-            if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
-                currentPath = pathOptional.get();
-                if (DEBUG_VISUALIZATION) {
-                    DebugVisualizer.displayPath(currentPath, 30);
-                }
-                pathFollower = new PathFollower(currentPath);
-            } else {
-                finishPathing(MovementResult.UNREACHABLE);
-            }
-        }, persona.getManager().getPlugin().getMainThreadExecutor());
+        AStarPathfinder.findPath(persona.getLocation(), target, params, token)
+                .whenCompleteAsync((pathOptional, ex) -> {
+                    if (state != State.PATH_FOLLOWING) {
+                        return;
+                    }
+                    if (ex != null) {
+                        Throwable cause = ex instanceof CompletionException ? ex.getCause() : ex;
+                        if (!(cause instanceof CancellationException)) {
+                            persona.getManager().getPlugin().getLogger().warning("Pathfinding failed: " + cause.getMessage());
+                            cause.printStackTrace();
+                        }
+                        finishPathing(cause instanceof CancellationException ? MovementResult.CANCELLED : MovementResult.FAILURE);
+                        return;
+                    }
+                    if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
+                        currentPath = pathOptional.get();
+                        if (DEBUG_VISUALIZATION) {
+                            DebugVisualizer.displayPath(currentPath, 30);
+                        }
+                        pathFollower = new PathFollower(currentPath);
+                    } else {
+                        finishPathing(MovementResult.UNREACHABLE);
+                    }
+                }, persona.getManager().getPlugin().getMainThreadExecutor());
         return navigationFuture;
     }
 
-    public CompletableFuture<MovementResult> navigateTo(Path path) {
+    public CompletableFuture<MovementResult> navigateTo(Path path, ExecutionToken token) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Async navigation access detected!");
         if (isBusy()) {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
@@ -102,11 +124,8 @@ public class Navigator {
         resetStuckDetection();
         // Directly use the provided path, skipping the pathfinding step.
         if (path != null && !path.isEmpty()) {
-            // This needs to run on the main thread to safely set the path follower.
-            persona.getManager().getPlugin().getMainThreadExecutor().execute(() -> {
-                currentPath = path;
-                pathFollower = new PathFollower(currentPath);
-            });
+            currentPath = path;
+            pathFollower = new PathFollower(currentPath);
         } else {
             // Complete immediately if path is invalid
             finishPathing(MovementResult.UNREACHABLE);
@@ -114,7 +133,8 @@ public class Navigator {
         return navigationFuture;
     }
 
-    public CompletableFuture<MovementResult> engageOn(Entity target, double proximityDistanceSquared) {
+    public CompletableFuture<MovementResult> engageOn(Entity target, double proximityDistanceSquared, ExecutionToken token) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Async navigation access detected!");
         if (isBusy()) {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
@@ -126,7 +146,8 @@ public class Navigator {
         return engageFuture;
     }
 
-    public CompletableFuture<MovementResult> followOn(Entity target, double followDistance, double stopDistance) {
+    public CompletableFuture<MovementResult> followOn(Entity target, double followDistance, double stopDistance, ExecutionToken token) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Async navigation access detected!");
         if (isBusy()) {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
@@ -140,7 +161,33 @@ public class Navigator {
         this.stopDistanceSquared = stopDistance * stopDistance;
         this.currentFollowPath = null;
         this.pathFollower = null;
-        this.ticksUntilNextRepath = 0;
+        this.isPathfinding = true;
+        Location agentLocation = persona.getLocation();
+        Location targetLocation = followTarget.getLocation();
+        AStarPathfinder.findPath(agentLocation, targetLocation, NavigationParameters.DEFAULT, token)
+                .whenCompleteAsync((pathOptional, ex) -> {
+                    this.isPathfinding = false;
+                    if (state != State.FOLLOWING) {
+                        return;
+                    }
+                    if (ex != null) {
+                        Throwable cause = ex instanceof CompletionException ? ex.getCause() : ex;
+                        if (!(cause instanceof CancellationException)) {
+                            persona.getManager().getPlugin().getLogger().warning("Follow pathfinding failed: " + cause.getMessage());
+                        }
+                        finishFollowing(cause instanceof CancellationException ? MovementResult.CANCELLED : MovementResult.FAILURE);
+                        return;
+                    }
+                    if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
+                        currentFollowPath = pathOptional.get();
+                        if (DEBUG_VISUALIZATION) {
+                            DebugVisualizer.displayPath(currentFollowPath, 20);
+                        }
+                        pathFollower = new PathFollower(currentFollowPath);
+                    } else {
+                        finishFollowing(MovementResult.UNREACHABLE);
+                    }
+                }, persona.getManager().getPlugin().getMainThreadExecutor());
         return navigationFuture;
     }
 
@@ -158,7 +205,7 @@ public class Navigator {
             finishPathing(MovementResult.STUCK);
             return;
         }
-        // PHASE 3 UPDATE: Check for geometric deviation (Tether Snap)
+        // Check for geometric deviation (Tether Snap)
         if (state == State.PATH_FOLLOWING && pathFollower != null && pathFollower.isOffPath()) {
             persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " deviated from path (Tether Snap).");
             log();
@@ -168,7 +215,7 @@ public class Navigator {
         // Standard Stuck detection (Temporal)
         // We pause stuck detection if the LocomotionController is performing a Maneuver (Jump/Drop) because
         // maneuvers have their own internal timeouts, and often require special timeout handling
-        if (isBusy() && !locomotion.isManeuvering() && checkIfStuck()) {
+        if (isBusy() && !locomotion.isManeuvering() && !isPathfinding && checkIfStuck()) {
             log();
             persona.getManager().getPlugin().getLogger()
                     .warning("Persona " + persona.getName() + " is stuck (Temporal). Failing current task.");
@@ -266,6 +313,10 @@ public class Navigator {
             finishFollowing(MovementResult.TARGET_LOST);
             return;
         }
+        if (isPathfinding) {
+            // wait for pathfinder
+            return;
+        }
         Location agentLocation = persona.getLocation();
         Location targetLocation = followTarget.getLocation();
         double distanceSq = agentLocation.distanceSquared(targetLocation);
@@ -280,34 +331,13 @@ public class Navigator {
             currentFollowPath = null;
             pathFollower = null;
         } else {
-            // Pathfinding Zone
-            ticksUntilNextRepath--;
             // Target moved from path end
-            boolean needsRepath = currentFollowPath == null || pathFollower == null ||
-                    pathFollower.isFinished(agentLocation) ||
-                    ticksUntilNextRepath <= 0 ||
+            boolean needsRepath = currentFollowPath == null || pathFollower == null || pathFollower.isFinished(agentLocation) ||
                     currentFollowPath.getPointAtDistance(currentFollowPath.getLength())
                             .distanceSquared(targetLocation) > FOLLOW_DISTANCE_THRESHOLD_SQUARED;
             if (needsRepath) {
-                ticksUntilNextRepath = REPATH_INTERVAL_TICKS;
-                // Use helper to find ground
-                // Note: findGround in helper needs update or we use AStarPathfinder's internal logic
-                // For now, assume targetLocation is valid
-                AStarPathfinder.findPath(agentLocation, targetLocation, NavigationParameters.DEFAULT)
-                        .thenAcceptAsync(pathOpt -> {
-                            if (state != State.FOLLOWING)
-                                return; // State changed while pathfinding
-                            if (pathOpt.isPresent() && !pathOpt.get().isEmpty()) {
-                                currentFollowPath = pathOpt.get();
-                                if (DEBUG_VISUALIZATION) {
-                                    DebugVisualizer.displayPath(currentFollowPath, REPATH_INTERVAL_TICKS + 5);
-                                }
-                                pathFollower = new PathFollower(currentFollowPath);
-                            } else {
-                                currentFollowPath = null; // Path failed, will try again
-                                pathFollower = null;
-                            }
-                        }, persona.getManager().getPlugin().getMainThreadExecutor());
+                finishFollowing(MovementResult.REPATH_NEEDED);
+                return;
             }
             if (pathFollower != null && currentFollowPath != null) {
                 tickPathFollowing(); // Reuse existing path following logic
@@ -394,6 +424,7 @@ public class Navigator {
 
     private void reset() {
         locomotion.stop();
+        this.isPathfinding = false;
         this.navigationFuture = null;
         this.currentPath = null;
         this.pathFollower = null;
