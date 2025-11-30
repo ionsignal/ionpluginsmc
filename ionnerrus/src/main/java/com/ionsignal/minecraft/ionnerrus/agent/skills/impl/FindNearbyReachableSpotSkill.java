@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.AStarPathfinder;
@@ -56,7 +57,7 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
     }
 
     @Override
-    public CompletableFuture<Optional<Location>> execute(NerrusAgent agent) {
+    public CompletableFuture<Optional<Location>> execute(NerrusAgent agent, ExecutionToken token) {
         return CompletableFuture.supplyAsync(() -> {
             Persona persona = agent.getPersona();
             World world = targetLocation.getWorld();
@@ -92,7 +93,7 @@ public class FindNearbyReachableSpotSkill implements Skill<Optional<Location>> {
             candidates.sort(Comparator.comparingDouble(loc -> loc.distanceSquared(targetLocation)));
             // Find the first one that is actually pathable
             for (Location candidate : candidates) {
-                boolean canNavigate = AStarPathfinder.findPath(persona.getLocation(), candidate, NavigationParameters.DEFAULT)
+                boolean canNavigate = AStarPathfinder.findPath(persona.getLocation(), candidate, NavigationParameters.DEFAULT, token)
                         .join().isPresent();
                 if (canNavigate) {
                     return Optional.of(candidate);

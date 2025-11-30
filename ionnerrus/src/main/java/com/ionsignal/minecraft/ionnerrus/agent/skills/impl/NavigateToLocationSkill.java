@@ -1,10 +1,8 @@
 package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
-import com.ionsignal.minecraft.ioncore.IonCore;
-import com.ionsignal.minecraft.ioncore.debug.DebugSession;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -14,7 +12,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 
 import org.bukkit.Location;
 
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public class NavigateToLocationSkill implements Skill<NavigateToLocationResult> {
@@ -41,53 +38,38 @@ public class NavigateToLocationSkill implements Skill<NavigateToLocationResult> 
     }
 
     @Override
-    public CompletableFuture<NavigateToLocationResult> execute(NerrusAgent agent) {
-        // Wrap the entire execution in the Main Thread Executor
+    public CompletableFuture<NavigateToLocationResult> execute(NerrusAgent agent, ExecutionToken token) {
         return CompletableFuture.supplyAsync(() -> {
             Persona persona = agent.getPersona();
             if (!persona.isSpawned()) {
                 return CompletableFuture.completedFuture(MovementResult.CANCELLED);
             }
-            //
-            //
-            // [DEBUG START] Inspect intent before physical execution
-            Optional<DebugSession<AgentDebugState>> debugSession = IonCore.getDebugRegistry()
-                    .getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
-            if (debugSession.isPresent()) {
-                var session = debugSession.get();
-                session.setState(AgentDebugState.snapshot(agent));
-                String targetDesc = (target != null) ? target.toVector().toString()
-                        : (preCalculatedPath != null) ? "Path[" + preCalculatedPath.size() + "]" : "Unknown";
-                session.getController().ifPresent(c -> c.pause("Skill: NavigateToLocation", "Target: " + targetDesc));
+            // Check cancellation before starting heavy work
+            if (!token.isActive()) {
+                return CompletableFuture.completedFuture(MovementResult.CANCELLED);
             }
-            // [DEBUG END]
-            //
-            //
             PhysicalBody body = persona.getPhysicalBody();
             if (lookAt != null) {
                 body.orientation().face(lookAt, false);
             } else {
-                // If no specific look target is requested, clear any previous tracking
-                // so the agent looks naturally towards the path/movement direction.
                 body.orientation().clearLookTarget();
             }
+            // Pass the token to the physical body!
             if (preCalculatedPath != null) {
-                return body.movement().moveTo(preCalculatedPath);
+                return body.movement().moveTo(preCalculatedPath, token);
             } else if (target != null) {
-                return body.movement().moveTo(target);
+                return body.movement().moveTo(target, token);
             } else {
                 return CompletableFuture.completedFuture(MovementResult.UNREACHABLE);
             }
         }, IonNerrus.getInstance().getMainThreadExecutor())
-                .thenCompose(future -> future) // Flatten the CompletableFuture<CompletableFuture<MovementResult>>
+                .thenCompose(future -> future)
                 .thenApply(result -> switch (result) {
                     case SUCCESS -> NavigateToLocationResult.SUCCESS;
                     case UNREACHABLE -> NavigateToLocationResult.UNREACHABLE;
                     case STUCK, FAILURE -> NavigateToLocationResult.STUCK;
                     case CANCELLED -> NavigateToLocationResult.CANCELLED;
-                    case TARGET_LOST -> throw new UnsupportedOperationException("Unimplemented case: " + result);
-                    case TIMEOUT -> throw new UnsupportedOperationException("Unimplemented case: " + result);
-                    default -> throw new IllegalArgumentException("Unexpected value: " + result);
+                    default -> NavigateToLocationResult.STUCK;
                 });
     }
 }

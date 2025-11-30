@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 
 import org.bukkit.Location;
@@ -21,7 +22,7 @@ public class FindNearestBiomeSkill implements Skill<Location> {
     }
 
     @Override
-    public CompletableFuture<Location> execute(NerrusAgent agent) {
+    public CompletableFuture<Location> execute(NerrusAgent agent, ExecutionToken token) {
         Location start = agent.getPersona().getLocation();
         return CompletableFuture.supplyAsync(() -> {
             World world = start.getWorld();

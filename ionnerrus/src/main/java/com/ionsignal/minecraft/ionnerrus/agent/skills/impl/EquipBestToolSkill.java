@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.ActionResult;
 
@@ -34,7 +35,8 @@ public class EquipBestToolSkill implements Skill<Boolean> {
     }
 
     @Override
-    public CompletableFuture<Boolean> execute(NerrusAgent agent) {
+    @SuppressWarnings("null")
+    public CompletableFuture<Boolean> execute(NerrusAgent agent, ExecutionToken token) {
         // Step 1: Analyze inventory on the main thread to determine what needs to happen.
         // We return a ToolSwapRequest record to pass data to the next stage.
         return CompletableFuture.supplyAsync(() -> {
@@ -102,7 +104,7 @@ public class EquipBestToolSkill implements Skill<Boolean> {
                     }
                     // Delegate the physical action to the body
                     return agent.getPersona().getPhysicalBody().actions()
-                            .swapItems(request.sourceSlot, request.destSlot)
+                            .swapItems(request.sourceSlot, request.destSlot, token)
                             .thenApply(result -> result == ActionResult.SUCCESS);
                 });
     }

@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.CollectItemResult;
 import com.ionsignal.minecraft.ionnerrus.persona.components.MovementCapability;
@@ -65,7 +66,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
     }
 
     @Override
-    public CompletableFuture<CollectItemResult> execute(NerrusAgent agent) {
+    public CompletableFuture<CollectItemResult> execute(NerrusAgent agent, ExecutionToken token) {
         if (targetItem == null || targetItem.isDead()) {
             return CompletableFuture.completedFuture(CollectItemResult.failure(CollectItemResult.Status.ITEM_GONE));
         }
@@ -101,7 +102,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                         // Cannot find valid ground (void, water, or too high up)
                         return CompletableFuture.completedFuture(Optional.<Path>empty());
                     }
-                    return findOptimalApproachPath(agentLocation, probableLandingZone.get(), snapshot);
+                    return findOptimalApproachPath(token, agentLocation, probableLandingZone.get(), snapshot);
                 }, IonNerrus.getInstance().getOffloadThreadExecutor())
                 .thenComposeAsync(pathOptional -> {
                     if (pathOptional.isEmpty()) {
@@ -110,7 +111,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                         return CompletableFuture.completedFuture(null);
                     }
                     log(startTime, "OPTIMAL_APPROACH_PATH_FOUND");
-                    return movement.moveTo(pathOptional.get());
+                    return movement.moveTo(pathOptional.get(), token);
                 }, IonNerrus.getInstance().getMainThreadExecutor())
                 .thenAcceptAsync(navResult -> {
                     if (finalResultFuture.isDone()) {
@@ -119,7 +120,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
                     if (navResult != MovementResult.SUCCESS) {
                         finalResultFuture.complete(CollectItemResult.failure(CollectItemResult.Status.NAVIGATION_FAILED));
                     } else {
-                        engageAndMonitor(agent, movement, finalResultFuture);
+                        engageAndMonitor(agent, token, movement, finalResultFuture);
                     }
                 }, IonNerrus.getInstance().getMainThreadExecutor());
         return finalResultFuture;
@@ -130,7 +131,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
      * the skill's result future, resolving the race condition between the navigator's state and the
      * inventory check.
      */
-    private void engageAndMonitor(NerrusAgent agent, MovementCapability movement,
+    private void engageAndMonitor(NerrusAgent agent, ExecutionToken token, MovementCapability movement,
             CompletableFuture<CollectItemResult> finalResultFuture) {
         final int initialCount = countItems(agent, targetItem.getItemStack().getType());
         BukkitTask monitorTask = new BukkitRunnable() {
@@ -153,7 +154,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
 
         agent.getPersona().getPhysicalBody().orientation().face(targetItem);
 
-        movement.engage(targetItem, 1.0 * 1.0).whenComplete((engageResult, throwable) -> {
+        movement.engage(targetItem, 1.0 * 1.0, token).whenComplete((engageResult, throwable) -> {
             if (finalResultFuture.isDone()) {
                 return;
             }
@@ -212,6 +213,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
      * search-and-evaluate strategy.
      */
     private CompletableFuture<Optional<Path>> findOptimalApproachPath(
+            ExecutionToken token,
             Location agentLocation,
             Location itemGroundLocation,
             WorldSnapshot snapshot) {
@@ -244,7 +246,7 @@ public class CollectItemSkill implements Skill<CollectItemResult> {
             for (Location candidate : finalCandidates) {
                 // Reuse the existing snapshot for every pathfinding call.
                 Optional<Path> pathOpt = AStarPathfinder
-                        .findPath(agentLocation, candidate, NavigationParameters.DEFAULT, snapshot)
+                        .findPath(agentLocation, candidate, NavigationParameters.DEFAULT, snapshot, token)
                         .join();
                 pathOpt.ifPresent(validPaths::add);
             }

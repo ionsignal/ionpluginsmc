@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 
 import org.bukkit.entity.LivingEntity;
@@ -31,7 +32,7 @@ public class CheckPlayerReadySkill implements Skill<Boolean> {
     }
 
     @Override
-    public CompletableFuture<Boolean> execute(NerrusAgent agent) {
+    public CompletableFuture<Boolean> execute(NerrusAgent agent, ExecutionToken token) {
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         final AtomicLong startTime = new AtomicLong(System.currentTimeMillis());
         final BukkitTask task = new BukkitRunnable() {

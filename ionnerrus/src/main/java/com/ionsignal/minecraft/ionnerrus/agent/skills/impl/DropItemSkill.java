@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 
 import org.bukkit.Location;
@@ -32,7 +33,7 @@ public class DropItemSkill implements Skill<Boolean> {
     }
 
     @Override
-    public CompletableFuture<Boolean> execute(NerrusAgent agent) {
+    public CompletableFuture<Boolean> execute(NerrusAgent agent, ExecutionToken token) {
         return CompletableFuture.supplyAsync(() -> {
             PlayerInventory inventory = agent.getPersona().getInventory();
             if (inventory == null || !inventory.contains(material, quantity)) {

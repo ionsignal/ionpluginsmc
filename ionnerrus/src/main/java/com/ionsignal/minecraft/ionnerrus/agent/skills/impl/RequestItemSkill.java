@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.skills.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
 import org.bukkit.Material;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -31,10 +32,10 @@ public class RequestItemSkill implements Skill<Boolean> {
     }
 
     @Override
-    public CompletableFuture<Boolean> execute(NerrusAgent agent) {
+    public CompletableFuture<Boolean> execute(NerrusAgent agent, ExecutionToken token) {
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         // Immediately check how many we have to start with.
-        new CountItemsSkill(Set.of(material)).execute(agent).thenAccept(initialCounts -> {
+        new CountItemsSkill(Set.of(material)).execute(agent, token).thenAccept(initialCounts -> {
             int initialAmount = initialCounts.getOrDefault(material, 0);
             int amountNeeded = requiredAmount - initialAmount;
             if (amountNeeded <= 0) {
@@ -50,7 +51,7 @@ public class RequestItemSkill implements Skill<Boolean> {
                         this.cancel();
                         return;
                     }
-                    new CountItemsSkill(Set.of(material)).execute(agent).thenAccept(currentCounts -> {
+                    new CountItemsSkill(Set.of(material)).execute(agent, token).thenAccept(currentCounts -> {
                         int currentAmount = currentCounts.getOrDefault(material, 0);
                         if (currentAmount >= requiredAmount) {
                             future.complete(true);
