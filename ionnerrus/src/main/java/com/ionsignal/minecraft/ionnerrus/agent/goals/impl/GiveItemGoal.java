@@ -4,6 +4,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -36,7 +37,6 @@ public class GiveItemGoal implements Goal {
         CHECKING_INVENTORY, FINDING_TARGET, APPROACHING_AND_WAITING, FOLLOWING_AND_WAITING, DROPPING_ITEM, COMPLETED, FAILED
     }
 
-    private final Object contextToken = new Object();
     private final Logger logger;
     private final GiveItemParameters params;
     private final Material material;
@@ -51,19 +51,19 @@ public class GiveItemGoal implements Goal {
     }
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         agent.speak("Okay, I'll give " + params.quantity() + " " + params.materialName() + " to " + params.targetName() + ".");
     }
 
     @Override
-    public void process(NerrusAgent agent) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
         if (isFinished()) {
             return;
         }
         switch (state) {
             case CHECKING_INVENTORY -> {
                 logger.info("GiveItemGoal: Checking inventory for " + params.quantity() + " " + material.name());
-                agent.setCurrentTask(createSkillTask(new CountItemsSkill(Set.of(material)).execute(agent)
+                agent.setCurrentTask(createSkillTask(new CountItemsSkill(Set.of(material)).execute(agent, token)
                         .thenAccept(counts -> {
                             int haveAmount = counts.getOrDefault(material, 0);
                             if (haveAmount >= params.quantity()) {
@@ -75,7 +75,7 @@ public class GiveItemGoal implements Goal {
             }
             case FINDING_TARGET -> {
                 logger.info("GiveItemGoal: Looking for target '" + params.targetName() + "'.");
-                agent.setCurrentTask(createSkillTask(new FindTargetEntitySkill(params.targetName()).execute(agent)
+                agent.setCurrentTask(createSkillTask(new FindTargetEntitySkill(params.targetName()).execute(agent, token)
                         .thenAccept(entityOpt -> {
                             if (entityOpt.isPresent()) {
                                 this.targetEntity = entityOpt.get();
@@ -94,7 +94,7 @@ public class GiveItemGoal implements Goal {
                     // agent.getPersona().getNavigator().followOn(target, 5.0, 2.5);
                     agent.speak("Hey, " + params.targetName() + "! I have something for you!");
                     // Simultaneously, start checking if the player is ready for the interaction.
-                    agent.setCurrentTask(createSkillTask(new CheckPlayerReadySkill(target, 20).execute(agent) // Increased timeout
+                    agent.setCurrentTask(createSkillTask(new CheckPlayerReadySkill(target, 20).execute(agent, token) // Increased timeout
                             .thenAccept(isReady -> {
                                 // This is the crucial cleanup step. We MUST stop the follow behavior
                                 // before proceeding, regardless of the outcome.
@@ -123,7 +123,7 @@ public class GiveItemGoal implements Goal {
                 logger.info("GiveItemGoal: Dropping " + params.quantity() + " " + material.name());
                 Optional.ofNullable(this.targetEntity).ifPresentOrElse(target -> {
                     // Pass the target entity to the DropItemSkill for the calculated toss.
-                    agent.setCurrentTask(createSkillTask(new DropItemSkill(material, params.quantity(), target).execute(agent)
+                    agent.setCurrentTask(createSkillTask(new DropItemSkill(material, params.quantity(), target).execute(agent, token)
                             .thenAccept(success -> {
                                 if (success) {
                                     agent.speak("Here you go, " + params.targetName() + "!");
@@ -167,13 +167,9 @@ public class GiveItemGoal implements Goal {
     private Task createSkillTask(CompletableFuture<?> future) {
         return new Task() {
             @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
                 return future.thenApply(v -> null);
             }
-
-            @Override
-            public void cancel() {
-                /* No-op for simple skills */ }
         };
     }
 
@@ -198,11 +194,6 @@ public class GiveItemGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 
     public record GiveItemParameters(

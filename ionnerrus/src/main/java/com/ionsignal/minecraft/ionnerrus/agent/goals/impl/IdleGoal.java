@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.PerformIdleTask;
@@ -10,7 +11,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.PerformIdleTask;
  */
 public class IdleGoal implements Goal {
     private static final int IDLE_CYCLE_TICKS = 20 * 30; // when things are safe, slow update
-    private final Object contextToken = new Object();
     private boolean hasRunTask = false;
     private boolean finished = false;
 
@@ -19,7 +19,7 @@ public class IdleGoal implements Goal {
     }
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         // Reset orientation to a neutral state when entering idle
         if (agent.getPersona().isSpawned()) {
             agent.getPersona().getPhysicalBody().orientation().clearLookTarget();
@@ -27,7 +27,7 @@ public class IdleGoal implements Goal {
     }
 
     @Override
-    public void process(NerrusAgent agent) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
         // If we haven't dispatched the task yet, do so now.
         if (!hasRunTask) {
             // Delegate the actual "looking around" logic to a Task.
@@ -58,10 +58,5 @@ public class IdleGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return new GoalResult.Success("Idle cycle completed.");
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 }

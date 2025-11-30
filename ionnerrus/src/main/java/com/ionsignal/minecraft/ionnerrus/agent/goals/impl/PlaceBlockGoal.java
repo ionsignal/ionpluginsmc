@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
@@ -15,7 +16,6 @@ import org.bukkit.Material;
 import java.util.concurrent.CompletableFuture;
 
 public class PlaceBlockGoal implements Goal {
-    private final Object contextToken = new Object();
     private final PlaceBlockParameters params;
     private final Material materialToPlace;
     private boolean finished = false;
@@ -27,20 +27,20 @@ public class PlaceBlockGoal implements Goal {
     }
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         agent.speak("Okay, I'll place the " + params.materialName().toLowerCase().replace('_', ' ') + ".");
     }
 
     @Override
-    public void process(NerrusAgent agent) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
         if (isFinished() || agent.getCurrentTask() != null) {
             return;
         }
 
         Task placeTask = new Task() {
             @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
-                return new PlaceBlockSkill(materialToPlace).execute(agent)
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
+                return new PlaceBlockSkill(materialToPlace).execute(agent, token)
                         .thenAccept(locationOpt -> {
                             if (locationOpt.isPresent()) {
                                 finalResult = new GoalResult.Success(
@@ -52,11 +52,6 @@ public class PlaceBlockGoal implements Goal {
                             }
                             finished = true;
                         });
-            }
-
-            @Override
-            public void cancel() {
-                // Skills are short-lived and their futures are handled by the chain.
             }
         };
 
@@ -79,11 +74,6 @@ public class PlaceBlockGoal implements Goal {
     @Override
     public GoalResult getFinalResult() {
         return finalResult;
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

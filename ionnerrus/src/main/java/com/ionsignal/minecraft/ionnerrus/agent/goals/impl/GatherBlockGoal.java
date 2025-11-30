@@ -3,11 +3,13 @@ package com.ionsignal.minecraft.ionnerrus.agent.goals.impl;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;
@@ -23,40 +25,31 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class GatherBlockGoal implements Goal {
+    // Internal FSM States
     private enum State {
-        CHECKING_INVENTORY, GATHERING, SEARCHING_FOR_DENSE_AREA, MOVING_TO_DENSE_AREA, COMPLETED, FAILED
+        STARTING, VERIFYING_INVENTORY, GATHERING_BATCH, COMPLETED, FAILED
     }
 
-    // This enum defines the outcome space of the goal's gather operation
+    // Messages (Data Carriers)
+    public record InventoryCountResult(int count) {
+    }
+
+    public record GatherAttemptResult(GatherResult status) {
+    }
+
     public enum GatherResult {
         SUCCESS, NO_BLOCKS_IN_RANGE, NO_REACHABLE_BLOCKS_IN_RANGE, FAILED_TO_COLLECT
-    }
-
-    /**
-     * Message sent by the inventory counting task after it completes.
-     * 
-     * @param count
-     *            The total number of items of the target material(s) currently in the inventory.
-     */
-    public static record InventoryCountResult(int count) {
-    }
-
-    /**
-     * Message sent by GatherBlockTask after each gather attempt.
-     * 
-     * @param status
-     *            The outcome of the gather attempt.
-     */
-    public static record GatherAttemptResult(GatherResult status) {
     }
 
     private final Logger logger;
     private final Set<Material> materials;
     private final GatherBlockParameters params;
-    private final Object contextToken = new Object();
+
+    // State Data
     private final Set<Location> attemptedLocations = new HashSet<>();
-    private State state = State.CHECKING_INVENTORY;
-    private int gatheredCount = 0;
+    private State state = State.STARTING;
+    private int currentCount = 0;
+    private String failureReason = null;
 
     public GatherBlockGoal(Set<Material> materials, GatherBlockParameters params) {
         this.materials = materials;
@@ -65,107 +58,123 @@ public class GatherBlockGoal implements Goal {
     }
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         this.attemptedLocations.clear();
+        this.state = State.VERIFYING_INVENTORY;
         agent.speak("Okay, I'll get " + params.quantity() + " " + params.groupName() + ".");
+
+        // Kick off the loop: Check what we already have.
+        dispatchInventoryCheck(agent);
     }
 
     @Override
-    public void onMessage(NerrusAgent agent, Object message) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
+        // No-Op: Logic is now entirely event-driven in onMessage.
+        // We do not poll state here.
+    }
+
+    @Override
+    public void onMessage(NerrusAgent agent, Object message, ExecutionToken token) {
         switch (message) {
+            // Data Update: Received inventory count
             case InventoryCountResult result -> {
-                // Update our count from the inventory check
-                this.gatheredCount = result.count();
-                if (gatheredCount >= params.quantity()) {
-                    this.state = State.COMPLETED;
-                } else {
-                    this.state = State.GATHERING;
-                }
-                logger.info("GatherGoal: Inventory count updated to " + gatheredCount + "/" + params.quantity());
+                this.currentCount = result.count();
+                logger.info(String.format("[%s] Inventory check: %d/%d %s",
+                        agent.getName(), currentCount, params.quantity(), params.groupName()));
             }
-            case GatherAttemptResult result -> {
-                // Handle the result of a gather attempt
-                switch (result.status()) {
-                    case SUCCESS:
-                        // IMPORTANT: Clear the attempted locations list after a successful gather. Since the agent has
-                        // moved, the reasons for previous failures (e.g., a block being unreachable) may no longer be valid
-                        // from the new position.
-                        this.attemptedLocations.clear();
-                        // After success, re-check inventory to confirm the block was collected
-                        this.state = State.CHECKING_INVENTORY;
-                        break;
-                    case NO_BLOCKS_IN_RANGE:
-                    case NO_REACHABLE_BLOCKS_IN_RANGE:
-                        // Terminal failure states - no recovery possible
-                        this.state = State.FAILED;
-                        break;
-                    case FAILED_TO_COLLECT:
-                        // Transient failure - block exists but couldn't be collected this time Retry from the current state
-                        logger.info("GatherGoal: A single gather attempt failed. Retrying...");
-                        this.state = State.GATHERING;
-                        break;
-                }
-            }
-            default -> logger.warning("GatherGoal received unknown message type: " + message.getClass().getName());
+            // Data Update: Received feedback from the Gather Task (Monolithic script feedback)
+            case GatherAttemptResult result -> handleGatherFeedback(result);
+            // Lifecycle Update: A Task has finished
+            case TaskCompleted event -> handleTaskCompletion(agent, event);
+            default -> {
+            } // Ignore unknown messages
         }
     }
 
-    @Override
-    @SuppressWarnings("incomplete-switch")
-    public void process(NerrusAgent agent) {
-        if (isFinished()) {
-            switch (state) {
-                case FAILED:
-                    agent.speak("I tried, but I couldn't get all the blocks.");
-                    logger.warning("GatherGoal has failed.");
-                    break;
-                case COMPLETED:
-                    agent.speak("I've gathered all the blocks!");
-                    logger.info("GatherGoal has completed successfully.");
-                    break;
-            }
+    /**
+     * The core FSM transition logic.
+     * Decides what to do next based on which task just finished.
+     */
+    private void handleTaskCompletion(NerrusAgent agent, TaskCompleted event) {
+        if (event.error().isPresent()) {
+            fail("Task failed unexpectedly: " + event.error().get().getMessage());
             return;
         }
-        Task nextTask = null;
+        // Identify which task finished based on our current state
         switch (state) {
-            case CHECKING_INVENTORY:
-                logger.info("GatherGoal: Checking inventory count.");
-                nextTask = createUpdateCountTask();
+            case VERIFYING_INVENTORY:
+                // We just finished counting. Do we have enough?
+                if (currentCount >= params.quantity()) {
+                    complete();
+                } else {
+                    // Not enough. Start gathering.
+                    this.state = State.GATHERING_BATCH;
+                    // Dispatch the monolithic task (treated as a black box for now)
+                    // It will run its script and eventually fire TaskCompleted
+                    Task gatherTask = new GatherBlockTask(materials, null, 48, attemptedLocations);
+                    agent.setCurrentTask(gatherTask);
+                }
                 break;
-            case GATHERING:
-                logger.info("GatherGoal: Attempting to gather one block.");
-                nextTask = createGatherOneBlockTask();
+            case GATHERING_BATCH:
+                // We just finished a gather attempt (successful or not).
+                // Verify inventory to confirm progress and decide next step.
+                this.state = State.VERIFYING_INVENTORY;
+                dispatchInventoryCheck(agent);
                 break;
             default:
-                logger.info("GatherGoal: Unhandled state <" + state + "> please check.");
+                // Should not happen if state is managed correctly
                 break;
         }
-        if (nextTask != null) {
-            agent.setCurrentTask(nextTask);
+    }
+
+    /**
+     * Wraps the CountItemsSkill in an anonymous Task to fit the TaskCompleted lifecycle.
+     */
+    private void dispatchInventoryCheck(NerrusAgent agent) {
+        Task checkTask = new Task() {
+            @Override
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
+                return new CountItemsSkill(materials).execute(agent, token)
+                        .thenAcceptAsync(counts -> {
+                            int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+                            // Post data back to Goal
+                            agent.postMessage(token, new InventoryCountResult(total));
+                        }, IonNerrus.getInstance().getMainThreadExecutor());
+            }
+        };
+        agent.setCurrentTask(checkTask);
+    }
+
+    /**
+     * Handles intermediate feedback from the GatherBlockTask.
+     * Even though the task is a "black box", it sends these messages to inform us of specific failures.
+     */
+    private void handleGatherFeedback(GatherAttemptResult result) {
+        switch (result.status()) {
+            case SUCCESS:
+                // Clear attempted locations so we can retry spots from new angles if needed
+                this.attemptedLocations.clear();
+                break;
+            case NO_BLOCKS_IN_RANGE:
+                fail("I can't find any more " + params.groupName() + " nearby.");
+                break;
+            case NO_REACHABLE_BLOCKS_IN_RANGE:
+                fail("I can see " + params.groupName() + ", but I can't reach them.");
+                break;
+            case FAILED_TO_COLLECT:
+                // Transient failure. The TaskCompleted event will trigger a re-verify and retry.
+                logger.warning("Gather attempt failed, retrying loop.");
+                break;
         }
     }
 
-    private Task createGatherOneBlockTask() {
-        // TODO: In a future update, calculate drops based on 'materials'
-        return new GatherBlockTask(materials, null, 48, attemptedLocations, contextToken);
+    private void complete() {
+        this.state = State.COMPLETED;
     }
 
-    private Task createUpdateCountTask() {
-        return new Task() {
-            @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
-                return new CountItemsSkill(materials).execute(agent)
-                        .thenAcceptAsync(counts -> {
-                            int total = counts.values().stream().mapToInt(Integer::intValue).sum();
-                            agent.postMessage(contextToken, new InventoryCountResult(total));
-                        }, IonNerrus.getInstance().getMainThreadExecutor());
-            }
-
-            @Override
-            public void cancel() {
-                /* No-op */
-            }
-        };
+    private void fail(String reason) {
+        this.failureReason = reason;
+        this.state = State.FAILED;
     }
 
     @Override
@@ -175,28 +184,21 @@ public class GatherBlockGoal implements Goal {
 
     @Override
     public void stop(NerrusAgent agent) {
-        if (state != State.COMPLETED) {
+        if (!isFinished()) {
             this.state = State.FAILED;
+            this.failureReason = "Goal was stopped manually.";
         }
         this.attemptedLocations.clear();
-        logger.info("Goal stopped: 'get block' goal");
     }
 
     @Override
     public GoalResult getFinalResult() {
         if (state == State.COMPLETED) {
-            String message = "Successfully gathered " + gatheredCount + " " + params.groupName() + ".";
-            return new GoalResult.Success(message);
+            return new GoalResult.Success("Successfully gathered " + currentCount + " " + params.groupName() + ".");
         } else {
-            String message = "Failed to gather the required " + params.quantity() + " " + params.groupName() + ". Only found "
-                    + gatheredCount + ".";
-            return new GoalResult.Failure(message);
+            String msg = failureReason != null ? failureReason : "Failed to gather blocks.";
+            return new GoalResult.Failure(msg + " (Got " + currentCount + "/" + params.quantity() + ")");
         }
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 
     public static class Provider implements GoalProvider {

@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.Ingredient;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalPrerequisite;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
@@ -141,7 +142,6 @@ public class CraftItemGoal implements Goal {
         }
     }
 
-    private final Object contextToken = new Object();
     private final CraftItemParameters params;
     private final RecipeService recipeService;
     private final BlockTagManager blockTagManager;
@@ -168,7 +168,7 @@ public class CraftItemGoal implements Goal {
     }
 
     @Override
-    public void start(NerrusAgent agent) {
+    public void start(NerrusAgent agent, ExecutionToken token) {
         try {
             this.targetItemMaterial = Material.valueOf(params.itemName().toUpperCase());
         } catch (IllegalArgumentException e) {
@@ -176,11 +176,11 @@ public class CraftItemGoal implements Goal {
             return;
         }
         agent.speak("Let me see... to craft " + params.quantity() + " " + params.itemName() + ", I'll need a plan.");
-        process(agent);
+        process(agent, token);
     }
 
     @Override
-    public void resume(NerrusAgent agent, GoalResult subGoalResult) {
+    public void resume(NerrusAgent agent, GoalResult subGoalResult, ExecutionToken token) {
         if (subGoalResult instanceof GoalResult.Failure failure) {
             fail("I couldn't get what I needed. " + failure.message());
             return;
@@ -197,11 +197,11 @@ public class CraftItemGoal implements Goal {
             agent.speak("Alright, I've got new materials. Let me reassess.");
             this.state = State.CREATING_CONTEXT;
         }
-        process(agent);
+        process(agent, token);
     }
 
     @Override
-    public void onMessage(NerrusAgent agent, Object message) {
+    public void onMessage(NerrusAgent agent, Object message, ExecutionToken token) {
         switch (message) {
             case PlanningResult result -> handlePlanningResult(agent, result);
             case AcquisitionResult result -> handleAcquisitionResult(agent, result);
@@ -293,7 +293,7 @@ public class CraftItemGoal implements Goal {
     }
 
     @Override
-    public void process(NerrusAgent agent) {
+    public void process(NerrusAgent agent, ExecutionToken token) {
         if (isFinished() || agent.getCurrentTask() != null) {
             return;
         }
@@ -310,13 +310,13 @@ public class CraftItemGoal implements Goal {
         switch (state) {
             case PLANNING -> agent.setCurrentTask(createPlanningTask());
             case ACQUIRING_MATERIALS -> agent.setCurrentTask(createAcquisitionTask());
-            case CREATING_CONTEXT -> agent.setCurrentTask(createContextCreationTask());
-            case FINDING_TABLE -> agent.setCurrentTask(createFindTableTask());
-            case COUNTING_TABLE_INVENTORY -> agent.setCurrentTask(createCountTableTask());
+            case CREATING_CONTEXT -> agent.setCurrentTask(createContextCreationTask(token));
+            case FINDING_TABLE -> agent.setCurrentTask(createFindTableTask(token));
+            case COUNTING_TABLE_INVENTORY -> agent.setCurrentTask(createCountTableTask(token));
             case PLACING_TABLE -> agent.setCurrentTask(createPlaceTableTask());
             case CRAFTING_TABLE_PREREQUISITE -> handleTablePrerequisite(agent);
             case PREPARING_CRAFT -> handleCraftPreparation(agent);
-            case EXECUTING_CRAFT -> agent.setCurrentTask(createCraftExecutionTask());
+            case EXECUTING_CRAFT -> agent.setCurrentTask(createCraftExecutionTask(token));
             default -> logger.warning("Unhandled state in process(): " + state);
         }
     }
@@ -389,36 +389,32 @@ public class CraftItemGoal implements Goal {
     private Task createPlanningTask() {
         return new Task() {
             @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
                 return CompletableFuture.runAsync(() -> {
                     // Post message instead of direct state mutation
                     Optional<RecipeService.CraftingBlueprint> planOpt = recipeService
                             .createCraftingBlueprint(targetItemMaterial, params.quantity());
                     IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
                         if (planOpt.isEmpty()) {
-                            agent.postMessage(contextToken,
+                            agent.postMessage(token,
                                     PlanningResult.failure("Unable to create crafting plan for " + params.itemName()));
                         } else {
-                            agent.postMessage(contextToken, PlanningResult.success(planOpt.get()));
+                            agent.postMessage(token, PlanningResult.success(planOpt.get()));
                         }
                     });
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
-            }
-
-            @Override
-            public void cancel() {
             }
         };
     }
 
     private Task createAcquisitionTask() {
-        return new AcquireMaterialsTask(plan, Ingredient.of(targetItemMaterial), params.quantity(), blockTagManager, contextToken);
+        return new AcquireMaterialsTask(plan, Ingredient.of(targetItemMaterial), params.quantity(), blockTagManager);
     }
 
-    private Task createContextCreationTask() {
+    private Task createContextCreationTask(ExecutionToken token) {
         return new Task() {
             @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
                 // Collect all materials that could possibly be involved
                 Set<Material> allRelevantMaterials = new HashSet<>();
                 plan.rawIngredients().keySet().forEach(ing -> allRelevantMaterials.addAll(ing.materials()));
@@ -426,57 +422,47 @@ public class CraftItemGoal implements Goal {
                     allRelevantMaterials.addAll(step.ingredientToCraft().materials());
                     step.paths().forEach(path -> path.requirements().keySet().forEach(ing -> allRelevantMaterials.addAll(ing.materials())));
                 });
-                return new CountItemsSkill(allRelevantMaterials).execute(agent)
+                return new CountItemsSkill(allRelevantMaterials).execute(agent, token)
                         .thenAccept(inventoryCount -> {
                             CraftingContext ctx = new CraftingContext(inventoryCount);
                             int initialCount = ctx.getAvailableCount(Ingredient.of(targetItemMaterial));
                             // Post message instead of blackboard write
-                            agent.postMessage(contextToken, new ContextCreationResult(ctx, initialCount));
+                            agent.postMessage(token, new ContextCreationResult(ctx, initialCount));
                         });
-            }
-
-            @Override
-            public void cancel() {
             }
         };
     }
 
-    private Task createFindTableTask() {
-        return new FindNearbyBlockTask(Material.CRAFTING_TABLE, 20, contextToken);
+    private Task createFindTableTask(ExecutionToken token) {
+        return new FindNearbyBlockTask(Material.CRAFTING_TABLE, 20);
     }
 
-    private Task createCountTableTask() {
+    private Task createCountTableTask(ExecutionToken token) {
         return new Task() {
             @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent) {
-                return new CountItemsSkill(Set.of(Material.CRAFTING_TABLE)).execute(agent)
+            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
+                return new CountItemsSkill(Set.of(Material.CRAFTING_TABLE)).execute(agent, token)
                         .thenAccept(counts -> {
                             int count = counts.getOrDefault(Material.CRAFTING_TABLE, 0);
                             // Post message instead of blackboard write
-                            agent.postMessage(contextToken, new InventoryCountResult(Material.CRAFTING_TABLE, count));
+                            agent.postMessage(token, new InventoryCountResult(Material.CRAFTING_TABLE, count));
                         });
-            }
-
-            @Override
-            public void cancel() {
             }
         };
     }
 
     private Task createPlaceTableTask() {
-        return new PlaceBlockTask(Material.CRAFTING_TABLE, contextToken);
+        return new PlaceBlockTask(Material.CRAFTING_TABLE);
     }
 
-    private Task createCraftExecutionTask() {
+    private Task createCraftExecutionTask(ExecutionToken token) {
         if (context == null) {
             throw new IllegalStateException("Cannot execute craft without context");
         }
         if (recipeToExecute == null) {
             throw new IllegalStateException("handleCraftPreparation must be called before creating craft execution task");
         }
-        return new CraftExecutionTask(
-                recipeToExecute, craftTimesToExecute, context,
-                Optional.ofNullable(this.craftingTableLocation), contextToken);
+        return new CraftExecutionTask(recipeToExecute, craftTimesToExecute, context, Optional.ofNullable(this.craftingTableLocation));
     }
 
     private int calculateTotalDemand(
@@ -580,11 +566,6 @@ public class CraftItemGoal implements Goal {
             return new GoalResult.Failure("Goal finished without a result, likely due to cancellation.");
         }
         return finalResult;
-    }
-
-    @Override
-    public Object getContextToken() {
-        return contextToken;
     }
 
     public static class Provider implements GoalProvider {
