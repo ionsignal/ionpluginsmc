@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlockResult;
@@ -21,30 +22,23 @@ import java.util.concurrent.CompletableFuture;
 public class FindNearbyBlockTask implements Task {
     private final Material material;
     private final int searchRadius;
-    private final Object contextToken;
 
-    public FindNearbyBlockTask(Material material, int searchRadius, Object contextToken) {
+    public FindNearbyBlockTask(Material material, int searchRadius) {
         this.material = material;
         this.searchRadius = searchRadius;
-        this.contextToken = contextToken;
     }
 
     @Override
-    public CompletableFuture<Void> execute(NerrusAgent agent) {
+    public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
         return new FindCollectableBlockSkill(Set.of(material), searchRadius, new HashSet<>())
-                .execute(agent)
+                .execute(agent, token)
                 .thenAcceptAsync(findResult -> {
                     if (findResult.status() == FindCollectableBlockResult.Status.SUCCESS) {
                         Location location = findResult.optimalTarget().get().blockLocation();
-                        agent.postMessage(contextToken, CraftItemGoal.TableSearchResult.found(location));
+                        agent.postMessage(token, CraftItemGoal.TableSearchResult.found(location));
                     } else {
-                        agent.postMessage(contextToken, CraftItemGoal.TableSearchResult.notFound());
+                        agent.postMessage(token, CraftItemGoal.TableSearchResult.notFound());
                     }
                 }, IonNerrus.getInstance().getMainThreadExecutor());
-    }
-
-    @Override
-    public void cancel() {
-        // The underlying skill is short-lived and its future is handled by the chain.
     }
 }
