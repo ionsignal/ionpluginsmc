@@ -1,0 +1,22 @@
+# IonCore Configuration
+
+# Operation Mode
+# Options: "disabled", "client", "server"
+# disabled: No network connection.
+# client: Connects to an external RuneMind server (e.g. runemind.io).
+# server: Opens a port for local RuneMind instances to connect to.
+mode: "client"
+
+# Shared API Key (Used for authentication with RuneMind)
+api-key: "TEST_KEY123"
+
+# Client Mode Settings (Used if mode: "client")
+client:
+  broker-url: "ws://127.0.0.1:3002/ioncore"
+
+# Server Mode Settings (Used if mode: "server")
+server:
+  port: 8088
+
+# Default world for spawning agents if no world is specified in the payload
+default-world: "world"

@@ -56,6 +56,9 @@ public class AgentService {
                 persona.spawn(location);
                 agent.start();
                 plugin.getLogger().info("Successfully spawned agent: " + name);
+                org.bukkit.Bukkit.getPluginManager().callEvent(
+                    new com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent(agent)
+                );
             } catch (Exception e) {
                 plugin.getLogger().severe("Error spawning agent " + name + ": " + e.getMessage());
             }
@@ -70,6 +73,9 @@ public class AgentService {
     public boolean removeAgent(String name) {
         NerrusAgent agent = findAgentByName(name);
         if (agent != null) {
+            org.bukkit.Bukkit.getPluginManager().callEvent(
+                new com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent(agent)
+            );
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
             plugin.getLogger().info("Removed Nerrus agent: " + name);
