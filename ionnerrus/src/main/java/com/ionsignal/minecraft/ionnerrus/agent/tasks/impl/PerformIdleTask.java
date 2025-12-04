@@ -20,6 +20,7 @@ public class PerformIdleTask implements Task {
     private final int durationTicks;
     private final CompletableFuture<Void> future = new CompletableFuture<>();
 
+    @SuppressWarnings("unused")
     private BukkitTask task;
     private int ticksRun = 0;
 
@@ -47,7 +48,7 @@ public class PerformIdleTask implements Task {
                     Location target = memory.attentionTarget().get().location();
                     Location gazeTarget = target.clone().add(0, 1.6, 0);
                     agent.getPersona().getPhysicalBody().orientation()
-                            .face(gazeTarget, true);
+                            .face(gazeTarget, true, token);
                 } else {
                     // If nothing captures attention, return to neutral head pose.
                     // In the future, random procedural glancing could go here.

@@ -14,4 +14,12 @@ public final class MetadataKeys {
      * Default: 0.22
      */
     public static final String MOVEMENT_SPEED = "movement_speed";
+
+    /**
+     * The maximum distance (in blocks) the Persona can interact with blocks.
+     * <p>
+     * Type: {@link Double}
+     * Default: 4.5 (Vanilla Survival)
+     */
+    public static final String BLOCK_REACH = "block_reach";
 }

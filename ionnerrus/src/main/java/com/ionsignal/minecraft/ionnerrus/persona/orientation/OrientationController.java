@@ -1,14 +1,19 @@
 package com.ionsignal.minecraft.ionnerrus.persona.orientation;
 
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.LookResult;
 import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl;
+import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl.BodyMode;
 
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
+import org.bukkit.util.Vector;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -22,6 +27,10 @@ public class OrientationController {
 
     private final PersonaEntity personaEntity;
     private final PersonaLookControl lookControl;
+
+    // Cleanup handle for the active token
+    private ExecutionToken.Registration tokenRegistration;
+    private boolean isOverridden;
 
     // State
     private CompletableFuture<LookResult> activeFuture;
@@ -41,8 +50,9 @@ public class OrientationController {
     /**
      * Initiates a blocking look operation towards a static location.
      */
-    public CompletableFuture<LookResult> lookAt(Location target, boolean turnBody) {
+    public CompletableFuture<LookResult> lookAt(Location target, boolean turnBody, ExecutionToken token) {
         resetState();
+        bindToken(token);
         this.activeFuture = new CompletableFuture<>();
         this.staticTarget = target;
         this.shouldTurnBody = turnBody;
@@ -55,8 +65,9 @@ public class OrientationController {
     /**
      * Initiates a fire-and-forget look operation towards a static location.
      */
-    public void face(Location target, boolean turnBody) {
+    public void face(Location target, boolean turnBody, ExecutionToken token) {
         resetState();
+        bindToken(token);
         this.staticTarget = target;
         this.shouldTurnBody = turnBody;
         this.isFireAndForget = true;
@@ -66,8 +77,9 @@ public class OrientationController {
     /**
      * Initiates a fire-and-forget tracking operation on an entity.
      */
-    public void face(Entity target) {
+    public void face(Entity target, ExecutionToken token) {
         resetState();
+        bindToken(token);
         this.trackedEntity = target;
         this.shouldTurnBody = false;
         this.isFireAndForget = true;
@@ -83,69 +95,111 @@ public class OrientationController {
     }
 
     /**
-     * Forces the persona to look at a specific target for this tick only.
-     * 
-     * @param target
-     *            The location to force-face.
-     * @param lockBody
-     *            Whether to force the body to align with the head.
+     * Retrieves the orientation intent derived from the current active Skill.
+     * This represents "Cognitive Desire".
      */
-    public void tickOverride(Location target, boolean lockBody) {
-        // If locking is requested, use LOCKED.
-        // If not, use EXTERNAL. This allows LookControl to rotate the head,
-        // while MoveControl (running in aiStep) rotates the body naturally.
-        lookControl.setBodyMode(lockBody ? PersonaLookControl.BodyMode.LOCKED : PersonaLookControl.BodyMode.EXTERNAL);
-        lookControl.setLookAt(target.getX(), target.getY(), target.getZ());
-        lookControl.tick();
-    }
-
-    /**
-     * Main tick loop for orientation logic.
-     * 
-     * @param isMoving
-     *            Whether the entity is currently moving (affects body rotation mode).
-     */
-    public void tick(boolean isMoving) {
-        // Update Target & Validate State
+    public OrientationIntent getCurrentSkillIntent() {
         if (trackedEntity != null) {
             if (!trackedEntity.isValid()) {
                 complete(LookResult.TARGET_LOST);
-                return;
+                return new OrientationIntent.Idle();
             }
-            // Update target position for moving entity (aim at eyes)
-            updateLookControlTarget(trackedEntity.getLocation().add(0, trackedEntity.getHeight() * 0.85, 0));
+            return new OrientationIntent.TrackEntity(trackedEntity, BodyMode.EXTERNAL); // Tracking usually implies body follows movement
         } else if (staticTarget != null) {
-            // Ensure control has target (redundant but safe)
-            updateLookControlTarget(staticTarget);
+            BodyMode mode = shouldTurnBody ? BodyMode.LOCKED : BodyMode.FREE;
+            return new OrientationIntent.FocusOnLocation(staticTarget, mode);
         }
-        // Arbitration: Determine Body Mode
-        if (isMoving) {
-            lookControl.setBodyMode(PersonaLookControl.BodyMode.EXTERNAL);
-        } else {
-            lookControl.setBodyMode(shouldTurnBody ? PersonaLookControl.BodyMode.LOCKED : PersonaLookControl.BodyMode.FREE);
-        }
-        // Actuation: Tick the NMS control
-        lookControl.tick();
-        // Completion Logic (only if not fire-and-forget)
-        if (!isFireAndForget && activeFuture != null && !activeFuture.isDone()) {
-            if (trackedEntity != null) {
-                // Tracking is now always fire-and-forget or manual clear,
-                // but if we ever added blocking tracking back, it would go here.
-            } else {
-                // Static Convergence Logic
-                if (hasConverged()) {
-                    complete(LookResult.SUCCESS);
-                } else {
-                    convergenceTickCount++;
-                    if (convergenceTickCount >= CONVERGENCE_TIMEOUT_TICKS) {
-                        complete(LookResult.TIMEOUT);
+        return new OrientationIntent.Idle();
+    }
+
+    /**
+     * Applies the final arbitrated intent to the NMS entity.
+     * This is the single point of truth for NMS rotation modification.
+     */
+    public void actuate(OrientationIntent intent) {
+        // Reset override flag for next tick
+        this.isOverridden = false;
+        switch (intent) {
+            case OrientationIntent.Idle idle -> {
+                lookControl.stopLooking();
+                // Check convergence if we were supposed to be looking at something but aren't
+                checkConvergence();
+            }
+            case OrientationIntent.FocusOnLocation focus -> {
+                lookControl.setBodyMode(focus.mode());
+                updateLookControlTarget(focus.target());
+                lookControl.tick();
+                checkConvergence();
+            }
+            case OrientationIntent.TrackEntity track -> {
+                lookControl.setBodyMode(track.mode());
+                // Aim at eyes
+                Location targetLoc = track.target().getLocation().add(0, track.target().getHeight() * 0.85, 0);
+                updateLookControlTarget(targetLoc);
+                lookControl.tick();
+                // Tracking is continuous, no convergence check needed usually
+            }
+            case OrientationIntent.AlignToHeading align -> {
+                if (align.snap()) {
+                    // Clear any previous look target to prevent
+                    lookControl.stopLooking();
+                    // Snap instantly
+                    Vector dir = align.heading();
+                    float targetYaw = (float) (Math.toDegrees(Math.atan2(dir.getZ(), dir.getX())) - 90.0);
+                    // Bypass interpolation
+                    personaEntity.setYRot(targetYaw);
+                    personaEntity.setYHeadRot(targetYaw);
+                    if (align.mode() == BodyMode.LOCKED) {
+                        personaEntity.setYBodyRot(targetYaw);
                     }
+                    // We do NOT call lookControl.tick() here because we manually set the fields.
+                } else {
+                    // Smooth align using look control
+                    Location dummyTarget = personaEntity.getBukkitEntity().getLocation().add(align.heading().multiply(5));
+                    lookControl.setBodyMode(align.mode());
+                    updateLookControlTarget(dummyTarget);
+                    lookControl.tick();
                 }
+                // No convergence check for alignments (usually physics driven)
+            }
+            default -> {
+                // no-op
+            }
+        }
+    }
+
+    /**
+     * Called by the Arbiter (PhysicalBody) when Physics overrides Cognition.
+     * Pauses the timeout counter for the active skill.
+     */
+    public void notifyOverride() {
+        this.isOverridden = true;
+    }
+
+    private void checkConvergence() {
+        if (isFireAndForget || activeFuture == null || activeFuture.isDone()) {
+            return;
+        }
+        // If overridden by physics, do not increment timeout or check convergence
+        if (isOverridden) {
+            return;
+        }
+        if (hasConverged()) {
+            complete(LookResult.SUCCESS);
+        } else {
+            convergenceTickCount++;
+            if (convergenceTickCount >= CONVERGENCE_TIMEOUT_TICKS) {
+                complete(LookResult.TIMEOUT);
             }
         }
     }
 
     private void resetState() {
+        if (tokenRegistration != null) {
+            // Clean up previous listener to prevent memory leaks
+            tokenRegistration.close();
+            tokenRegistration = null;
+        }
         if (activeFuture != null && !activeFuture.isDone()) {
             activeFuture.complete(LookResult.CANCELLED);
         }
@@ -155,6 +209,17 @@ public class OrientationController {
         shouldTurnBody = false;
         isFireAndForget = false;
         convergenceTickCount = 0;
+    }
+
+    private void bindToken(ExecutionToken token) {
+        this.tokenRegistration = token.onCancel(() -> {
+            // Ensure cancellation happens on main thread to safely interact with NMS controls
+            if (Bukkit.isPrimaryThread()) {
+                this.clear();
+            } else {
+                CompletableFuture.runAsync(this::clear, IonNerrus.getInstance().getMainThreadExecutor());
+            }
+        });
     }
 
     private void complete(LookResult result) {
