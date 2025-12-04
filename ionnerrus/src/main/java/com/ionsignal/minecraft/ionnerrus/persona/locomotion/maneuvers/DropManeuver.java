@@ -2,27 +2,30 @@ package com.ionsignal.minecraft.ionnerrus.persona.locomotion.maneuvers;
 
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.Maneuver;
-
-import net.minecraft.world.entity.ai.attributes.Attributes;
+import com.ionsignal.minecraft.ionnerrus.persona.locomotion.ManeuverResult;
+import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl.BodyMode;
+import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
 
 import org.bukkit.Location;
+import org.bukkit.util.Vector;
 
 import java.util.Optional;
 
 /**
- * Handles the state machine for a controlled drop (Walk off ledge -> Fall -> Land).
- * Unlike JumpManeuver, this does NOT apply vertical impulse.
+ * Handles the state machine for a controlled drop implementing a "Look-while-falling" effect.
  */
 public class DropManeuver implements Maneuver {
+    private static final double DROP_APPROACH_SPEED = 0.8;
+    private static final int HARD_TIMEOUT = 60;
+
     private final Location targetWaypoint;
+
     private DropState state;
     private int ticks;
+    // private Optional<Vector> exitHeading = Optional.empty();
 
     private enum DropState {
-        APPROACHING_EDGE, // Moving horizontally towards the drop point
-        FALLING, // Airborne, waiting for ground contact
-        LANDED, // Successfully reached target Y level on ground
-        FAILED // Timeout or stuck
+        APPROACHING_EDGE, FALLING, LANDED, FAILED
     }
 
     public DropManeuver(Location targetWaypoint) {
@@ -31,56 +34,55 @@ public class DropManeuver implements Maneuver {
     }
 
     @Override
-    public void start(PersonaEntity entity) {
-        ticks = 0;
-        // PHASE 4 UPDATE: Explicitly disable sneaking.
-        // Minecraft physics prevents entities from walking off ledges while sneaking.
+    public void start(PersonaEntity entity, Optional<Vector> exitHeading) {
+        this.ticks = 0;
+        // this.exitHeading = exitHeading;
         entity.setShiftKeyDown(false);
     }
 
     @Override
-    public void stop(PersonaEntity entity) {
-        // no-op
+    public ManeuverResult stop(PersonaEntity entity) {
+        if (state == DropState.LANDED) {
+            return new ManeuverResult(ManeuverResult.Status.SUCCESS, entity.getBukkitEntity().getLocation(), "Landed safely");
+        }
+        return new ManeuverResult(ManeuverResult.Status.FAILED, entity.getBukkitEntity().getLocation(), "Drop failed or timed out");
     }
 
     @Override
-    @SuppressWarnings("null")
     public void tick(PersonaEntity entity) {
         ticks++;
-        // Ensure sneaking remains disabled throughout the maneuver
         if (entity.isShiftKeyDown()) {
             entity.setShiftKeyDown(false);
         }
-        // We must continuously feed the MoveControl to walk off the ledge.
-        // We use standard movement speed.
-        double speed = entity.getAttributeValue(Attributes.MOVEMENT_SPEED);
-        entity.getMoveControl().setWantedPosition(
-                targetWaypoint.getX(),
-                targetWaypoint.getY(),
-                targetWaypoint.getZ(),
-                speed);
+        if (ticks > HARD_TIMEOUT) {
+            state = DropState.FAILED;
+            return;
+        }
         switch (state) {
             case APPROACHING_EDGE -> {
-                // If we are no longer on ground, we have walked off the edge
+                // Drive towards the edge
+                entity.getMoveControl().setWantedPosition(
+                        targetWaypoint.getX(),
+                        targetWaypoint.getY(),
+                        targetWaypoint.getZ(),
+                        DROP_APPROACH_SPEED);
                 if (!entity.onGround()) {
+                    entity.getMoveControl().stop();
                     state = DropState.FALLING;
-                    ticks = 0; // Reset ticks for falling phase
+                    ticks = 0;
                 } else if (ticks > 20) {
-                    // If we haven't left the ground in 1 second, we might be stuck or blocked
                     state = DropState.FAILED;
                 }
             }
             case FALLING -> {
-                // Wait for ground contact
+                // Physics: Coast (Gravity only). Do NOT set wanted position.
+                // Rotation is handled via getOrientation() returning AlignToHeading.
                 if (entity.onGround()) {
                     state = DropState.LANDED;
-                } else if (ticks > 40) {
-                    // Falling too long (safety timeout)
-                    state = DropState.FAILED;
                 }
             }
             case LANDED, FAILED -> {
-                // Terminal states, do nothing
+                // Terminal states
             }
         }
     }
@@ -91,12 +93,29 @@ public class DropManeuver implements Maneuver {
     }
 
     @Override
-    public Optional<Location> getOrientationTarget() {
-        return Optional.of(targetWaypoint);
+    public OrientationIntent getOrientation() {
+        if (state == DropState.APPROACHING_EDGE) {
+            // While approaching, look at the drop point naturally.
+            return new OrientationIntent.FocusOnLocation(targetWaypoint, BodyMode.FREE);
+        }
+        return new OrientationIntent.Idle();
     }
 
-    @Override
-    public boolean shouldLockBody() {
-        return false; // Look at the landing, but let MoveControl drive the body
-    }
+    /*
+     * @Override
+     * public OrientationIntent getOrientation() {
+     * // While falling, we want to snap the body to the exit heading to prepare for the next move.
+     * if (state == DropState.FALLING && exitHeading.isPresent()) {
+     * Vector heading = exitHeading.get();
+     * // If heading is purely vertical, preserve current yaw (Idle) to prevent snapping to South (0,0).
+     * if ((heading.getX() * heading.getX() + heading.getZ() * heading.getZ()) < 0.01) {
+     * return new OrientationIntent.Idle();
+     * }
+     * // Snap = true (Instant turn), Mode = LOCKED (Body follows head)
+     * return new OrientationIntent.AlignToHeading(exitHeading.get(), true, BodyMode.LOCKED);
+     * }
+     * // While approaching, look at the drop point naturally.
+     * return new OrientationIntent.FocusOnLocation(targetWaypoint, BodyMode.FREE);
+     * }
+     */
 }

@@ -95,6 +95,7 @@ public final class NavigationHelper {
      *            The maximum radius to check (optimization cap).
      * @return Distance in blocks to the nearest obstruction.
      */
+    @SuppressWarnings("null")
     public static double calculateClearance(BlockGetter level, BlockPos center, double maxRadius) {
         double minDistance = maxRadius;
         // Simple radial check in 8 directions + diagonals
@@ -102,14 +103,31 @@ public final class NavigationHelper {
         int checkRadius = (int) Math.ceil(maxRadius);
         for (int x = -checkRadius; x <= checkRadius; x++) {
             for (int z = -checkRadius; z <= checkRadius; z++) {
-                if (x == 0 && z == 0)
+                if (x == 0 && z == 0) {
                     continue;
+                }
                 double dist = Math.sqrt(x * x + z * z);
-                if (dist > maxRadius)
+                if (dist > maxRadius) {
                     continue;
+                }
+                // Check for environmental hazards (Voids/Drops)
+                // If the block is Air (Walking), we must ensure there is ground below.
+                // We skip this for Water (Swimming), as deep water is safe.
                 BlockPos checkPos = center.offset(x, 0, z);
-                // Check feet and head
-                if (!isPassable(level, checkPos) || !isPassable(level, checkPos.above())) {
+                boolean isObstructed = !isPassable(level, checkPos) || !isPassable(level, checkPos.above());
+                if (!isObstructed) {
+                    BlockState state = level.getBlockState(checkPos);
+                    if (state.isAir()) {
+                        BlockState below = level.getBlockState(checkPos.below());
+                        // It is a void if the block below is not sturdy and not leaves
+                        boolean hasGround = below.isFaceSturdy(level, checkPos.below(), Direction.UP)
+                                || Tag.LEAVES.isTagged(below.getBukkitMaterial());
+                        if (!hasGround) {
+                            isObstructed = true;
+                        }
+                    }
+                }
+                if (isObstructed) {
                     if (dist < minDistance) {
                         minDistance = dist;
                     }
