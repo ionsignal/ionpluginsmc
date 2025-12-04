@@ -10,6 +10,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
+import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
@@ -40,6 +41,9 @@ public class ServiceContainer {
     private final ChatBubbleService chatBubbleService;
     private final HudManager hudManager;
     private final CraftEngineService craftEngineService;
+    
+    // Networking
+    private final NetworkBroadcaster networkBroadcaster;
 
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
@@ -52,7 +56,8 @@ public class ServiceContainer {
             AgentService agentService,
             ChatBubbleService chatBubbleService,
             HudManager hudManager,
-            CraftEngineService craftEngineService) {
+            CraftEngineService craftEngineService,
+            NetworkBroadcaster networkBroadcaster) { // <--- Added argument
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -65,6 +70,7 @@ public class ServiceContainer {
         this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
+        this.networkBroadcaster = networkBroadcaster; // <--- Added assignment
     }
 
     public static ServiceContainer initialize(IonNerrus plugin) {
@@ -89,17 +95,25 @@ public class ServiceContainer {
             ChatBubbleService chatBubbleService = initializeChatBubbles(plugin);
             HudManager hudManager = initializeHudManager(plugin);
             CraftEngineService craftEngineService = initializeCraftEngine(plugin);
+            
+            // Layer 5.5: Network Broadcaster
+            NetworkBroadcaster networkBroadcaster = new NetworkBroadcaster(plugin);
+            
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
+            
             // Layer 6: High-level services
             AgentService agentService = new AgentService(
                     plugin,
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
-                    llmService);
+                    llmService,
+                    networkBroadcaster); // Inject Broadcaster
+            
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
+            
             plugin.getLogger().info("Service container initialized successfully.");
             return new ServiceContainer(
                     plugin,
@@ -113,7 +127,8 @@ public class ServiceContainer {
                     agentService,
                     chatBubbleService,
                     hudManager,
-                    craftEngineService);
+                    craftEngineService,
+                    networkBroadcaster); // Pass to constructor
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
@@ -255,41 +270,24 @@ public class ServiceContainer {
         return craftEngineService;
     }
 
-    /**
-     * Gets the chat bubble service. Can return null if FancyHolograms is not available or
-     * initialization failed. Callers must check for null before use.
-     *
-     * @return ChatBubbleService instance, or null if unavailable.
-     */
     public ChatBubbleService getChatBubbleService() {
         return chatBubbleService; // NOTE: Can be null
     }
 
-    /**
-     * Gets the HUD Manager. Can return null if CraftEngine is not available or
-     * initialization failed. Callers must check for null before use.
-     *
-     * @return HudManager instance, or null if unavailable
-     */
     public HudManager getHudManager() {
         return hudManager; // NOTE: Can be null
     }
+    
+    public NetworkBroadcaster getNetworkBroadcaster() {
+        return networkBroadcaster;
+    }
 
-    /**
-     * Checks if the HUD system is available and ready to use.
-     *
-     * @return true if HUD features can be used, false otherwise
-     */
     public boolean isHudAvailable() {
         return hudManager != null;
     }
 
     /**
      * Shuts down all services in reverse dependency order.
-     * This method is idempotent - calling it multiple times is safe.
-     *
-     * Shutdown order is critical: high-level services must shut down before
-     * the low-level services they depend on.
      */
     public void shutdown() {
         plugin.getLogger().info("Shutting down service container...");
@@ -304,12 +302,6 @@ public class ServiceContainer {
         if (chatBubbleService != null) {
             shutdownService("ChatBubbleService", chatBubbleService::cleanup);
         }
-        // Layer 4: Goal system (no cleanup needed, but listed for clarity)
-        // goalFactory and goalRegistry are stateless
-        // ...
-        // Layer 3: Content systems (no cleanup needed)
-        // recipeService and blockTagManager are stateless
-        // ...
         // Layer 2: Platform-specific managers
         if (nerrusManager != null) {
             shutdownService("NerrusManager", nerrusManager::shutdown);
@@ -317,14 +309,9 @@ public class ServiceContainer {
         if (hudManager != null) {
             shutdownService("HudManager", hudManager::shutdown);
         }
-        // Layer 1: Configuration (no cleanup needed)
         plugin.getLogger().info("Service container shutdown complete.");
     }
 
-    /**
-     * Helper to safely shut down a single service with exception isolation.
-     * If one service fails to shut down, others still proceed.
-     */
     private void shutdownService(String serviceName, Runnable shutdownAction) {
         try {
             plugin.getLogger().info("Shutting down " + serviceName + "...");
@@ -332,7 +319,6 @@ public class ServiceContainer {
         } catch (Exception e) {
             plugin.getLogger().severe("Error shutting down " + serviceName + ": " + e.getMessage());
             e.printStackTrace();
-            // Continue with other services - don't let one failure block shutdown
         }
     }
 }

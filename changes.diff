@@ -1,0 +1,1159 @@
+diff --git a/build.gradle.kts b/build.gradle.kts
+index af57db9..338e17e 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -109,8 +109,11 @@ tasks {
+ 
+         // For MOJANG_PRODUCTION, use jar outputs (IonCore)
+         pluginJars(
+-            ioncore.tasks.named<Jar>("jar")
+-                .flatMap { it.archiveFile }
++            ioncore.tasks.named("shadowJar")
++                .flatMap { task ->
++                    @Suppress("UNCHECKED_CAST")
++                    (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
++                }
+         )
+         
+         // For MOJANG_PRODUCTION, use shadowJar output (IonNerrus)
+diff --git a/ioncore/build.gradle.kts b/ioncore/build.gradle.kts
+index f80a6bc..e25999a 100644
+--- a/ioncore/build.gradle.kts
++++ b/ioncore/build.gradle.kts
+@@ -1,31 +1,48 @@
+ plugins {
+     id("paperweight-conventions")
++    // NEW: Apply Shadow plugin
++    alias(libs.plugins.shadow)
+ }
+ 
+ description = "Core framework for Ion Signal plugins"
+ 
+-// Configure paperweight for Mojang production mappings
+ paperweight.reobfArtifactConfiguration.set(
+     io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
+ )
+ 
+-// Expose the development JAR as a consumable artifact for other subprojects (IDE support).
+ val devJar by configurations.creating {
+     isCanBeConsumed = true
+     isCanBeResolved = false
+ }
+ 
+ dependencies {
+-    // No additional dependencies needed
++    implementation("org.java-websocket:Java-WebSocket:1.5.4")
++    implementation("com.squareup.okhttp3:okhttp:4.12.0")
++    implementation("com.google.code.gson:gson:2.10.1")
+ }
+ 
+ tasks {
+-    // The standard jar task produces a dev JAR with Mojang mappings
+     jar {
+         archiveClassifier.set("mojmap")
+     }
+ 
+-    // Process plugin.yml with version substitution
++    // NEW: Configure Shadow Jar
++    shadowJar {
++        // Use empty classifier for the final server-ready jar
++        archiveClassifier.set("") 
++        
++        // Relocate dependencies to avoid conflicts
++        relocate("org.java_websocket", "com.ionsignal.minecraft.ioncore.lib.websocket")
++        relocate("okhttp3", "com.ionsignal.minecraft.ioncore.lib.okhttp3")
++        relocate("okio", "com.ionsignal.minecraft.ioncore.lib.okio")
++        relocate("com.google.gson", "com.ionsignal.minecraft.ioncore.lib.gson")
++        
++        // Exclude junk files
++        exclude("META-INF/maven/**")
++        exclude("META-INF/*.RSA")
++        exclude("META-INF/*.SF")
++    }
++
+     processResources {
+         val props = mapOf("version" to project.version)
+         inputs.properties(props)
+@@ -34,11 +51,12 @@ tasks {
+         }
+     }
+     
+-    // For MOJANG_PRODUCTION, we don't depend on reobfJar
+-    // The jar task output is already the final artifact
++    // NEW: Ensure shadowJar runs when building
++    assemble {
++        dependsOn(shadowJar)
++    }
+ }
+ 
+-// Link the output of the 'jar' task to our custom 'devJar' configuration.
+ artifacts {
+     add(devJar.name, tasks.jar)
+ }
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/CoreServiceContainer.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/CoreServiceContainer.java
+new file mode 100644
+index 0000000..499bbca
+--- /dev/null
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/CoreServiceContainer.java
+@@ -0,0 +1,116 @@
++package com.ionsignal.minecraft.ioncore;
++
++import com.google.gson.Gson;
++import com.google.gson.JsonObject;
++import com.ionsignal.minecraft.ioncore.IonCore;
++import com.ionsignal.minecraft.ioncore.network.IonCoreWebSocketClient;
++import com.ionsignal.minecraft.ioncore.network.IonCoreWebSocketServer;
++import com.ionsignal.minecraft.ioncore.network.NetworkCommandRegistrar;
++import org.bukkit.Bukkit;
++
++import java.util.concurrent.CompletableFuture;
++
++/**
++ * Service Container for IonCore.
++ * Manages the lifecycle of networking components and provides the public API for other plugins.
++ */
++public class CoreServiceContainer {
++    private final IonCore plugin;
++    private final NetworkCommandRegistrar commandRegistrar;
++    private final Gson gson;
++    
++    // Nullable: Null if mode is "disabled" or configuration is invalid
++    private IonCoreWebSocketClient webSocket;
++    private IonCoreWebSocketServer webSocketServer;
++
++    public CoreServiceContainer(IonCore plugin) {
++        this.plugin = plugin;
++        this.gson = new Gson();
++        // Always initialize the registrar, even in offline mode, so Nerrus can register handlers safely.
++        this.commandRegistrar = new NetworkCommandRegistrar(plugin.getLogger());
++        
++        initializeNetworking();
++    }
++
++    private void initializeNetworking() {
++        String mode = plugin.getConfig().getString("mode", "disabled");
++        
++        // --- MODE: SERVER (For Testing/Local) ---
++        if ("server".equalsIgnoreCase(mode)) {
++            int port = plugin.getConfig().getInt("server.port", 8088);
++            try {
++                this.webSocketServer = new IonCoreWebSocketServer(port, commandRegistrar);
++                this.webSocketServer.start();
++                plugin.getLogger().info("[IonCore] Running in SERVER mode on port " + port);
++            } catch (Exception e) {
++                plugin.getLogger().severe("[IonCore] Failed to start WebSocket Server: " + e.getMessage());
++            }
++            return;
++        }
++
++        // --- MODE: CLIENT (Production) ---
++        if ("client".equalsIgnoreCase(mode)) {
++            // ... existing client initialization code from Phase 0 ...
++            String url = plugin.getConfig().getString("client.broker-url");
++            String key = plugin.getConfig().getString("api-key");
++            // ... check url ...
++            try {
++                this.webSocket = new IonCoreWebSocketClient(url, key, plugin, commandRegistrar);
++                this.webSocket.connect();
++            } catch (Exception e) {
++                plugin.getLogger().severe("[IonCore] Failed to connect Client: " + e.getMessage());
++            }
++            return;
++        }
++        
++        plugin.getLogger().info("[IonCore] Networking disabled via config.");
++    }
++
++    /**
++     * Gets the command registrar.
++     * Use this to register listeners for incoming network commands.
++     */
++    public NetworkCommandRegistrar getCommandRegistrar() {
++        return commandRegistrar;
++    }
++
++    /**
++     * Broadcasts a message to the external web service.
++     * Safe to call from any thread. Fails silently if networking is offline.
++     *
++     * @param type    The event type (e.g., "AGENT_SPAWNED").
++     * @param payload The object to serialize as the payload.
++     */
++    public void broadcast(String type, Object payload) {
++        // Prepare JSON
++        CompletableFuture.runAsync(() -> {
++            try {
++                JsonObject envelope = new JsonObject();
++                envelope.addProperty("type", type);
++                envelope.addProperty("timestamp", System.currentTimeMillis());
++                envelope.add("payload", gson.toJsonTree(payload));
++                String jsonStr = gson.toJson(envelope);
++
++                // Strategy: Send to whichever channel is active
++                if (webSocket != null && webSocket.isOpen()) {
++                    webSocket.send(jsonStr);
++                } else if (webSocketServer != null) {
++                    // Broadcast to ALL connected Postman/Web clients
++                    webSocketServer.broadcast(jsonStr);
++                }
++            } catch (Exception e) {
++                // Log debug ...
++            }
++        });
++    }
++
++    public void shutdown() {
++        try {
++            if (webSocket != null) webSocket.close();
++            if (webSocketServer != null) webSocketServer.stop();
++        } catch (Exception e) {
++            e.printStackTrace();
++        }
++        commandRegistrar.clear();
++    }
++}
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/IonCore.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/IonCore.java
+index 142a33b..bed2098 100644
+--- a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/IonCore.java
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/IonCore.java
+@@ -1,3 +1,4 @@
++// src/main/java/com/ionsignal/minecraft/ioncore/IonCore.java
+ package com.ionsignal.minecraft.ioncore;
+ 
+ import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
+@@ -10,106 +11,82 @@ import org.bukkit.event.player.PlayerQuitEvent;
+ import org.bukkit.plugin.java.JavaPlugin;
+ 
+ /**
+- * IonCore - Core debug framework for Ion Signal plugins.
+- * Provides shared registry and functionality accessible to all dependent plugins.
++ * IonCore - Core framework for Ion Signal plugins.
++ * Provides networking and debug infrastructure.
+  */
+ public class IonCore extends JavaPlugin implements Listener {
+     private static IonCore instance;
++    
++    // Debug System
+     private static DebugSessionRegistry debugRegistry;
+     private static VisualizationProviderRegistry visualizationRegistry;
++    
++    // Networking System
++    private CoreServiceContainer serviceContainer;
+ 
+     @Override
+     public void onEnable() {
+         instance = this;
+-        // Initialize shared debug registry
++        saveDefaultConfig();
++        
++        // 1. Initialize Debug Framework
+         debugRegistry = new DebugSessionRegistry();
+-        // Initialize visualization provider registry
+         visualizationRegistry = new VisualizationProviderRegistry();
+-        // This task renders all dirty debug sessions once per tick on the main thread
++        
+         new DebugVisualizationTask(debugRegistry, visualizationRegistry)
+                 .runTaskTimer(this, 0L, 1L);
+-        // Register event listeners for session lifecycle
++        
+         getServer().getPluginManager().registerEvents(this, this);
+-        // Log initialization with modern API
+-        getLogger().info("IonCore v" + getPluginMeta().getVersion() + " initialized. Debug framework ready.");
++        
++        // 2. Initialize Networking Container
++        this.serviceContainer = new CoreServiceContainer(this);
++        
++        getLogger().info("IonCore v" + getPluginMeta().getVersion() + " initialized.");
+     }
+ 
+     @Override
+     public void onDisable() {
+-        // Clean up all debug sessions on shutdown
++        // Shutdown Networking
++        if (serviceContainer != null) {
++            serviceContainer.shutdown();
++        }
++
++        // Cleanup Debug Sessions
+         if (debugRegistry != null) {
+             int sessionCount = debugRegistry.size();
+             debugRegistry.clear();
+             getLogger().info("Cleaned up " + sessionCount + " debug session(s).");
+         }
+-        // Clean up visualization providers on shutdown
+         if (visualizationRegistry != null) {
+             visualizationRegistry.clear();
+         }
+-        getLogger().info("IonCore has been disabled.");
++        
++        getLogger().info("IonCore disabled.");
+     }
+ 
+-    /**
+-     * Handles player logout by cleaning up their debug sessions.
+-     * Automatic session cleanup on player disconnect.
+-     */
+     @EventHandler
+     public void onPlayerQuit(PlayerQuitEvent event) {
+         if (debugRegistry != null) {
+-            boolean hadSession = debugRegistry.cancelSession(event.getPlayer().getUniqueId());
+-            if (hadSession) {
+-                getLogger().info("Cancelled debug session for player " + event.getPlayer().getName() + " (logout)");
+-            }
++            debugRegistry.cancelSession(event.getPlayer().getUniqueId());
+         }
+     }
+ 
+-    /**
+-     * Gets the singleton instance of IonCore.
+-     * Static accessor for dependent plugins.
+-     *
+-     * @return The IonCore plugin instance.
+-     * @throws IllegalStateException
+-     *             if IonCore is not loaded.
+-     */
+     public static IonCore getInstance() {
+-        if (instance == null) {
+-            throw new IllegalStateException("IonCore is not loaded. Ensure it is listed in plugin dependencies.");
+-        }
+         return instance;
+     }
+ 
+     /**
+-     * Gets the shared debug session registry.
+-     * Primary service accessor for debug framework.
+-     *
+-     * @return The global debug session registry.
+-     * @throws IllegalStateException
+-     *             if IonCore is not loaded.
++     * Access to the Networking Service Container.
+      */
++    public CoreServiceContainer getServiceContainer() {
++        return serviceContainer;
++    }
++
+     public static DebugSessionRegistry getDebugRegistry() {
+-        if (debugRegistry == null) {
+-            throw new IllegalStateException("Debug registry is not initialized. IonCore may not be enabled.");
+-        }
+         return debugRegistry;
+     }
+ 
+-    /**
+-     * Gets the shared visualization provider registry.
+-     * Visualization providers register here to handle rendering for specific debug state types.
+-     *
+-     * Plugins call this to register their visualization implementations for custom debug state types.
+-     * This allows decoupled rendering logic that can vary by plugin while reusing the core
+-     * session management infrastructure.
+-     *
+-     * @return The global visualization provider registry
+-     * @throws IllegalStateException
+-     *             if IonCore is not loaded or not enabled
+-     */
+     public static VisualizationProviderRegistry getVisualizationRegistry() {
+-        if (visualizationRegistry == null) {
+-            throw new IllegalStateException(
+-                    "Visualization registry is not initialized. IonCore may not be enabled.");
+-        }
+         return visualizationRegistry;
+     }
+ }
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/ConnectionState.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/ConnectionState.java
+new file mode 100644
+index 0000000..369d914
+--- /dev/null
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/ConnectionState.java
+@@ -0,0 +1,11 @@
++package com.ionsignal.minecraft.ioncore.network;
++
++/**
++ * Connection states for the IonCore WebSocket client.
++ */
++public enum ConnectionState {
++    DISCONNECTED,
++    CONNECTING,
++    CONNECTED,
++    ERROR
++}
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/IonCoreWebSocketClient.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/IonCoreWebSocketClient.java
+new file mode 100644
+index 0000000..184a640
+--- /dev/null
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/IonCoreWebSocketClient.java
+@@ -0,0 +1,121 @@
++package com.ionsignal.minecraft.ioncore.network;
++
++import com.google.gson.Gson;
++import com.google.gson.JsonObject;
++import com.google.gson.JsonParser;
++import com.google.gson.JsonSyntaxException;
++import org.bukkit.plugin.Plugin;
++import org.java_websocket.client.WebSocketClient;
++import org.java_websocket.handshake.ServerHandshake;
++import org.jetbrains.annotations.NotNull;
++
++import java.net.URI;
++import java.util.concurrent.atomic.AtomicReference;
++import java.util.logging.Level;
++import java.util.logging.Logger;
++
++/**
++ * A generic WebSocket client that routes JSON messages to the NetworkCommandRegistrar.
++ * It is agnostic of the specific commands (e.g., Spawn/Despawn) it handles.
++ */
++public class IonCoreWebSocketClient extends WebSocketClient {
++    private static final Logger LOGGER = Logger.getLogger(IonCoreWebSocketClient.class.getName());
++    private final Plugin plugin;
++    private final NetworkCommandRegistrar registrar;
++    private final Gson gson = new Gson();
++    private final AtomicReference<ConnectionState> state = new AtomicReference<>(ConnectionState.DISCONNECTED);
++
++    public IonCoreWebSocketClient(@NotNull String url, @NotNull String key, @NotNull Plugin plugin, @NotNull NetworkCommandRegistrar registrar) {
++        super(URI.create(url));
++        this.plugin = plugin;
++        this.registrar = registrar;
++        addHeader("X-API-Key", key);
++        // Ensure connection attempts don't block threads indefinitely
++        setConnectionLostTimeout(30); 
++    }
++
++    @Override
++    public void onOpen(ServerHandshake handshakedata) {
++        state.set(ConnectionState.CONNECTED);
++        LOGGER.info("[IonCore] WebSocket connection established.");
++    }
++
++    @Override
++    public void onMessage(String message) {
++        try {
++            JsonObject json = JsonParser.parseString(message).getAsJsonObject();
++            
++            if (!json.has("type")) {
++                LOGGER.warning("[IonCore] Received malformed message: missing 'type'");
++                return;
++            }
++            
++            String type = json.get("type").getAsString();
++            String requestId = json.has("requestId") ? json.get("requestId").getAsString() : null;
++            
++            // Extract payload as raw string
++            String payloadStr = "{}";
++            if (json.has("payload")) {
++                if (json.get("payload").isJsonObject()) {
++                    payloadStr = json.get("payload").getAsJsonObject().toString();
++                } else if (json.get("payload").isJsonPrimitive()) {
++                    payloadStr = json.get("payload").getAsString();
++                }
++            }
++
++            // Dispatch String
++            registrar.dispatch(type, payloadStr)
++                .thenAccept(result -> {
++                    LOGGER.info("[IonCore] Command processed successfully: " + type);
++                    if (requestId != null) {
++                        sendAck(requestId, "SUCCESS", result);
++                    }
++                })
++                .exceptionally(ex -> {
++                    LOGGER.log(Level.WARNING, "[IonCore] Command execution failed: " + type, ex);
++                    if (requestId != null) {
++                        sendAck(requestId, "ERROR", ex.getMessage());
++                    }
++                    return null;
++                });
++
++        } catch (Exception e) {
++            LOGGER.log(Level.SEVERE, "[IonCore] Error processing message", e);
++        }
++    }
++
++    private void sendAck(String requestId, String status, Object data) {
++        if (!isOpen()) return;
++        try {
++            JsonObject ack = new JsonObject();
++            ack.addProperty("type", "ACK");
++            ack.addProperty("refRequestId", requestId);
++            ack.addProperty("status", status);
++            ack.add("data", gson.toJsonTree(data));
++            send(gson.toJson(ack));
++        } catch (Exception e) {
++            LOGGER.warning("[IonCore] Failed to send ACK: " + e.getMessage());
++        }
++    }
++
++    @Override
++    public void onClose(int code, String reason, boolean remote) {
++        state.set(ConnectionState.DISCONNECTED);
++        if (remote) {
++            LOGGER.warning(String.format("[IonCore] Connection closed by server: [%d] %s", code, reason));
++            // Note: Reconnection logic is handled by the container/scheduler, not recursively here
++        } else {
++            LOGGER.info("[IonCore] Client closed connection.");
++        }
++    }
++
++    @Override
++    public void onError(Exception ex) {
++        state.set(ConnectionState.ERROR);
++        LOGGER.log(Level.SEVERE, "[IonCore] WebSocket Error", ex);
++    }
++    
++    public ConnectionState getConnectionState() {
++        return state.get();
++    }
++}
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/IonCoreWebSocketServer.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/IonCoreWebSocketServer.java
+new file mode 100644
+index 0000000..23c7739
+--- /dev/null
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/IonCoreWebSocketServer.java
+@@ -0,0 +1,106 @@
++package com.ionsignal.minecraft.ioncore.network;
++
++import com.google.gson.Gson;
++import com.google.gson.JsonObject;
++import com.google.gson.JsonParser;
++import com.google.gson.JsonSyntaxException;
++import org.bukkit.plugin.Plugin;
++import org.java_websocket.WebSocket;
++import org.java_websocket.handshake.ClientHandshake;
++import org.java_websocket.server.WebSocketServer;
++
++import java.net.InetSocketAddress;
++import java.util.logging.Level;
++import java.util.logging.Logger;
++
++public class IonCoreWebSocketServer extends WebSocketServer {
++    private static final Logger LOGGER = Logger.getLogger(IonCoreWebSocketServer.class.getName());
++    private final NetworkCommandRegistrar registrar;
++    private final Gson gson = new Gson();
++
++    public IonCoreWebSocketServer(int port, NetworkCommandRegistrar registrar) {
++        super(new InetSocketAddress(port));
++        this.registrar = registrar;
++    }
++
++    @Override
++    public void onOpen(WebSocket conn, ClientHandshake handshake) {
++        LOGGER.info("[IonCore Server] New connection from " + conn.getRemoteSocketAddress());
++    }
++
++    @Override
++    public void onClose(WebSocket conn, int code, String reason, boolean remote) {
++        LOGGER.info("[IonCore Server] Closed connection to " + conn.getRemoteSocketAddress());
++    }
++
++    @Override
++    public void onMessage(WebSocket conn, String message) {
++        try {
++            JsonObject json = JsonParser.parseString(message).getAsJsonObject();
++            
++            if (!json.has("type")) {
++                conn.send(createError(null, "Missing 'type' field"));
++                return;
++            }
++            
++            String type = json.get("type").getAsString();
++            String requestId = json.has("requestId") ? json.get("requestId").getAsString() : null;
++            
++            // Extract payload as a raw string
++            String payloadStr = "{}";
++            if (json.has("payload")) {
++                if (json.get("payload").isJsonObject()) {
++                    payloadStr = json.get("payload").getAsJsonObject().toString();
++                } else if (json.get("payload").isJsonPrimitive()) {
++                    payloadStr = json.get("payload").getAsString();
++                }
++            }
++
++            // Dispatch String instead of JsonObject
++            registrar.dispatch(type, payloadStr)
++                .thenAccept(result -> {
++                    LOGGER.info("[IonCore Server] Command processed: " + type);
++                    if (conn.isOpen()) {
++                        conn.send(createAck(requestId, "SUCCESS", result));
++                    }
++                })
++                .exceptionally(ex -> {
++                    LOGGER.log(Level.WARNING, "[IonCore Server] Command failed: " + type, ex);
++                    if (conn.isOpen()) {
++                        conn.send(createAck(requestId, "ERROR", ex.getMessage()));
++                    }
++                    return null;
++                });
++
++        } catch (JsonSyntaxException e) {
++            conn.send(createError(null, "Invalid JSON"));
++        } catch (Exception e) {
++            LOGGER.log(Level.SEVERE, "Error processing message", e);
++        }
++    }
++
++    @Override
++    public void onError(WebSocket conn, Exception ex) {
++        LOGGER.log(Level.SEVERE, "[IonCore Server] Error", ex);
++    }
++
++    @Override
++    public void onStart() {
++        LOGGER.info("[IonCore Server] Listening on port " + getPort());
++    }
++
++    // --- Helpers ---
++
++    private String createAck(String requestId, String status, Object data) {
++        JsonObject ack = new JsonObject();
++        ack.addProperty("type", "ACK");
++        if (requestId != null) ack.addProperty("refRequestId", requestId);
++        ack.addProperty("status", status);
++        ack.add("data", gson.toJsonTree(data));
++        return gson.toJson(ack);
++    }
++
++    private String createError(String requestId, String msg) {
++        return createAck(requestId, "ERROR", msg);
++    }
++}
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/NetworkCommandRegistrar.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/NetworkCommandRegistrar.java
+new file mode 100644
+index 0000000..3118db6
+--- /dev/null
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/NetworkCommandRegistrar.java
+@@ -0,0 +1,62 @@
++package com.ionsignal.minecraft.ioncore.network;
++
++import org.jetbrains.annotations.NotNull;
++
++import java.util.Map;
++import java.util.concurrent.CompletableFuture;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.function.Function;
++import java.util.logging.Logger;
++
++/**
++ * A thread-safe registry for network command handlers.
++ * Acts as the switchboard connecting raw JSON messages to specific plugin logic.
++ * 
++ * UPDATED: Uses raw String payloads to decouple JSON libraries.
++ */
++public class NetworkCommandRegistrar {
++    private final Logger logger;
++    
++    // Maps "COMMAND_NAME" -> Handler Function
++    // The handler takes a raw JSON String and returns a Future result
++    private final Map<String, Function<String, CompletableFuture<Object>>> handlers = new ConcurrentHashMap<>();
++
++    public NetworkCommandRegistrar(Logger logger) {
++        this.logger = logger;
++    }
++
++    /**
++     * Registers a handler for a specific network command.
++     *
++     * @param type    The command key (e.g., "SPAWN_AGENT"). Case-insensitive.
++     * @param handler The function to execute when this command is received.
++     */
++    public void register(@NotNull String type, @NotNull Function<String, CompletableFuture<Object>> handler) {
++        handlers.put(type.toUpperCase(), handler);
++        logger.info("[IonCore] Registered network command listener: " + type.toUpperCase());
++    }
++
++    /**
++     * Dispatches an incoming payload to the appropriate handler.
++     *
++     * @param type       The command type.
++     * @param jsonPayload The raw JSON payload string.
++     * @return A future representing the result of the operation.
++     */
++    public CompletableFuture<Object> dispatch(@NotNull String type, @NotNull String jsonPayload) {
++        String key = type.toUpperCase();
++        if (!handlers.containsKey(key)) {
++            return CompletableFuture.failedFuture(new IllegalArgumentException("Unknown command type: " + type));
++        }
++        try {
++            // Execute the registered handler
++            return handlers.get(key).apply(jsonPayload);
++        } catch (Exception e) {
++            return CompletableFuture.failedFuture(e);
++        }
++    }
++    
++    public void clear() {
++        handlers.clear();
++    }
++}
+\ No newline at end of file
+diff --git a/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/protocol/IonCoreMessage.java b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/protocol/IonCoreMessage.java
+new file mode 100644
+index 0000000..de5c7e1
+--- /dev/null
++++ b/ioncore/src/main/java/com/ionsignal/minecraft/ioncore/network/protocol/IonCoreMessage.java
+@@ -0,0 +1,33 @@
++package com.ionsignal.minecraft.ioncore.network.protocol;
++
++import com.google.gson.Gson;
++
++/**
++ * Generic envelope for sending messages to the web client.
++ * Replaces the Enum-based version to allow dynamic event types.
++ */
++public class IonCoreMessage<T> {
++    private static final Gson GSON = new Gson();
++    
++    private final String serverId;
++    private final long timestamp;
++    private final String type; // Changed from Enum to String
++    private final T payload;
++
++    public IonCoreMessage(String serverId, String type, T payload) {
++        this.serverId = serverId;
++        this.timestamp = System.currentTimeMillis();
++        this.type = type;
++        this.payload = payload;
++    }
++
++    public String toJson() {
++        return GSON.toJson(this);
++    }
++
++    // Getters
++    public String getServerId() { return serverId; }
++    public long getTimestamp() { return timestamp; }
++    public String getType() { return type; }
++    public T getPayload() { return payload; }
++}
+\ No newline at end of file
+diff --git a/ioncore/src/main/resources/config.yml b/ioncore/src/main/resources/config.yml
+new file mode 100644
+index 0000000..92e13e3
+--- /dev/null
++++ b/ioncore/src/main/resources/config.yml
+@@ -0,0 +1,22 @@
++# IonCore Configuration
++
++# Operation Mode
++# Options: "disabled", "client", "server"
++# disabled: No network connection.
++# client: Connects to an external RuneMind server (e.g. runemind.io).
++# server: Opens a port for local RuneMind instances to connect to.
++mode: "client"
++
++# Shared API Key (Used for authentication with RuneMind)
++api-key: "TEST_KEY123"
++
++# Client Mode Settings (Used if mode: "client")
++client:
++  broker-url: "ws://127.0.0.1:3002/ioncore"
++
++# Server Mode Settings (Used if mode: "server")
++server:
++  port: 8088
++
++# Default world for spawning agents if no world is specified in the payload
++default-world: "world"
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/IonNerrus.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/IonNerrus.java
+index 8e13b38..bfe9165 100644
+--- a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/IonNerrus.java
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/IonNerrus.java
+@@ -105,6 +105,30 @@ public class IonNerrus extends JavaPlugin {
+         } catch (Exception e) {
+             getLogger().warning("Recipe modification failed (non-critical): " + e.getMessage());
+         }
++        //Network Integration
++        if (getServer().getPluginManager().isPluginEnabled("IonCore")) {
++            try {
++                getLogger().info("IonCore detected. Initializing Network services...");
++                
++                // 1. Input: Bootstrap (Commands from Web)
++                com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap netBootstrap = 
++                    new com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap(this, services.getAgentService());
++                netBootstrap.registerAll();
++                
++                // 2. Output: Listener (Events to Web)
++                getServer().getPluginManager().registerEvents(
++                    new com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkEventListener(), 
++                    this
++                );
++                
++            } catch (Exception e) {
++                getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
++                e.printStackTrace();
++            }
++        } else {
++            getLogger().info("IonCore not found. Running in standalone offline mode.");
++        }
++
+         getLogger().info("IonNerrus v" + getPluginMeta().getVersion() + " has been enabled successfully.");
+     }
+ 
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/AgentService.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/AgentService.java
+index 4cf3bec..f8bafd7 100644
+--- a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/AgentService.java
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/AgentService.java
+@@ -55,6 +55,9 @@ public class AgentService {
+                 persona.spawn(location);
+                 agent.start();
+                 plugin.getLogger().info("Successfully spawned agent: " + name);
++                org.bukkit.Bukkit.getPluginManager().callEvent(
++                    new com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent(agent)
++                );
+             } catch (Exception e) {
+                 plugin.getLogger().severe("Error spawning agent " + name + ": " + e.getMessage());
+             }
+@@ -69,6 +72,9 @@ public class AgentService {
+     public boolean removeAgent(String name) {
+         NerrusAgent agent = findAgentByName(name);
+         if (agent != null) {
++            org.bukkit.Bukkit.getPluginManager().callEvent(
++                new com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent(agent)
++            );
+             agents.remove(agent.getPersona().getUniqueId());
+             personaRegistry.deregister(agent.getPersona());
+             plugin.getLogger().info("Removed Nerrus agent: " + name);
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/api/events/NerrusAgentRemoveEvent.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/api/events/NerrusAgentRemoveEvent.java
+new file mode 100644
+index 0000000..52a8334
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/api/events/NerrusAgentRemoveEvent.java
+@@ -0,0 +1,29 @@
++package com.ionsignal.minecraft.ionnerrus.api.events;
++
++import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
++import org.bukkit.event.Event;
++import org.bukkit.event.HandlerList;
++import org.jetbrains.annotations.NotNull;
++
++public class NerrusAgentRemoveEvent extends Event {
++    private static final HandlerList HANDLERS = new HandlerList();
++    private final NerrusAgent agent;
++
++    public NerrusAgentRemoveEvent(NerrusAgent agent) {
++        this.agent = agent;
++    }
++
++    public NerrusAgent getAgent() {
++        return agent;
++    }
++
++    @NotNull
++    @Override
++    public HandlerList getHandlers() {
++        return HANDLERS;
++    }
++
++    public static HandlerList getHandlerList() {
++        return HANDLERS;
++    }
++}
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/api/events/NerrusAgentSpawnEvent.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/api/events/NerrusAgentSpawnEvent.java
+new file mode 100644
+index 0000000..b80ea5d
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/api/events/NerrusAgentSpawnEvent.java
+@@ -0,0 +1,29 @@
++package com.ionsignal.minecraft.ionnerrus.api.events;
++
++import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
++import org.bukkit.event.Event;
++import org.bukkit.event.HandlerList;
++import org.jetbrains.annotations.NotNull;
++
++public class NerrusAgentSpawnEvent extends Event {
++    private static final HandlerList HANDLERS = new HandlerList();
++    private final NerrusAgent agent;
++
++    public NerrusAgentSpawnEvent(NerrusAgent agent) {
++        this.agent = agent;
++    }
++
++    public NerrusAgent getAgent() {
++        return agent;
++    }
++
++    @NotNull
++    @Override
++    public HandlerList getHandlers() {
++        return HANDLERS;
++    }
++
++    public static HandlerList getHandlerList() {
++        return HANDLERS;
++    }
++}
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/bootstrap/NetworkBootstrap.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/bootstrap/NetworkBootstrap.java
+new file mode 100644
+index 0000000..bbcd8d3
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/bootstrap/NetworkBootstrap.java
+@@ -0,0 +1,136 @@
++package com.ionsignal.minecraft.ionnerrus.bootstrap;
++
++import com.google.gson.Gson;
++import com.google.gson.JsonObject;
++import com.google.gson.JsonSyntaxException;
++import com.ionsignal.minecraft.ioncore.IonCore;
++import com.ionsignal.minecraft.ionnerrus.IonNerrus;
++import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
++import com.ionsignal.minecraft.ionnerrus.network.dtos.DespawnAgentRequest;
++import com.ionsignal.minecraft.ionnerrus.network.dtos.SpawnAgentRequest;
++import org.bukkit.Bukkit;
++import org.bukkit.Location;
++import org.bukkit.World;
++import org.bukkit.entity.Player;
++
++import java.util.concurrent.CompletableFuture;
++import java.util.logging.Level;
++
++public class NetworkBootstrap {
++    private final IonNerrus plugin;
++    private final AgentService agentService;
++    private final Gson gson;
++
++    public NetworkBootstrap(IonNerrus plugin, AgentService agentService) {
++        this.plugin = plugin;
++        this.agentService = agentService;
++        this.gson = new Gson();
++    }
++
++    /**
++     * Registers Nerrus-specific command handlers with the IonCore switchboard.
++     */
++    public void registerAll() {
++        var registrar = IonCore.getInstance().getServiceContainer().getCommandRegistrar();
++        registrar.register("SPAWN_AGENT", this::handleSpawn);
++        registrar.register("DESPAWN_AGENT", this::handleDespawn);
++        plugin.getLogger().info("IonCore Network Integration Enabled: Handlers registered.");
++    }
++
++    // --- Command Handlers ---
++
++    private CompletableFuture<Object> handleSpawn(String jsonStr) {
++        // 1. Parse String to DTO using Nerrus's Gson
++        SpawnAgentRequest dto;
++        try {
++            dto = gson.fromJson(jsonStr, SpawnAgentRequest.class);
++        } catch (JsonSyntaxException e) {
++            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid spawn payload format: " + e.getMessage()));
++        }
++
++        CompletableFuture<Object> result = new CompletableFuture<>();
++
++        Bukkit.getScheduler().runTask(plugin, () -> {
++            try {
++                Location spawnLoc = resolveLocation(dto.location());
++                if (spawnLoc == null) {
++                    throw new IllegalArgumentException("Could not resolve valid spawn location.");
++                }
++
++                if (agentService.findAgentByName(dto.name()) != null) {
++                    throw new IllegalStateException("Agent '" + dto.name() + "' already exists.");
++                }
++
++                String skinArg = (dto.skinTexture() != null && !dto.skinTexture().isEmpty()) 
++                        ? dto.skinTexture() 
++                        : dto.name(); 
++                
++                agentService.spawnAgent(dto.name(), spawnLoc, skinArg);
++
++                plugin.getLogger().info("[Network] Spawned agent: " + dto.name());
++                result.complete("Agent " + dto.name() + " spawned successfully.");
++
++            } catch (Exception e) {
++                // Ensure the future fails so the web client gets the error
++                result.completeExceptionally(e);
++            }
++        });
++
++        return result;
++    }
++
++    // UPDATE: Argument is now String jsonStr
++    private CompletableFuture<Object> handleDespawn(String jsonStr) {
++        DespawnAgentRequest dto;
++        try {
++            dto = gson.fromJson(jsonStr, DespawnAgentRequest.class);
++        } catch (JsonSyntaxException e) {
++            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid despawn payload"));
++        }
++
++        CompletableFuture<Object> result = new CompletableFuture<>();
++
++        Bukkit.getScheduler().runTask(plugin, () -> {
++            try {
++                boolean removed = agentService.removeAgent(dto.name());
++                if (removed) {
++                    result.complete("Agent " + dto.name() + " removed.");
++                } else {
++                    result.completeExceptionally(new IllegalArgumentException("Agent not found: " + dto.name()));
++                }
++            } catch (Exception e) {
++                result.completeExceptionally(e);
++            }
++        });
++
++        return result;
++    }
++
++    // --- Helpers ---
++
++    private Location resolveLocation(SpawnAgentRequest.SpawnLocationData data) {
++        if (data == null) return getDefaultSpawn();
++
++        if ("PLAYER".equalsIgnoreCase(data.type()) && data.playerName() != null) {
++            Player target = Bukkit.getPlayer(data.playerName());
++            if (target != null && target.isOnline()) {
++                return target.getLocation().add(2, 0, 0); // Spawn near player
++            }
++        } else if ("COORDINATES".equalsIgnoreCase(data.type()) && data.world() != null) {
++            World world = Bukkit.getWorld(data.world());
++            if (world != null) {
++                return new Location(world, data.x(), data.y(), data.z());
++            }
++        }
++        
++        return getDefaultSpawn();
++    }
++
++    private Location getDefaultSpawn() {
++        // Simple fallback to first world spawn or online player
++        if (!Bukkit.getOnlinePlayers().isEmpty()) {
++            return Bukkit.getOnlinePlayers().iterator().next().getLocation().add(2, 0, 0);
++        }
++        return Bukkit.getWorlds().get(0).getSpawnLocation();
++    }
++}
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/bootstrap/NetworkEventListener.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/bootstrap/NetworkEventListener.java
+new file mode 100644
+index 0000000..ef4fbdc
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/bootstrap/NetworkEventListener.java
+@@ -0,0 +1,29 @@
++package com.ionsignal.minecraft.ionnerrus.bootstrap;
++
++import com.ionsignal.minecraft.ioncore.IonCore;
++import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
++import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
++import com.ionsignal.minecraft.ionnerrus.network.dtos.AgentStateDTO;
++import org.bukkit.event.EventHandler;
++import org.bukkit.event.Listener;
++
++public class NetworkEventListener implements Listener {
++
++    @EventHandler
++    public void onAgentSpawn(NerrusAgentSpawnEvent event) {
++        // Convert Domain Object -> DTO
++        AgentStateDTO dto = AgentStateDTO.from(event.getAgent());
++        
++        // Broadcast "AGENT_SPAWNED"
++        // The Core container handles the safety check (is connected?)
++        IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", dto);
++    }
++
++    @EventHandler
++    public void onAgentRemove(NerrusAgentRemoveEvent event) {
++        AgentStateDTO dto = AgentStateDTO.from(event.getAgent());
++        
++        // Broadcast "AGENT_REMOVED"
++        IonCore.getInstance().getServiceContainer().broadcast("AGENT_REMOVED", dto);
++    }
++}
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/AgentStateDTO.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/AgentStateDTO.java
+new file mode 100644
+index 0000000..e08e900
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/AgentStateDTO.java
+@@ -0,0 +1,31 @@
++package com.ionsignal.minecraft.ionnerrus.network.dtos;
++
++import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
++import org.bukkit.Location;
++
++import java.util.UUID;
++
++/**
++ * Snapshot of an agent's state sent to the web dashboard.
++ */
++public record AgentStateDTO(
++    UUID id,
++    String name,
++    String status, // "IDLE", "WORKING", "OFFLINE"
++    LocationData location
++) {
++    public record LocationData(String world, double x, double y, double z) {}
++
++    /**
++     * Factory method to create a DTO from a live agent.
++     */
++    public static AgentStateDTO from(NerrusAgent agent) {
++        Location loc = agent.getPersona().getLocation();
++        return new AgentStateDTO(
++            agent.getPersona().getUniqueId(),
++            agent.getName(),
++            agent.getPersona().isSpawned() ? "ACTIVE" : "DESPAWNED",
++            new LocationData(loc.getWorld().getName(), loc.getX(), loc.getY(), loc.getZ())
++        );
++    }
++}
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/DespawnAgentRequest.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/DespawnAgentRequest.java
+new file mode 100644
+index 0000000..fe0a1a0
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/DespawnAgentRequest.java
+@@ -0,0 +1,6 @@
++package com.ionsignal.minecraft.ionnerrus.network.dtos;
++
++/**
++ * Represents the JSON payload to remove an agent.
++ */
++public record DespawnAgentRequest(String name) {}
+\ No newline at end of file
+diff --git a/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/SpawnAgentRequest.java b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/SpawnAgentRequest.java
+new file mode 100644
+index 0000000..be0f1a7
+--- /dev/null
++++ b/ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/network/dtos/SpawnAgentRequest.java
+@@ -0,0 +1,30 @@
++package com.ionsignal.minecraft.ionnerrus.network.dtos;
++
++import java.util.List;
++
++/**
++ * Represents the JSON payload received from the web to spawn an agent.
++ * Matches the structure previously defined in IonCore.
++ */
++public record SpawnAgentRequest(
++    String name,
++    String skin, // Simplified skin name/url if needed
++    String skinTexture, // Base64 value
++    String skinSignature, // Base64 signature
++    int definitionId,
++    SpawnLocationData location,
++    String ownerUuid,
++    List<String> authorizedUuids
++) {
++    /**
++     * Nested record for location data to handle the specific JSON structure.
++     */
++    public record SpawnLocationData(
++        String type, // "PLAYER" or "COORDINATES"
++        String playerName,
++        double x,
++        double y,
++        double z,
++        String world
++    ) {}
++}
+\ No newline at end of file

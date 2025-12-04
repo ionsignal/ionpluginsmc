@@ -1,7 +1,12 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+<<<<<<< HEAD
 // import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+=======
+import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
+import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+>>>>>>> bc098a3 (feat(ioncore, ionnerrus): implement websocket networking and agent telemetry)
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -49,7 +54,12 @@ public class NerrusAgent {
     private final GoalFactory goalFactory;
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
+<<<<<<< HEAD
     // private final AutonomyEngine autonomyEngine;
+=======
+    private final AutonomyEngine autonomyEngine;
+    private final NetworkBroadcaster broadcaster;
+>>>>>>> bc098a3 (feat(ioncore, ionnerrus): implement websocket networking and agent telemetry)
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
     private final LinkedList<String> actionHistory = new LinkedList<>();
@@ -60,6 +70,10 @@ public class NerrusAgent {
     private GoalContext currentContext = null;
 
     private volatile boolean isBusyWithDirective = false;
+
+    // Throttling state
+    private int tickCounter = 0;
+    private static final int TELEMETRY_INTERVAL = 10; // Send updates every 10 ticks (0.5s)
 
     /**
      * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
@@ -84,13 +98,18 @@ public class NerrusAgent {
         }
     }
 
-    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
+    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService, NetworkBroadcaster broadcaster) {
         this.persona = persona;
         this.plugin = plugin;
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+<<<<<<< HEAD
         // this.autonomyEngine = new AutonomyEngine(this);
+=======
+        this.broadcaster = broadcaster;
+        this.autonomyEngine = new AutonomyEngine(this);
+>>>>>>> bc098a3 (feat(ioncore, ionnerrus): implement websocket networking and agent telemetry)
         this.sensorySystem = new BukkitSensorySystem(this);
     }
 
@@ -364,6 +383,15 @@ public class NerrusAgent {
 
     private void handleGoalCompletion(GoalResult result) {
         String completedGoalName = currentContext.goal().getClass().getSimpleName();
+        // Broadcast Goal Result
+        if (broadcaster != null) {
+            String status = (result instanceof GoalResult.Success) ? "COMPLETED" : "FAILED";
+            String message = result.message();
+            broadcaster.broadcastGoalEvent(this, status, completedGoalName, message);
+            
+            // Also trigger inventory update as goals often change inventory
+            broadcaster.broadcastInventory(this);
+        }
         plugin.getLogger().info(String.format("[%s] Handling completion of %s with result: %s", getName(), completedGoalName,
                 result.getClass().getSimpleName()));
         switch (result) {
@@ -438,6 +466,20 @@ public class NerrusAgent {
         }
     }
 
+    public void tick() {
+        // 1. Standard processing
+        processMessages();
+        
+        // 2. Network Telemetry Throttling
+        tickCounter++;
+        if (tickCounter >= TELEMETRY_INTERVAL) {
+            tickCounter = 0;
+            if (broadcaster != null && persona.isSpawned()) {
+                broadcaster.broadcastTelemetry(this);
+            }
+        }
+    }
+
     public boolean isBusyWithDirective() {
         return isBusyWithDirective;
     }
@@ -479,6 +521,21 @@ public class NerrusAgent {
 
     public void speak(String message) {
         persona.speak(message);
+    }
+
+    public String getCurrentGoalName() {
+        return (currentContext != null) ? currentContext.goal().getClass().getSimpleName() : "Idle";
+    }
+    
+    public String getCurrentTaskName() {
+        return (currentTask != null) ? currentTask.getClass().getSimpleName() : "None";
+    }
+    
+    public List<String> getGoalStackNames() {
+        if (goalStack.isEmpty()) return Collections.emptyList();
+        return goalStack.stream()
+            .map(ctx -> ctx.goal().getClass().getSimpleName())
+            .collect(Collectors.toList());
     }
 
     /**

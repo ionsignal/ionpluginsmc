@@ -1,9 +1,11 @@
+// File: ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/AgentService.java
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster; // <--- Fixed Import
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -27,24 +29,26 @@ public class AgentService {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
+    private final NetworkBroadcaster broadcaster;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
 
     public AgentService(IonNerrus plugin, NerrusManager nerrusManager, GoalRegistry goalRegistry, GoalFactory goalFactory,
-            LLMService llmService) {
+            LLMService llmService, NetworkBroadcaster broadcaster) {
         this.plugin = plugin;
         this.personaRegistry = nerrusManager.getRegistry();
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+        this.broadcaster = broadcaster;
     }
 
-    /*
-     * Implement agent persistence later, let's disable for now for speeding up development.
-     */
     public NerrusAgent spawnAgent(String name, Location location, String skinNameToFetch) {
         Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name, Optional.empty());
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
-        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
+        
+        // Pass broadcaster to the Agent constructor
+        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService, broadcaster);
+        
         agents.put(persona.getUniqueId(), agent);
         NerrusManager.getInstance().getSkinCache().fetchSkin(skinNameToFetch).thenAcceptAsync(skinData -> {
             if (skinData != null) {
@@ -103,7 +107,6 @@ public class AgentService {
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
             try {
-                // Persona.despawn() now handles stopping all physical operations safely
                 personaRegistry.deregister(agent.getPersona());
             } catch (Exception e) {
                 plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());
@@ -113,14 +116,8 @@ public class AgentService {
         plugin.getLogger().info("Despawned all Nerrus agents.");
     }
 
-    /**
-     * Shuts down the agent service.
-     * Note: Agents are despawned early in IonNerrus.onDisable() to avoid chunk system race conditions.
-     * This method just ensures cleanup of any remaining state.
-     */
     public void shutdown() {
         plugin.getLogger().info("Shutting down AgentService...");
-        // Agents should already be despawned by now (see IonNerrus.onDisable)
         if (!agents.isEmpty()) {
             plugin.getLogger().warning("AgentService.shutdown() found " + agents.size() + " remaining agents - this shouldn't happen!");
             despawnAll();
