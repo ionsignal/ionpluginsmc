@@ -53,6 +53,7 @@ public class StandardMovement implements BlockSearch.INeighborStrategy {
         return neighbors;
     }
 
+    @SuppressWarnings("null")
     private void addNeighbor(List<BlockSearch.TraversalNode> neighbors, BlockSearch.TraversalNode parent, BlockPos neighborPos) {
         double distance = parent.pos().distManhattan(neighborPos);
         neighbors.add(new BlockSearch.TraversalNode(neighborPos, parent.distance() + distance));
@@ -69,6 +70,7 @@ public class StandardMovement implements BlockSearch.INeighborStrategy {
         return null;
     }
 
+    @SuppressWarnings("null")
     private boolean isValidStandingSpot(BlockPos pos, WorldSnapshot snapshot) {
         BlockState ground = snapshot.getBlockState(pos.below());
         if (ground == null || !ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP)) {
@@ -77,6 +79,7 @@ public class StandardMovement implements BlockSearch.INeighborStrategy {
         return isPassable(pos, snapshot) && isPassable(pos.above(), snapshot);
     }
 
+    @SuppressWarnings("null")
     private boolean isPassable(BlockPos pos, WorldSnapshot snapshot) {
         BlockState state = snapshot.getBlockState(pos);
         if (state == null || state.getBukkitMaterial().isOccluding()) {

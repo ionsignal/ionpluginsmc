@@ -51,6 +51,8 @@ public class GoToLocationTask implements Task {
                 case CANCELLED:
                     logger.info("Agent " + agent.getName() + "'s navigation was cancelled.");
                     break;
+                default:
+                    break;
             }
         });
     }
