@@ -78,7 +78,7 @@ public class FollowPlayerGoal implements Goal {
                     // Target found, start physical follow
                     this.state = State.FOLLOWING;
                     // Track the target visually
-                    agent.getPersona().getPhysicalBody().orientation().face(target);
+                    agent.getPersona().getPhysicalBody().orientation().face(target, token);
                     // Assign the continuous task instead of executing a skill directly
                     agent.setCurrentTask(new FollowEntityTask(
                             target,

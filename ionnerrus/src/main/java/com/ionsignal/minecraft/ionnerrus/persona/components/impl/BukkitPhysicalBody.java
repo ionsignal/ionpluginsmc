@@ -19,6 +19,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Navigator;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationController;
+import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
 
 import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
 import net.minecraft.server.level.ServerLevel;
@@ -27,6 +28,8 @@ import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.HumanEntity;
@@ -118,31 +121,32 @@ public class BukkitPhysicalBody implements PhysicalBody {
         locomotionController.tick();
         // Check if Navigator finished this tick
         if (pendingNavigationResult != null) {
-            // Capture the reference locally to avoid NPEs if it gets nulled concurrently
             CompletableFuture<MovementResult> currentFuture = activeMovement;
-            // Clear the global state to prevent the Cancellation handler from trying to touch it later.
+            MovementResult resultToComplete = pendingNavigationResult;
             activeMovement = null;
-            // Clear pending navigation to prevent lingering state contamination
             pendingNavigationResult = null;
-            // Complete the future safely
             if (currentFuture != null && !currentFuture.isDone()) {
-                currentFuture.complete(pendingNavigationResult);
+                currentFuture.complete(resultToComplete);
             }
-            // Reset pending result
             pendingNavigationResult = null;
         }
     }
 
     private void tickOrientation() {
-        // Check if Locomotion (Maneuvers) demands a specific orientation (e.g. jump landing spot)
-        Optional<Location> override = locomotionController.getOrientationOverride();
-        if (override.isPresent()) {
-            // Priority 1: Physics/Maneuver Override
-            orientationController.tickOverride(override.get(), locomotionController.shouldLockBodyRotation());
+        // Arbitrate between Physics and Cognition
+        Optional<OrientationIntent> physicalNecessity = locomotionController.getOrientationIntent();
+        OrientationIntent cognitiveDesire = orientationController.getCurrentSkillIntent();
+        OrientationIntent finalIntent;
+        if (physicalNecessity.isPresent() && !(physicalNecessity.get() instanceof OrientationIntent.Idle)) {
+            // Physics overrides Cognition (e.g., Falling overrides looking at a friend)
+            finalIntent = physicalNecessity.get();
+            // Notify controller it is being overridden so it doesn't falsely timeout the skill
+            orientationController.notifyOverride();
         } else {
-            // Priority 2: High-Level Logic (Tracking/Looking)
-            orientationController.tick(movement().isMoving());
+            // Default to cognitive desire
+            finalIntent = cognitiveDesire;
         }
+        orientationController.actuate(finalIntent);
     }
 
     private void tickActions() {
@@ -308,21 +312,21 @@ public class BukkitPhysicalBody implements PhysicalBody {
     private OrientationCapability createOrientationCapability() {
         return new OrientationCapability() {
             @Override
-            public CompletableFuture<LookResult> lookAt(Location target, boolean turnBody) {
+            public CompletableFuture<LookResult> lookAt(Location target, boolean turnBody, ExecutionToken token) {
                 Preconditions.checkState(Bukkit.isPrimaryThread(), "Async physical access detected!");
-                return orientationController.lookAt(target, turnBody);
+                return orientationController.lookAt(target, turnBody, token);
             }
 
             @Override
-            public void face(Location target, boolean turnBody) {
+            public void face(Location target, boolean turnBody, ExecutionToken token) {
                 Preconditions.checkState(Bukkit.isPrimaryThread(), "Async physical access detected!");
-                orientationController.face(target, turnBody);
+                orientationController.face(target, turnBody, token);
             }
 
             @Override
-            public void face(Entity target) {
+            public void face(Entity target, ExecutionToken token) {
                 Preconditions.checkState(Bukkit.isPrimaryThread(), "Async physical access detected!");
-                orientationController.face(target);
+                orientationController.face(target, token);
             }
 
             @Override
@@ -435,6 +439,14 @@ public class BukkitPhysicalBody implements PhysicalBody {
             @Override
             public boolean isInventoryOpen() {
                 return interactionTarget != null;
+            }
+
+            @Override
+            public double getBlockReach() {
+                Preconditions.checkState(Bukkit.isPrimaryThread(), "Async physical access detected!");
+                AttributeInstance attribute = personaEntity.getBukkitEntity()
+                        .getAttribute(Attribute.BLOCK_INTERACTION_RANGE);
+                return attribute != null ? attribute.getValue() : 4.5;
             }
         };
     }

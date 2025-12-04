@@ -80,7 +80,7 @@ public class PlaceBlockSkill implements Skill<Optional<Location>> {
                                     logger.info("PlaceBlockSkill: Navigation successful. Performing placement.");
                                     PhysicalBody body = agent.getPersona().getPhysicalBody();
                                     // Look at the spot
-                                    return body.orientation().lookAt(placementSpot, true).thenCompose(lookResult -> {
+                                    return body.orientation().lookAt(placementSpot, true, token).thenCompose(lookResult -> {
                                         if (lookResult != LookResult.SUCCESS) {
                                             logger.warning("PlaceBlockSkill: Failed to face placement spot.");
                                             return CompletableFuture.completedFuture(Optional.empty());
