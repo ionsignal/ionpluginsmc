@@ -21,7 +21,6 @@ import org.bukkit.craftbukkit.CraftWorld;
 import org.joml.Matrix4f;
 
 public class DebugVisualizer {
-
     /**
      * Highlights a single block for a duration using a BlockDisplay entity.
      * This is a highly performant, client-side-only visual that does not involve
@@ -34,6 +33,7 @@ public class DebugVisualizer {
      * @param color
      *            The NamedTextColor to use for the glow effect.
      */
+    @SuppressWarnings("null")
     public static void highlightBlock(Location blockLocation, int durationTicks, NamedTextColor color) {
         ServerLevel level = ((CraftWorld) blockLocation.getWorld()).getHandle();
         BlockDisplay display = new BlockDisplay(EntityType.BLOCK_DISPLAY, level);
@@ -51,6 +51,47 @@ public class DebugVisualizer {
         // Spawn the entity, sending packets to nearby clients.
         level.addFreshEntity(display);
         // Schedule the removal of the entity. `discard()` is the proper NMS method for removing entities,
+        Bukkit.getScheduler().runTaskLater(IonNerrus.getInstance(), () -> {
+            display.discard();
+        }, durationTicks);
+    }
+
+    /**
+     * Highlights a specific precise point in the world with a small scaled block.
+     * Useful for visualizing exact target coordinates (sub-block precision).
+     *
+     * @param point
+     *            The exact location to highlight.
+     * @param durationTicks
+     *            Duration in ticks.
+     * @param color
+     *            Color of the glow.
+     */
+    @SuppressWarnings("null")
+    public static void highlightPoint(Location point, int durationTicks, NamedTextColor color) {
+        ServerLevel level = ((CraftWorld) point.getWorld()).getHandle();
+        BlockDisplay display = new BlockDisplay(EntityType.BLOCK_DISPLAY, level);
+
+        // Use white glass so the glow color dictates the look
+        display.setBlockState(Blocks.WHITE_STAINED_GLASS.defaultBlockState());
+
+        // Scale down to 0.2 (20cm cube) and center it on the point
+        // Logic: Center of block model is 0.5. We want that at 0.0 (entity origin).
+        // T = -0.5 * scale
+        float scale = 0.2f;
+        float offset = -0.5f * scale;
+
+        Matrix4f matrix = new Matrix4f().translation(offset, offset, offset).scale(scale);
+
+        display.setTransformation(new Transformation(matrix));
+        display.setSharedFlag(6, true); // Glow
+        display.setGlowColorOverride(color.value());
+
+        // Set entity position to the exact point
+        display.setPos(point.getX(), point.getY(), point.getZ());
+
+        level.addFreshEntity(display);
+
         Bukkit.getScheduler().runTaskLater(IonNerrus.getInstance(), () -> {
             display.discard();
         }, durationTicks);
@@ -110,4 +151,52 @@ public class DebugVisualizer {
         }
     }
 
+    /**
+     * A persistent handle for a visual debug point (The Rabbit).
+     * Unlike highlightPoint, this entity persists and can be moved.
+     * You MUST call remove() when finished to prevent entity leaks.
+     */
+    public static class Rabbit {
+        private final BlockDisplay display;
+
+        @SuppressWarnings("null")
+        public Rabbit(Location startLocation, NamedTextColor color) {
+            ServerLevel level = ((CraftWorld) startLocation.getWorld()).getHandle();
+            this.display = new BlockDisplay(EntityType.BLOCK_DISPLAY, level);
+
+            // Visual Setup (Matches highlightPoint logic)
+            display.setBlockState(Blocks.WHITE_STAINED_GLASS.defaultBlockState());
+
+            // Scale down to 0.2 (20cm cube) and center it
+            float scale = 0.2f;
+            float offset = -0.5f * scale;
+
+            Matrix4f matrix = new Matrix4f().translation(offset, offset, offset).scale(scale);
+            display.setTransformation(new Transformation(matrix));
+
+            // Glow Effect
+            display.setSharedFlag(6, true);
+            display.setGlowColorOverride(color.value());
+
+            // Initial Position
+            display.setPos(startLocation.getX(), startLocation.getY(), startLocation.getZ());
+
+            // Spawn
+            level.addFreshEntity(display);
+        }
+
+        public void move(Location newLocation) {
+            if (display != null && display.isAlive()) {
+                // NMS setPos updates the entity location immediately on the server
+                // and sends a teleport packet to clients.
+                display.setPos(newLocation.getX(), newLocation.getY(), newLocation.getZ());
+            }
+        }
+
+        public void remove() {
+            if (display != null) {
+                display.discard();
+            }
+        }
+    }
 }
