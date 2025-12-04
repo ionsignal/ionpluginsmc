@@ -1,4 +1,3 @@
-// File: ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/AgentService.java
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;

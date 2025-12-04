@@ -1,12 +1,8 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-<<<<<<< HEAD
-// import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
-=======
 import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
-import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
->>>>>>> bc098a3 (feat(ioncore, ionnerrus): implement websocket networking and agent telemetry)
+//import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -54,12 +50,8 @@ public class NerrusAgent {
     private final GoalFactory goalFactory;
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
-<<<<<<< HEAD
-    // private final AutonomyEngine autonomyEngine;
-=======
-    private final AutonomyEngine autonomyEngine;
+    //private final AutonomyEngine autonomyEngine;
     private final NetworkBroadcaster broadcaster;
->>>>>>> bc098a3 (feat(ioncore, ionnerrus): implement websocket networking and agent telemetry)
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
     private final LinkedList<String> actionHistory = new LinkedList<>();
@@ -104,12 +96,8 @@ public class NerrusAgent {
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-<<<<<<< HEAD
-        // this.autonomyEngine = new AutonomyEngine(this);
-=======
         this.broadcaster = broadcaster;
-        this.autonomyEngine = new AutonomyEngine(this);
->>>>>>> bc098a3 (feat(ioncore, ionnerrus): implement websocket networking and agent telemetry)
+        //this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
 
