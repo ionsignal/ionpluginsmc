@@ -9,6 +9,10 @@ public enum NavigateToLocationResult {
      */
     SUCCESS,
     /**
+     * The navigation failed due to an internal error or unexpected state.
+     */
+    FAILURE,
+    /**
      * No path to the target location could be found.
      */
     UNREACHABLE,

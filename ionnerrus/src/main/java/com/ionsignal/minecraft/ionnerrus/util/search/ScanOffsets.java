@@ -15,7 +15,7 @@ import java.util.logging.Logger;
 public final class ScanOffsets {
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
-    private static final int REACH_RADIUS = 5;
+    private static final int REACH_RADIUS = 6;
     public static final int REACH_RADIUS_SQUARED = REACH_RADIUS * REACH_RADIUS;
     public static final List<BlockPos> HALF_SPHERE_REACH_OFFSETS;
 

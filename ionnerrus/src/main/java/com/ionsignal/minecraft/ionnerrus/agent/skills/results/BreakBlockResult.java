@@ -1,12 +1,19 @@
 package com.ionsignal.minecraft.ionnerrus.agent.skills.results;
 
 import org.bukkit.Location;
+import org.bukkit.entity.Item;
+
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
  * Describes the outcome of a block-breaking attempt.
  */
-public record BreakBlockResult(Status status, Optional<Location> obstruction) {
+public record BreakBlockResult(
+        Status status,
+        Optional<Location> obstruction,
+        List<Item> droppedItems) {
 
     public enum Status {
         /**
@@ -31,20 +38,24 @@ public record BreakBlockResult(Status status, Optional<Location> obstruction) {
         ACTION_FAILED
     }
 
+    public static BreakBlockResult success(List<Item> drops) {
+        return new BreakBlockResult(Status.SUCCESS, Optional.empty(), drops);
+    }
+
     public static BreakBlockResult success() {
-        return new BreakBlockResult(Status.SUCCESS, Optional.empty());
+        return new BreakBlockResult(Status.SUCCESS, Optional.empty(), Collections.emptyList());
     }
 
     public static BreakBlockResult alreadyBroken() {
-        return new BreakBlockResult(Status.ALREADY_BROKEN, Optional.empty());
+        return new BreakBlockResult(Status.ALREADY_BROKEN, Optional.empty(), Collections.emptyList());
     }
 
     public static BreakBlockResult outOfReach() {
-        return new BreakBlockResult(Status.OUT_OF_REACH, Optional.empty());
+        return new BreakBlockResult(Status.OUT_OF_REACH, Optional.empty(), Collections.emptyList());
     }
 
     public static BreakBlockResult failure() {
-        return new BreakBlockResult(Status.ACTION_FAILED, Optional.empty());
+        return new BreakBlockResult(Status.ACTION_FAILED, Optional.empty(), Collections.emptyList());
     }
 
     /**
@@ -54,6 +65,6 @@ public record BreakBlockResult(Status status, Optional<Location> obstruction) {
      *            The location of the obstructing block.
      */
     public static BreakBlockResult obstructed(Location location) {
-        return new BreakBlockResult(Status.OBSTRUCTED, Optional.of(location));
+        return new BreakBlockResult(Status.OBSTRUCTED, Optional.of(location), Collections.emptyList());
     }
 }

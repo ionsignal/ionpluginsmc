@@ -9,6 +9,9 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
+import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
+
+import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Location;
 
@@ -50,9 +53,23 @@ public class NavigateToLocationSkill implements Skill<NavigateToLocationResult> 
             }
             PhysicalBody body = persona.getPhysicalBody();
             if (lookAt != null) {
-                body.orientation().face(lookAt, false);
+                body.orientation().face(lookAt, false, token);
             } else {
                 body.orientation().clearLookTarget();
+            }
+            Location debugTarget = null;
+            if (preCalculatedPath != null && !preCalculatedPath.isEmpty()) {
+                // Get the very last point of the path
+                debugTarget = preCalculatedPath.getPointAtDistance(preCalculatedPath.getLength());
+            } else if (target != null) {
+                debugTarget = target;
+            }
+            if (debugTarget != null) {
+                // Visualize with a small magenta block for 60 ticks (3 seconds)
+                DebugVisualizer.highlightPoint(
+                        debugTarget,
+                        60,
+                        NamedTextColor.LIGHT_PURPLE);
             }
             // Pass the token to the physical body!
             if (preCalculatedPath != null) {
@@ -64,12 +81,17 @@ public class NavigateToLocationSkill implements Skill<NavigateToLocationResult> 
             }
         }, IonNerrus.getInstance().getMainThreadExecutor())
                 .thenCompose(future -> future)
-                .thenApply(result -> switch (result) {
-                    case SUCCESS -> NavigateToLocationResult.SUCCESS;
-                    case UNREACHABLE -> NavigateToLocationResult.UNREACHABLE;
-                    case STUCK, FAILURE -> NavigateToLocationResult.STUCK;
-                    case CANCELLED -> NavigateToLocationResult.CANCELLED;
-                    default -> NavigateToLocationResult.STUCK;
+                .thenApply(result -> {
+                    if (result == null) {
+                        return NavigateToLocationResult.FAILURE;
+                    }
+                    return switch (result) {
+                        case SUCCESS -> NavigateToLocationResult.SUCCESS;
+                        case UNREACHABLE -> NavigateToLocationResult.UNREACHABLE;
+                        case STUCK, FAILURE -> NavigateToLocationResult.STUCK;
+                        case CANCELLED -> NavigateToLocationResult.CANCELLED;
+                        default -> NavigateToLocationResult.STUCK;
+                    };
                 });
     }
 }

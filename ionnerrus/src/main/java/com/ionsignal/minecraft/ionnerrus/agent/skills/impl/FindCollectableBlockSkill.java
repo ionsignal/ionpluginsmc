@@ -59,6 +59,8 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
     public CompletableFuture<FindCollectableBlockResult> execute(NerrusAgent agent, ExecutionToken token) {
         Location start = agent.getPersona().getLocation();
         World world = start.getWorld();
+        double reach = agent.getPersona().getPhysicalBody().state().getBlockReach();
+        double eyeHeight = agent.getPersona().getPersonaEntity().getEyeHeight();
         if (world == null) {
             return CompletableFuture
                     .completedFuture(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND, Set.of()));
@@ -71,7 +73,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
         if (VISUALIZE_SEARCH) {
             Location corner1 = start.clone().add(searchRadius, searchRadius, searchRadius);
             Location corner2 = start.clone().subtract(searchRadius, searchRadius, searchRadius);
-            DebugVisualizer.visualizeBoundingBox(corner1, corner2, 20, NamedTextColor.AQUA);
+            DebugVisualizer.visualizeBoundingBox(corner1, corner2, 30, NamedTextColor.AQUA);
         }
         return WorldSnapshot.create(world, min, max)
                 .thenApplyAsync(snapshot -> {
@@ -80,7 +82,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                     // target block from different standing spots.
                     StandardMovement movementStrategy = new StandardMovement();
                     // Pass the master cache to the processor's constructor.
-                    CollectableTargetProcessor searchProcessor = new CollectableTargetProcessor();
+                    CollectableTargetProcessor searchProcessor = new CollectableTargetProcessor(reach, eyeHeight);
                     List<CollectionCandidate> candidates = BlockSearch.findReachable(
                             start, searchRadius, MAX_CANDIDATES_TO_FIND,
                             movementStrategy, searchProcessor, snapshot);
@@ -106,7 +108,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
     }
 
-    // CHANGE: New private record for scoring
+    // New private record for scoring
     private record ScoredCandidate(CollectableBlock target, double score) implements Comparable<ScoredCandidate> {
         @Override
         public int compareTo(ScoredCandidate other) {
@@ -116,12 +118,12 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
     }
 
     /**
-     * CHANGE: This method is completely rewritten to implement a multi-factor scoring system.
+     * This method is completely rewritten to implement a multi-factor scoring system.
      * It now considers path length and block exposure to find the truly optimal target.
      */
     private Optional<CollectableBlock> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates,
             WorldSnapshot snapshot, ExecutionToken token) {
-        // Step 1: De-duplicate targets, keeping only the best standing spot for each.
+        // De-duplicate targets, keeping only the best standing spot for each.
         // This ensures we don't pathfind to the same block multiple times from different spots.
         Map<Location, CollectionCandidate> bestCandidates = new HashMap<>();
         for (CollectionCandidate candidate : candidates) {
@@ -133,17 +135,17 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 return existing;
             });
         }
-        // Step 2: Limit the number of pathfinding operations for performance.
+        // Limit the number of pathfinding operations for performance.
         List<CollectionCandidate> finalCandidates = bestCandidates.values().stream()
                 .sorted(Comparator.comparingDouble(c -> agentLocation.distanceSquared(c.standingSpot())))
                 .limit(MAX_PATHFINDING_ATTEMPTS)
                 .collect(Collectors.toList());
-        // Step 3: Pathfind and score each candidate.
+        // Pathfind and score each candidate.
         List<ScoredCandidate> scoredAndPathable = new ArrayList<>();
         for (CollectionCandidate candidate : finalCandidates) {
             if (VISUALIZE_SEARCH) {
                 IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                    DebugVisualizer.highlightBlock(candidate.standingSpot(), 60, NamedTextColor.LIGHT_PURPLE);
+                    DebugVisualizer.highlightBlock(candidate.standingSpot().getBlock().getLocation(), 60, NamedTextColor.LIGHT_PURPLE);
                 });
             }
             Optional<Path> pathOpt = AStarPathfinder
@@ -160,7 +162,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                         score));
             }
         }
-        // Step 4: Return the candidate with the best (lowest) final score.
+        // Return the candidate with the best (lowest) final score.
         return scoredAndPathable.stream()
                 .min(Comparator.naturalOrder())
                 .map(ScoredCandidate::target);
@@ -199,8 +201,8 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
      * is evaluated only once per skill execution for maximum performance.
      */
     private class CollectableTargetProcessor implements BlockSearch.ISearchProcessor<CollectionCandidate> {
-        // Added a final field to hold the master cache for the entire skill execution.
-        // private final Set<BlockPos> processedTargetBlocks;
+        private final double reachSquared;
+        private final double eyeHeight;
 
         /**
          * Constructor to accept the master cache.
@@ -209,8 +211,9 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
          *            A set to track all block positions that have been evaluated as
          *            potential targets during this skill's execution.
          */
-        public CollectableTargetProcessor() { // (Set<BlockPos> processedTargetBlocks) {
-            // this.processedTargetBlocks = processedTargetBlocks;
+        public CollectableTargetProcessor(double reach, double eyeHeight) {
+            this.reachSquared = reach * reach;
+            this.eyeHeight = eyeHeight;
         }
 
         /**
@@ -221,36 +224,41 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
         public List<CollectionCandidate> process(BlockSearch.TraversalNode node, World world, WorldSnapshot snapshot) {
             List<CollectionCandidate> found = new ArrayList<>();
             BlockPos standingPos = node.pos();
-            Location standingLocation = new Location(world, standingPos.getX() + 0.5, standingPos.getY(), standingPos.getZ() + 0.5);
+            // Calculate Eye Position for precise reach check (matches BreakBlockSkill logic)
+            Location eyeLocation = new Location(world,
+                    standingPos.getX() + 0.5,
+                    standingPos.getY() + eyeHeight,
+                    standingPos.getZ() + 0.5);
             // The Main Scan Loop: Iterate over pre-computed half-sphere offsets.
             for (BlockPos offset : ScanOffsets.HALF_SPHERE_REACH_OFFSETS) {
                 // Step A: Calculate Absolute Position of the potential target.
                 BlockPos potentialTargetPos = standingPos.offset(offset);
-                // Step B (Optimization 1 - Global Cache): Check if this block has already been processed
-                // by any previous call to `process` within this skill's execution. This is the most
-                // important optimization, preventing redundant checks for the same block from different standing
-                // spots.
-                // if (processedTargetBlocks.contains(potentialTargetPos)) {
-                // continue; // Already processed from another standing spot, skip.
-                // }
-                // processedTargetBlocks.add(potentialTargetPos);
+                // Step B: Optimization - Distance Check FIRST
+                // We check distance before accessing the snapshot to save performance.
+                // Target center is offset + 0.5
+                Location targetCenter = new Location(world,
+                        potentialTargetPos.getX() + 0.5,
+                        potentialTargetPos.getY() + 0.5,
+                        potentialTargetPos.getZ() + 0.5);
+                if (eyeLocation.distanceSquared(targetCenter) > reachSquared) {
+                    continue;
+                }
                 // Step C: World Data Validation: Check if the block is of a desired material.
                 BlockState targetState = snapshot.getBlockState(potentialTargetPos);
                 if (targetState == null || !materials.contains(targetState.getBukkitMaterial())) {
                     continue;
                 }
                 // Step D: Gameplay Logic Validation: Check against the skill's exclusion list.
+                // We reuse targetCenter but floor it for the exclusion check if needed,
+                // or just create the block location object.
                 Location targetBlockLocation = new Location(world, potentialTargetPos.getX(), potentialTargetPos.getY(),
                         potentialTargetPos.getZ());
                 if (excludedLocations.contains(targetBlockLocation)) {
                     continue;
                 }
-                // Step E (Final Reach Check): This is a sanity check to confirm the block is within the
-                // agent's physical reach from this specific standing spot, using a precise distance check.
-                if (standingLocation.distanceSquared(targetBlockLocation.clone().add(0.5, 0.5, 0.5)) > ScanOffsets.REACH_RADIUS_SQUARED) {
-                    continue;
-                }
-                // Step F (Success): All checks passed. This is a valid candidate.
+                // Step E (Success): All checks passed.
+                // We pass the standing location (feet) for pathfinding purposes.
+                Location standingLocation = new Location(world, standingPos.getX() + 0.5, standingPos.getY(), standingPos.getZ() + 0.5);
                 found.add(new CollectionCandidate(targetBlockLocation, standingLocation));
                 if (VISUALIZE_SEARCH) {
                     IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
