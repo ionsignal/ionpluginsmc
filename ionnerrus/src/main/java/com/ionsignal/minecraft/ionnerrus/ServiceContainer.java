@@ -147,12 +147,10 @@ public class ServiceContainer {
     private static void initializeNetworkIntegration(IonNerrus plugin, AgentService agentService) {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
-
-            // 1. Input: Bootstrap (Commands from Web)
+            // Bootstrap (Commands from Web)
             NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService);
             netBootstrap.registerAll();
-
-            // 2. Output: Listener (Events to Web)
+            // Listener (Events to Web)
             plugin.getServer().getPluginManager().registerEvents(
                     new NetworkEventListener(),
                     plugin);
@@ -295,10 +293,22 @@ public class ServiceContainer {
         return craftEngineService;
     }
 
+    /**
+     * Gets the chat bubble service. Can return null if FancyHolograms is not available or
+     * initialization failed. Callers must check for null before use.
+     *
+     * @return ChatBubbleService instance, or null if unavailable.
+     */
     public ChatBubbleService getChatBubbleService() {
         return chatBubbleService; // NOTE: Can be null
     }
 
+    /**
+     * Gets the HUD Manager. Can return null if CraftEngine is not available or
+     * initialization failed. Callers must check for null before use.
+     *
+     * @return HudManager instance, or null if unavailable
+     */
     public HudManager getHudManager() {
         return hudManager; // NOTE: Can be null
     }
@@ -327,6 +337,12 @@ public class ServiceContainer {
         if (chatBubbleService != null) {
             shutdownService("ChatBubbleService", chatBubbleService::cleanup);
         }
+        // Layer 4: Goal system (no cleanup needed, but listed for clarity)
+        // goalFactory and goalRegistry are stateless
+        // ...
+        // Layer 3: Content systems (no cleanup needed)
+        // recipeService and blockTagManager are stateless
+        // ...
         // Layer 2: Platform-specific managers
         if (nerrusManager != null) {
             shutdownService("NerrusManager", nerrusManager::shutdown);
@@ -334,9 +350,14 @@ public class ServiceContainer {
         if (hudManager != null) {
             shutdownService("HudManager", hudManager::shutdown);
         }
+        // Layer 1: Configuration (no cleanup needed)
         plugin.getLogger().info("Service container shutdown complete.");
     }
 
+    /**
+     * Helper to safely shut down a single service with exception isolation.
+     * If one service fails to shut down, others still proceed.
+     */
     private void shutdownService(String serviceName, Runnable shutdownAction) {
         try {
             plugin.getLogger().info("Shutting down " + serviceName + "...");
