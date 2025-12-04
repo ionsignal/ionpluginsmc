@@ -16,6 +16,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class AgentService {
@@ -41,7 +42,7 @@ public class AgentService {
      * Implement agent persistence later, let's disable for now for speeding up development.
      */
     public NerrusAgent spawnAgent(String name, Location location, String skinNameToFetch) {
-        Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name);
+        Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name, Optional.empty());
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
         NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
