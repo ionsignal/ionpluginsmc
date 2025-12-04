@@ -11,7 +11,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParam
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
-import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;
 
 import org.bukkit.Location;
@@ -21,10 +20,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class GatherBlockGoal implements Goal {
+    private final static int DEFAULT_SEARCH_RADIUS = 48;
+
     // Internal FSM States
     private enum State {
         STARTING, VERIFYING_INVENTORY, GATHERING_BATCH, COMPLETED, FAILED
@@ -44,12 +44,13 @@ public class GatherBlockGoal implements Goal {
     private final Logger logger;
     private final Set<Material> materials;
     private final GatherBlockParameters params;
+    private final Set<Location> attemptedLocations = new HashSet<>();
 
     // State Data
-    private final Set<Location> attemptedLocations = new HashSet<>();
     private State state = State.STARTING;
     private int currentCount = 0;
     private String failureReason = null;
+    private GatherResult lastGatherStatus = GatherResult.SUCCESS;
 
     public GatherBlockGoal(Set<Material> materials, GatherBlockParameters params) {
         this.materials = materials;
@@ -59,111 +60,90 @@ public class GatherBlockGoal implements Goal {
 
     @Override
     public void start(NerrusAgent agent, ExecutionToken token) {
-        this.attemptedLocations.clear();
-        this.state = State.VERIFYING_INVENTORY;
         agent.speak("Okay, I'll get " + params.quantity() + " " + params.groupName() + ".");
-
-        // Kick off the loop: Check what we already have.
-        dispatchInventoryCheck(agent);
+        this.attemptedLocations.clear();
+        checkInventory(agent, token);
     }
 
     @Override
     public void process(NerrusAgent agent, ExecutionToken token) {
-        // No-Op: Logic is now entirely event-driven in onMessage.
-        // We do not poll state here.
+        // no-op
     }
 
     @Override
     public void onMessage(NerrusAgent agent, Object message, ExecutionToken token) {
         switch (message) {
-            // Data Update: Received inventory count
-            case InventoryCountResult result -> {
-                this.currentCount = result.count();
-                logger.info(String.format("[%s] Inventory check: %d/%d %s",
-                        agent.getName(), currentCount, params.quantity(), params.groupName()));
+            case InventoryCountResult result -> handleInventoryResult(agent, result);
+            case GatherAttemptResult result -> {
+                this.lastGatherStatus = result.status();
             }
-            // Data Update: Received feedback from the Gather Task (Monolithic script feedback)
-            case GatherAttemptResult result -> handleGatherFeedback(result);
-            // Lifecycle Update: A Task has finished
-            case TaskCompleted event -> handleTaskCompletion(agent, event);
+            case TaskCompleted event -> handleTaskCompletion(agent, token, event);
             default -> {
-            } // Ignore unknown messages
-        }
-    }
-
-    /**
-     * The core FSM transition logic.
-     * Decides what to do next based on which task just finished.
-     */
-    private void handleTaskCompletion(NerrusAgent agent, TaskCompleted event) {
-        if (event.error().isPresent()) {
-            fail("Task failed unexpectedly: " + event.error().get().getMessage());
-            return;
-        }
-        // Identify which task finished based on our current state
-        switch (state) {
-            case VERIFYING_INVENTORY:
-                // We just finished counting. Do we have enough?
-                if (currentCount >= params.quantity()) {
-                    complete();
-                } else {
-                    // Not enough. Start gathering.
-                    this.state = State.GATHERING_BATCH;
-                    // Dispatch the monolithic task (treated as a black box for now)
-                    // It will run its script and eventually fire TaskCompleted
-                    Task gatherTask = new GatherBlockTask(materials, null, 48, attemptedLocations);
-                    agent.setCurrentTask(gatherTask);
-                }
-                break;
-            case GATHERING_BATCH:
-                // We just finished a gather attempt (successful or not).
-                // Verify inventory to confirm progress and decide next step.
-                this.state = State.VERIFYING_INVENTORY;
-                dispatchInventoryCheck(agent);
-                break;
-            default:
-                // Should not happen if state is managed correctly
-                break;
+                // no-op
+            }
         }
     }
 
     /**
      * Wraps the CountItemsSkill in an anonymous Task to fit the TaskCompleted lifecycle.
      */
-    private void dispatchInventoryCheck(NerrusAgent agent) {
-        Task checkTask = new Task() {
-            @Override
-            public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
-                return new CountItemsSkill(materials).execute(agent, token)
-                        .thenAcceptAsync(counts -> {
-                            int total = counts.values().stream().mapToInt(Integer::intValue).sum();
-                            // Post data back to Goal
-                            agent.postMessage(token, new InventoryCountResult(total));
-                        }, IonNerrus.getInstance().getMainThreadExecutor());
-            }
-        };
-        agent.setCurrentTask(checkTask);
+    private void checkInventory(NerrusAgent agent, ExecutionToken token) {
+        this.state = State.VERIFYING_INVENTORY;
+        // Execute as Skill (Atomic, Fast)
+        agent.executeSkill(
+                new CountItemsSkill(materials), token, counts -> {
+                    int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+                    return new InventoryCountResult(total);
+                });
     }
 
     /**
-     * Handles intermediate feedback from the GatherBlockTask.
-     * Even though the task is a "black box", it sends these messages to inform us of specific failures.
+     * Handles the result of the CountItemsSkill.
+     * Since this is a Skill, the agent is free, so we can transition immediately.
      */
-    private void handleGatherFeedback(GatherAttemptResult result) {
-        switch (result.status()) {
+    private void handleInventoryResult(NerrusAgent agent, InventoryCountResult result) {
+        this.currentCount = result.count();
+        logger.info(String.format("[%s] Inventory: %d/%d %s", agent.getName(), currentCount, params.quantity(), params.groupName()));
+        if (currentCount >= params.quantity()) {
+            complete();
+        } else {
+            // Transition to "gathering" blocks state
+            this.state = State.GATHERING_BATCH;
+            // Start the heavy Task
+            agent.setCurrentTask(new GatherBlockTask(
+                    materials,
+                    DEFAULT_SEARCH_RADIUS,
+                    attemptedLocations));
+        }
+    }
+
+    /**
+     * Handles the completion of the GatherBlockTask.
+     * This is where we decide whether to loop or fail based on 'lastGatherStatus'.
+     */
+    private void handleTaskCompletion(NerrusAgent agent, ExecutionToken token, TaskCompleted event) {
+        if (state != State.GATHERING_BATCH) {
+            return;
+        }
+        if (event.error().isPresent()) {
+            fail("Task failed: " + event.error().get().getMessage());
+            return;
+        }
+        // Analyze the result of the task that just finished
+        switch (lastGatherStatus) {
             case SUCCESS:
-                // Clear attempted locations so we can retry spots from new angles if needed
-                this.attemptedLocations.clear();
-                break;
-            case NO_BLOCKS_IN_RANGE:
-                fail("I can't find any more " + params.groupName() + " nearby.");
+                // Loop back to inventory check
+                this.attemptedLocations.clear(); // Reset cache on success
+            case FAILED_TO_COLLECT: // Transient failure, retry logic handles it
+                // this.state = State.VERIFYING_INVENTORY;
+                // checkInventory(agent, token);
+                complete();
                 break;
             case NO_REACHABLE_BLOCKS_IN_RANGE:
-                fail("I can see " + params.groupName() + ", but I can't reach them.");
+                fail("I see " + params.groupName() + ", but I can't reach them.");
                 break;
-            case FAILED_TO_COLLECT:
-                // Transient failure. The TaskCompleted event will trigger a re-verify and retry.
-                logger.warning("Gather attempt failed, retrying loop.");
+            case NO_BLOCKS_IN_RANGE:
+                fail("I can't find any more " + params.groupName() + ".");
                 break;
         }
     }
