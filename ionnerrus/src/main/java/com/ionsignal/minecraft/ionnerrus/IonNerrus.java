@@ -105,30 +105,6 @@ public class IonNerrus extends JavaPlugin {
         } catch (Exception e) {
             getLogger().warning("Recipe modification failed (non-critical): " + e.getMessage());
         }
-        //Network Integration
-        if (getServer().getPluginManager().isPluginEnabled("IonCore")) {
-            try {
-                getLogger().info("IonCore detected. Initializing Network services...");
-                
-                // 1. Input: Bootstrap (Commands from Web)
-                com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap netBootstrap = 
-                    new com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap(this, services.getAgentService());
-                netBootstrap.registerAll();
-                
-                // 2. Output: Listener (Events to Web)
-                getServer().getPluginManager().registerEvents(
-                    new com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkEventListener(), 
-                    this
-                );
-                
-            } catch (Exception e) {
-                getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
-                e.printStackTrace();
-            }
-        } else {
-            getLogger().info("IonCore not found. Running in standalone offline mode.");
-        }
-
         getLogger().info("IonNerrus v" + getPluginMeta().getVersion() + " has been enabled successfully.");
     }
 

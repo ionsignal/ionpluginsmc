@@ -1,4 +1,3 @@
-// File: ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/persona/NerrusTick.java
 package com.ionsignal.minecraft.ionnerrus.persona;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
@@ -20,11 +19,11 @@ public class NerrusTick extends BukkitRunnable {
 
     @Override
     public void run() {
-        // 1. Tick Physical Personas (Physics/Movement)
+        // Tick Physical Personas (Physics/Movement)
         for (Persona persona : manager.getRegistry().getAll()) {
             if (persona.isSpawned()) {
                 if (isPaused(persona)) {
-                    continue; 
+                    continue;
                 }
                 try {
                     persona.tick();
@@ -34,8 +33,7 @@ public class NerrusTick extends BukkitRunnable {
                 }
             }
         }
-
-        // 2. Tick Agents (Brain/Network)
+        // Tick Agents (Brain/Network)
         IonNerrus plugin = IonNerrus.getInstance();
         if (plugin != null && plugin.getAgentService() != null) {
             for (NerrusAgent agent : plugin.getAgentService().getAgents()) {
@@ -44,28 +42,21 @@ public class NerrusTick extends BukkitRunnable {
                     Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore
                             .getDebugRegistry()
                             .getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
-
                     if (sessionOpt.isPresent()) {
                         DebugSession<AgentDebugState> session = sessionOpt.get();
                         ExecutionController controller = session.getController().orElse(null);
-                        
                         if (controller != null && controller.isPaused()) {
                             continue; // Skip if paused by debug tool
                         }
-                        
                         // Update Debug Snapshot
                         AgentDebugState snapshot = AgentDebugState.snapshot(agent);
                         session.setState(snapshot);
-                        
                         if (controller != null) {
                             String nextMsg = snapshot.nextMessage() != null ? snapshot.nextMessage() : "No messages";
                             controller.pause("Message Processing", "Next: " + nextMsg);
                         }
                     }
-
-                    // *** THE FIX: Call tick(), NOT processMessages() ***
-                    agent.tick(); 
-
+                    agent.tick();
                 } catch (Exception e) {
                     manager.getLogger().severe("Error ticking agent " + agent.getName());
                     e.printStackTrace();
