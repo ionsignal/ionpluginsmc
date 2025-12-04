@@ -1,11 +1,11 @@
 plugins {
     id("paperweight-conventions")
-    // NEW: Apply Shadow plugin
     alias(libs.plugins.shadow)
 }
 
 description = "Core framework for Ion Signal plugins"
 
+// Configure paperweight for Mojang production mappings
 paperweight.reobfArtifactConfiguration.set(
     io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 )
@@ -15,6 +15,7 @@ val devJar by configurations.creating {
     isCanBeResolved = false
 }
 
+// Expose the development JAR as a consumable artifact for other subprojects (IDE support).
 dependencies {
     implementation("org.java-websocket:Java-WebSocket:1.5.4")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -22,11 +23,12 @@ dependencies {
 }
 
 tasks {
+    // The standard jar task produces a dev JAR with Mojang mappings
     jar {
         archiveClassifier.set("mojmap")
     }
 
-    // NEW: Configure Shadow Jar
+    // Configure Shadow Jar
     shadowJar {
         // Use empty classifier for the final server-ready jar
         archiveClassifier.set("") 
@@ -51,7 +53,7 @@ tasks {
         }
     }
     
-    // NEW: Ensure shadowJar runs when building
+    // Ensure shadowJar runs when building
     assemble {
         dependsOn(shadowJar)
     }
