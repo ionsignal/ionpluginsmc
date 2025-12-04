@@ -1,8 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.persona.locomotion;
 
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
+import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
 
-import org.bukkit.Location;
+import org.bukkit.util.Vector;
 
 import java.util.Optional;
 
@@ -15,7 +16,7 @@ public interface Maneuver {
      * Called once when the maneuver is first initiated by the LocomotionController.
      * Use this to set initial velocity or state (e.g., trigger the jump).
      */
-    void start(PersonaEntity entity);
+    void start(PersonaEntity entity, Optional<Vector> exitHeading);
 
     /**
      * Called every tick to update the maneuver's state.
@@ -27,7 +28,7 @@ public interface Maneuver {
      * Called when the maneuver is finished or interrupted to clean up state. (e.g., stopping jump
      * control input).
      */
-    void stop(PersonaEntity entity);
+    ManeuverResult stop(PersonaEntity entity);
 
     /**
      * Checks if the maneuver has completed (successfully or failed).
@@ -37,21 +38,12 @@ public interface Maneuver {
     boolean isFinished();
 
     /**
-     * Gets a specific location the entity *must* face during this maneuverand if present, this
-     * overrides high-level orientation commands (like tracking an entity).
+     * Gets the specific orientation intent required by this maneuver.
+     * This replaces the ambiguous `getOrientationTarget` and `shouldLockBody` methods.
      *
-     * @return An optional target location to look at.
+     * @return The orientation intent for this tick.
      */
-    default Optional<Location> getOrientationTarget() {
-        return Optional.empty();
-    }
-
-    /**
-     * Determines if the body rotation should be locked to the head rotation during this maneuver.
-     * 
-     * @return true to lock body (Jump), false to allow independent movement (Drop).
-     */
-    default boolean shouldLockBody() {
-        return true; // Default to safe, locked behavior (e.g. for Jumps)
+    default OrientationIntent getOrientation() {
+        return new OrientationIntent.Idle();
     }
 }

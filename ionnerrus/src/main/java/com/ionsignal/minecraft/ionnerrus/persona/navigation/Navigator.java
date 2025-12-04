@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.MetadataKeys;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.LocomotionController;
+import com.ionsignal.minecraft.ionnerrus.persona.locomotion.ManeuverResult;
 import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
@@ -14,6 +15,7 @@ import org.bukkit.entity.Entity;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -27,11 +29,13 @@ public class Navigator {
     // Stuck check constants
     private static final int STUCK_TIME_THRESHOLD_TICKS = 40;
     private static final int STUCK_CHECK_INTERVAL_TICKS = 10;
-    private static final double STUCK_DISTANCE_THRESHOLD_SQUARED = 0.25;
+    private static final double STUCK_DISTANCE_THRESHOLD = 0.3;
+    private static final double STUCK_DISTANCE_THRESHOLD_SQUARED = STUCK_DISTANCE_THRESHOLD * STUCK_DISTANCE_THRESHOLD;
 
     // Deceleration constants
-    private static final double DECELERATION_DISTANCE_SQUARED = 1.5 * 1.5;
-    private static final float MIN_DECELERATION_SPEED = 0.1f;
+    private static final float MIN_DECELERATION_SPEED = 0.08f;
+    private static final double DECELERATION_DISTANCE = 1.5;
+    private static final double DECELERATION_DISTANCE_SQUARED = DECELERATION_DISTANCE * DECELERATION_DISTANCE;
 
     // Repath constants
     private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = 144.0;
@@ -45,15 +49,16 @@ public class Navigator {
 
     private State state = State.IDLE;
 
+    // State
+    private CompletableFuture<MovementResult> activeFuture;
+
     // Path Following State
     private Path currentPath;
     private PathFollower pathFollower;
-    private CompletableFuture<MovementResult> navigationFuture;
     private boolean isPathfinding = false;
 
     // Engaging State
     private Entity engageTarget;
-    private CompletableFuture<MovementResult> engageFuture;
     private double engageProximitySquared;
     private Location stuckCheckLocation;
     private int ticksSinceStuckCheck;
@@ -64,8 +69,6 @@ public class Navigator {
     private double followDistanceSquared;
     private double stopDistanceSquared;
     private Path currentFollowPath;
-
-    // TODO: FIX Navigator State Naming Ambiguity [navigationFuture/engageFuture] (Severity: LOW)
 
     public Navigator(Persona persona, LocomotionController locomotion) {
         this.persona = persona;
@@ -84,7 +87,7 @@ public class Navigator {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
         state = State.PATH_FOLLOWING;
-        navigationFuture = new CompletableFuture<>();
+        activeFuture = new CompletableFuture<>();
         resetStuckDetection();
         // Initiate pathfinding
         AStarPathfinder.findPath(persona.getLocation(), target, params, token)
@@ -111,7 +114,7 @@ public class Navigator {
                         finishPathing(MovementResult.UNREACHABLE);
                     }
                 }, persona.getManager().getPlugin().getMainThreadExecutor());
-        return navigationFuture;
+        return activeFuture;
     }
 
     public CompletableFuture<MovementResult> navigateTo(Path path, ExecutionToken token) {
@@ -120,7 +123,7 @@ public class Navigator {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
         state = State.PATH_FOLLOWING;
-        navigationFuture = new CompletableFuture<>();
+        activeFuture = new CompletableFuture<>();
         resetStuckDetection();
         // Directly use the provided path, skipping the pathfinding step.
         if (path != null && !path.isEmpty()) {
@@ -130,7 +133,7 @@ public class Navigator {
             // Complete immediately if path is invalid
             finishPathing(MovementResult.UNREACHABLE);
         }
-        return navigationFuture;
+        return activeFuture;
     }
 
     public CompletableFuture<MovementResult> engageOn(Entity target, double proximityDistanceSquared, ExecutionToken token) {
@@ -142,8 +145,8 @@ public class Navigator {
         state = State.ENGAGING;
         engageTarget = target;
         engageProximitySquared = proximityDistanceSquared;
-        engageFuture = new CompletableFuture<>();
-        return engageFuture;
+        activeFuture = new CompletableFuture<>();
+        return activeFuture;
     }
 
     public CompletableFuture<MovementResult> followOn(Entity target, double followDistance, double stopDistance, ExecutionToken token) {
@@ -152,7 +155,7 @@ public class Navigator {
             cancelCurrentOperation(MovementResult.CANCELLED);
         }
         state = State.FOLLOWING;
-        navigationFuture = new CompletableFuture<>();
+        activeFuture = new CompletableFuture<>();
         // Reset stuck
         resetStuckDetection();
         // Store instance vars
@@ -160,7 +163,10 @@ public class Navigator {
         this.followDistanceSquared = followDistance * followDistance;
         this.stopDistanceSquared = stopDistance * stopDistance;
         this.currentFollowPath = null;
-        this.pathFollower = null;
+        if (this.pathFollower != null) {
+            this.pathFollower.cleanup();
+            this.pathFollower = null;
+        }
         this.isPathfinding = true;
         Location agentLocation = persona.getLocation();
         Location targetLocation = followTarget.getLocation();
@@ -175,7 +181,7 @@ public class Navigator {
                         if (!(cause instanceof CancellationException)) {
                             persona.getManager().getPlugin().getLogger().warning("Follow pathfinding failed: " + cause.getMessage());
                         }
-                        finishFollowing(cause instanceof CancellationException ? MovementResult.CANCELLED : MovementResult.FAILURE);
+                        finishPathing(cause instanceof CancellationException ? MovementResult.CANCELLED : MovementResult.FAILURE);
                         return;
                     }
                     if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
@@ -185,10 +191,10 @@ public class Navigator {
                         }
                         pathFollower = new PathFollower(currentFollowPath);
                     } else {
-                        finishFollowing(MovementResult.UNREACHABLE);
+                        finishPathing(MovementResult.UNREACHABLE);
                     }
                 }, persona.getManager().getPlugin().getMainThreadExecutor());
-        return navigationFuture;
+        return activeFuture;
     }
 
     public void tick() {
@@ -198,39 +204,53 @@ public class Navigator {
             }
             return;
         }
-        if (locomotion.isBlocked()) {
-            locomotion.clearBlocked();
-            persona.getManager().getPlugin().getLogger()
-                    .warning("Persona " + persona.getName() + " collision detected (Bumper). Reporting Stuck.");
-            finishPathing(MovementResult.STUCK);
+        // Check for Maneuver Handoff (Explicit Result Consumption)
+        Optional<ManeuverResult> maneuverResult = locomotion.popLastResult();
+        if (maneuverResult.isPresent()) {
+            ManeuverResult result = maneuverResult.get();
+            if (result.status() == ManeuverResult.Status.SUCCESS) {
+                // Maneuver succeeded. Snap path follower to the next segment.
+                if (pathFollower != null && (state == State.PATH_FOLLOWING || state == State.FOLLOWING)) {
+                    Path activePath = (state == State.FOLLOWING) ? currentFollowPath : currentPath;
+                    if (activePath != null) {
+                        // We assume the maneuver brought us to the end of the current segment.
+                        // We snap to the NEXT node's distance.
+                        double currentDist = pathFollower.getCurrentDist();
+                        double nextNodeDist = activePath.getNextNodeDistance(currentDist + 0.1);
+                        pathFollower.snapToSegment(nextNodeDist);
+                        // Reset stuck detection because a maneuver just finished successfully
+                        resetStuckDetection();
+                    }
+                }
+            } else {
+                // Maneuver failed (timeout or physics issue)
+                log();
+                persona.getManager().getPlugin().getLogger().warning("Maneuver failed: " + result.message());
+                finishPathing(MovementResult.STUCK);
+                return;
+            }
+        }
+        // If maneuvering, skip all steering logic because the maneuver has total control of the physics.
+        if (locomotion.isManeuvering()) {
             return;
         }
         // Check for geometric deviation (Tether Snap)
         if (state == State.PATH_FOLLOWING && pathFollower != null && pathFollower.isOffPath()) {
-            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " deviated from path (Tether Snap).");
             log();
+            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " deviated from path (Tether Snap).");
             finishPathing(MovementResult.STUCK);
             return;
         }
         // Standard Stuck detection (Temporal)
-        // We pause stuck detection if the LocomotionController is performing a Maneuver (Jump/Drop) because
-        // maneuvers have their own internal timeouts, and often require special timeout handling
-        if (isBusy() && !locomotion.isManeuvering() && !isPathfinding && checkIfStuck()) {
+        if (isBusy() && !isPathfinding && checkIfStuck()) {
             log();
             persona.getManager().getPlugin().getLogger()
                     .warning("Persona " + persona.getName() + " is stuck (Temporal). Failing current task.");
-            if (state == State.PATH_FOLLOWING) {
-                finishPathing(MovementResult.STUCK);
-            } else if (state == State.ENGAGING) {
-                finishEngaging(MovementResult.STUCK);
-            } else if (state == State.FOLLOWING) {
-                finishFollowing(MovementResult.STUCK);
-            }
-            return; // Stop further processing this tick.
+            finishPathing(MovementResult.STUCK);
+            return;
         }
         switch (state) {
             case IDLE:
-                // Do nothing
                 break;
             case PATH_FOLLOWING:
                 tickPathFollowing();
@@ -248,14 +268,8 @@ public class Navigator {
         if (pathFollower == null) {
             return;
         }
-        // Check if blocked by dynamic obstacle
-        if (locomotion.isBlocked()) {
-            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " collision detected (Bumper).");
-            // Immediately triggers stuck
-            finishPathing(MovementResult.STUCK);
-            return;
-        }
         Location currentLocation = persona.getLocation();
+        pathFollower.updateState(currentLocation);
         if (pathFollower.isFinished(currentLocation)) {
             // Only finish pathing if the state is actually PATH_FOLLOWING.
             if (state == State.PATH_FOLLOWING) {
@@ -288,12 +302,12 @@ public class Navigator {
     private void tickEngaging() {
         // Check if target is still valid
         if (engageTarget == null || engageTarget.isDead()) {
-            finishEngaging(MovementResult.TARGET_LOST);
+            finishPathing(MovementResult.TARGET_LOST);
             return;
         }
         Location agentLocation = persona.getLocation();
         if (agentLocation.distanceSquared(engageTarget.getLocation()) < engageProximitySquared) {
-            finishEngaging(MovementResult.SUCCESS);
+            finishPathing(MovementResult.SUCCESS);
             return;
         }
         // Dampen speed as we get closer for a smoother stop
@@ -310,7 +324,7 @@ public class Navigator {
 
     private void tickFollowing() {
         if (followTarget == null || followTarget.isDead()) {
-            finishFollowing(MovementResult.TARGET_LOST);
+            finishPathing(MovementResult.TARGET_LOST);
             return;
         }
         if (isPathfinding) {
@@ -323,20 +337,28 @@ public class Navigator {
         if (distanceSq < stopDistanceSquared) {
             // Use locomotion stop instead of direct entity access
             locomotion.stop();
+            // Reset stuck detection to prevent false positives
+            resetStuckDetection();
             currentFollowPath = null;
-            pathFollower = null;
+            if (this.pathFollower != null) {
+                this.pathFollower.cleanup();
+                this.pathFollower = null;
+            }
         } else if (distanceSq < followDistanceSquared) {
             SteeringResult result = new SteeringResult(targetLocation, SteeringResult.MovementType.WALK);
             locomotion.drive(result, getSpeed());
             currentFollowPath = null;
-            pathFollower = null;
+            if (this.pathFollower != null) {
+                this.pathFollower.cleanup();
+                this.pathFollower = null;
+            }
         } else {
             // Target moved from path end
             boolean needsRepath = currentFollowPath == null || pathFollower == null || pathFollower.isFinished(agentLocation) ||
                     currentFollowPath.getPointAtDistance(currentFollowPath.getLength())
                             .distanceSquared(targetLocation) > FOLLOW_DISTANCE_THRESHOLD_SQUARED;
             if (needsRepath) {
-                finishFollowing(MovementResult.REPATH_NEEDED);
+                finishPathing(MovementResult.REPATH_NEEDED);
                 return;
             }
             if (pathFollower != null && currentFollowPath != null) {
@@ -388,13 +410,9 @@ public class Navigator {
     public void cancelCurrentOperation(MovementResult reason) {
         switch (state) {
             case PATH_FOLLOWING:
-                finishPathing(reason);
-                break;
             case ENGAGING:
-                finishEngaging(reason);
-                break;
             case FOLLOWING:
-                finishFollowing(reason);
+                finishPathing(reason);
                 break;
             case IDLE:
                 break;
@@ -402,22 +420,8 @@ public class Navigator {
     }
 
     private void finishPathing(MovementResult result) {
-        if (navigationFuture != null && !navigationFuture.isDone()) {
-            navigationFuture.complete(result);
-        }
-        reset();
-    }
-
-    public void finishEngaging(MovementResult result) {
-        if (engageFuture != null && !engageFuture.isDone()) {
-            engageFuture.complete(result);
-        }
-        reset();
-    }
-
-    private void finishFollowing(MovementResult result) {
-        if (navigationFuture != null && !navigationFuture.isDone()) {
-            navigationFuture.complete(result);
+        if (activeFuture != null && !activeFuture.isDone()) {
+            activeFuture.complete(result);
         }
         reset();
     }
@@ -425,10 +429,12 @@ public class Navigator {
     private void reset() {
         locomotion.stop();
         this.isPathfinding = false;
-        this.navigationFuture = null;
         this.currentPath = null;
-        this.pathFollower = null;
-        this.engageFuture = null;
+        if (this.pathFollower != null) {
+            this.pathFollower.cleanup();
+            this.pathFollower = null;
+        }
+        this.activeFuture = null;
         this.engageTarget = null;
         this.followTarget = null;
         this.currentFollowPath = null;
