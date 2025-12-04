@@ -9,7 +9,7 @@ softdepend: [CraftEngine, FancyHolograms, Terra]
 commands:
   nerrus:
     description: Manages Nerrus agents and their tasks.
-    usage: "/<command> <spawn|remove|stop|gather|follow|give|ask|do|list> ..."
+    usage: "/<command> <spawn|remove|stop|gather|follow|give|ask|do|list> [args...]"
     aliases: [ionnerrus]
     permission: ionnerrus.admin
   nerrusdebug:
