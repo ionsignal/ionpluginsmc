@@ -52,7 +52,9 @@ public class FollowEntityTask implements Task {
     public void onMessage(NerrusAgent agent, Object message, ExecutionToken token) {
         if (message instanceof MovementUpdate update) {
             // Handle tactical retries (Target moved, or path currently blocked)
-            if (update.result() == MovementResult.REPATH_NEEDED || update.result() == MovementResult.UNREACHABLE) {
+            if (update.result() == MovementResult.REPATH_NEEDED ||
+                    update.result() == MovementResult.UNREACHABLE ||
+                    update.result() == MovementResult.STUCK) {
                 if (target.isValid() && !target.isDead()) {
                     long now = System.currentTimeMillis();
                     long timeSinceLast = now - lastRepathTime;
