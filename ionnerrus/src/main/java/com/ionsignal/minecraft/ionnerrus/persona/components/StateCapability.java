@@ -29,4 +29,12 @@ public interface StateCapability {
      * Checks if the entity is alive and valid.
      */
     boolean isAlive();
+
+    /**
+     * Gets the maximum reach distance for block interactions.
+     * Backed by the {@link org.bukkit.attribute.Attribute#PLAYER_BLOCK_INTERACTION_RANGE} attribute.
+     *
+     * @return The reach distance in blocks.
+     */
+    double getBlockReach();
 }

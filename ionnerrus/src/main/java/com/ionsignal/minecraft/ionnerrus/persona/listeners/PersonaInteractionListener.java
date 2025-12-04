@@ -50,7 +50,8 @@ public class PersonaInteractionListener implements Listener {
                 if (persona.getPhysicalBody().state().isInventoryOpen())
                     return; // Don't interrupt if inventory is open
                 if (persona.isSpawned()) {
-                    persona.getPhysicalBody().orientation().face(damager);
+                    // TODO: token?
+                    // persona.getPhysicalBody().orientation().face(damager);
                 }
             }
             // Always cancel the original event to prevent damage and knockback.
