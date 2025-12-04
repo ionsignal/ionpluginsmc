@@ -54,6 +54,7 @@ public class BlockBreakerAction implements Action {
     }
 
     @Override
+    @SuppressWarnings("null")
     public void tick() {
         if (status != ActionStatus.RUNNING) {
             return;

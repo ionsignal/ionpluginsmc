@@ -52,6 +52,7 @@ public class PlaceBlockAction implements Action {
     }
 
     @Override
+    @SuppressWarnings("null")
     public void tick() {
         if (status != ActionStatus.RUNNING || executed) {
             return;
