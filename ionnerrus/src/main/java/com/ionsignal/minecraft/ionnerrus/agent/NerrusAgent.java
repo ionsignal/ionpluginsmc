@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+// import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -49,7 +49,7 @@ public class NerrusAgent {
     private final GoalFactory goalFactory;
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
-    private final AutonomyEngine autonomyEngine;
+    // private final AutonomyEngine autonomyEngine;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
     private final LinkedList<String> actionHistory = new LinkedList<>();
@@ -90,7 +90,7 @@ public class NerrusAgent {
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-        this.autonomyEngine = new AutonomyEngine(this);
+        // this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
 
@@ -273,7 +273,16 @@ public class NerrusAgent {
             plugin.getLogger().info(String.format("[%s] Task %s completed successfully.", getName(), taskName));
         }
         if (this.currentContext != null) {
+            // Forward the completion event to the Goal for loop back, handle failure, or finish
+            TaskCompleted completionEvent = new TaskCompleted(finishedTask, error);
+            try {
+                this.currentContext.goal().onMessage(this, completionEvent, this.currentContext.token());
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.SEVERE, "Error in Goal.onMessage during Task completion", e);
+            }
+            // Clear the task reference *after* notification
             this.currentTask = null;
+            // Trigger the next cognitive step (tick based)
             processNextStep();
         }
     }
@@ -322,18 +331,20 @@ public class NerrusAgent {
 
     private void processNextStep() {
         // If the agent has no active goal and no stack, consult the AutonomyEngine.
-        if (currentContext == null && goalStack.isEmpty()) {
-            if (autonomyEngine != null) {
-                Goal ambientGoal = autonomyEngine.suggestGoal(sensorySystem.getWorkingMemory()).orElse(null);
-                if (ambientGoal != null) {
-                    plugin.getLogger().info(String.format("[%s] Autonomy engine suggested goal: %s", getName(),
-                            ambientGoal.getClass().getSimpleName()));
-                    // Assign the goal via the message loop to ensure consistent state transitions.
-                    assignGoal(ambientGoal, null);
-                    return;
-                }
-            }
-        }
+        // TODO: INVESTIGATE AND RE-ENABLE AT A LATER DATE
+        // THIS IS NOT CURRENTLY COMPATIBLE OR PROPERLY IMPLEMENTED
+        // if (currentContext == null && goalStack.isEmpty()) {
+        // if (autonomyEngine != null) {
+        // Goal ambientGoal = autonomyEngine.suggestGoal(sensorySystem.getWorkingMemory()).orElse(null);
+        // if (ambientGoal != null) {
+        // plugin.getLogger().info(String.format("[%s] Autonomy engine suggested goal: %s", getName(),
+        // ambientGoal.getClass().getSimpleName()));
+        // // Assign the goal via the message loop to ensure consistent state transitions.
+        // assignGoal(ambientGoal, null);
+        // return;
+        // }
+        // }
+        // }
         if (currentContext == null) {
             return;
         }

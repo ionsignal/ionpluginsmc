@@ -20,8 +20,8 @@ public class NerrusRegistry {
         this.manager = manager;
     }
 
-    public Persona createPersona(EntityType type, String name) {
-        UUID uuid = UUID.randomUUID();
+    public Persona createPersona(EntityType type, String name, Optional<UUID> requestedUuid) {
+        UUID uuid = requestedUuid.isEmpty() ? UUID.randomUUID() : requestedUuid.get();
         Persona persona = new Persona(manager, uuid, name, type);
         personaMap.put(uuid, persona);
         return persona;
