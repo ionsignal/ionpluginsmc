@@ -335,7 +335,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     private boolean handleFollow(CommandSender sender, String[] args) {
         if (args.length < 3) {
             sender.sendMessage(
-                    Component.text("Usage: /nerrus follow <agentName> <targetName> [followDistance] [stopDistance]", NamedTextColor.RED));
+                    Component.text("Usage: /nerrus follow <agentName> <targetName> [distance]", NamedTextColor.RED));
             return true;
         }
         NerrusAgent agent = agentService.findAgentByName(args[1]);
@@ -344,9 +344,13 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String targetName = args[2];
-        double followDist = args.length > 3 ? Double.parseDouble(args[3]) : 12.0;
-        double stopDist = args.length > 4 ? Double.parseDouble(args[4]) : 8.0;
-        int duration = 10; // injected follow defaults to 10 seconds
+        // The distance the agent tries to maintain (Stop Distance)
+        double targetDistance = args.length > 3 ? Double.parseDouble(args[3]) : 6.0;
+        // We enforce a 3-block buffer (Hysteresis) to prevent the "Bounce" effect.
+        // The agent stops at targetDistance, but won't start pathfinding again until targetDistance + 3.
+        double stopDist = Math.max(2.0, targetDistance); // Clamp minimum distance
+        double followDist = stopDist + 4.0;
+        int duration = 30; // injected follow defaults to 10 seconds
         try {
             FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist, duration);
             Goal followGoal = goalFactory.createGoal("FOLLOW_PLAYER", params);
@@ -430,15 +434,12 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 case "craft":
                     return List.of("1", "8", "16", "32", "64");
                 case "follow":
-                    return List.of("10.0", "12.0", "16.0");
+                    return List.of("3.0", "5.0", "8.0", "12.0");
             }
         }
         if (args.length == 5) {
             if ("give".equalsIgnoreCase(args[0])) {
                 return List.of("1", "8", "16", "32", "64");
-            }
-            if ("follow".equalsIgnoreCase(args[0])) {
-                return List.of("6.0", "8.0", "12.0");
             }
         }
         return Collections.emptyList();
