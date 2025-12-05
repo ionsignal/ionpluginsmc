@@ -6,6 +6,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState;
 import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentVisualizationProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveDebugState;
 import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveVisualizationProvider;
+import com.ionsignal.minecraft.ionnerrus.listeners.DebugIntegrationListener;
 
 import org.bukkit.Bukkit;
 
@@ -33,7 +34,13 @@ public class IntegrationBootstrap {
             }
             IonCore.getVisualizationRegistry().register(AgentDebugState.class, new AgentVisualizationProvider());
             IonCore.getVisualizationRegistry().register(CognitiveDebugState.class, new CognitiveVisualizationProvider());
-            plugin.getLogger().info("Registered debug visualization providers with IonCore.");
+            
+            Bukkit.getPluginManager().registerEvents(
+                new DebugIntegrationListener(plugin.getLogger()), 
+                plugin
+            );
+            
+            plugin.getLogger().info("Registered debug visualization providers and lifecycle listeners with IonCore.");
         } catch (Exception e) {
             plugin.getLogger().warning("Could not register with IonCore: " + e.getMessage());
         }
@@ -49,7 +56,6 @@ public class IntegrationBootstrap {
             if (core == null) {
                 return;
             }
-            // Cancel all debug sessions for agents (prevents session leaks)
             try {
                 com.ionsignal.minecraft.ionnerrus.agent.AgentService agentService = plugin.getAgentService();
                 if (agentService != null) {
@@ -68,7 +74,6 @@ public class IntegrationBootstrap {
             } catch (Exception e) {
                 plugin.getLogger().warning("Error cancelling debug sessions: " + e.getMessage());
             }
-            // Unregister visualization providers (fixes CRITICAL Issue #5 - memory leak)
             IonCore.getVisualizationRegistry().unregister(AgentDebugState.class);
             IonCore.getVisualizationRegistry().unregister(CognitiveDebugState.class);
             plugin.getLogger().info("Unregistered visualization providers from IonCore.");
