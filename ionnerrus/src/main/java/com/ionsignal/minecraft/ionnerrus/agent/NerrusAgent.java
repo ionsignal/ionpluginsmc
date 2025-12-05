@@ -50,7 +50,7 @@ public class NerrusAgent {
     private final GoalFactory goalFactory;
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
-    //private final AutonomyEngine autonomyEngine;
+    // private final AutonomyEngine autonomyEngine;
     private final NetworkBroadcaster broadcaster;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
@@ -90,14 +90,15 @@ public class NerrusAgent {
         }
     }
 
-    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService, NetworkBroadcaster broadcaster) {
+    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService,
+            NetworkBroadcaster broadcaster) {
         this.persona = persona;
         this.plugin = plugin;
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.broadcaster = broadcaster;
-        //this.autonomyEngine = new AutonomyEngine(this);
+        // this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
 
@@ -376,7 +377,7 @@ public class NerrusAgent {
             String status = (result instanceof GoalResult.Success) ? "COMPLETED" : "FAILED";
             String message = result.message();
             broadcaster.broadcastGoalEvent(this, status, completedGoalName, message);
-            
+
             // Also trigger inventory update as goals often change inventory
             broadcaster.broadcastInventory(this);
         }
@@ -455,10 +456,9 @@ public class NerrusAgent {
     }
 
     public void tick() {
-        // 1. Standard processing
+        // Standard processing
         processMessages();
-        
-        // 2. Network Telemetry Throttling
+        // Network Telemetry Throttling
         tickCounter++;
         if (tickCounter >= TELEMETRY_INTERVAL) {
             tickCounter = 0;
@@ -514,16 +514,17 @@ public class NerrusAgent {
     public String getCurrentGoalName() {
         return (currentContext != null) ? currentContext.goal().getClass().getSimpleName() : "Idle";
     }
-    
+
     public String getCurrentTaskName() {
         return (currentTask != null) ? currentTask.getClass().getSimpleName() : "None";
     }
-    
+
     public List<String> getGoalStackNames() {
-        if (goalStack.isEmpty()) return Collections.emptyList();
+        if (goalStack.isEmpty())
+            return Collections.emptyList();
         return goalStack.stream()
-            .map(ctx -> ctx.goal().getClass().getSimpleName())
-            .collect(Collectors.toList());
+                .map(ctx -> ctx.goal().getClass().getSimpleName())
+                .collect(Collectors.toList());
     }
 
     /**
