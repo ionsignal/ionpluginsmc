@@ -21,19 +21,19 @@ public class NetworkBroadcaster {
     public void broadcastInventory(NerrusAgent agent) {
         if (!agent.getPersona().isSpawned())
             return;
-        InventoryUpdate dto = InventoryUpdate.from(agent);
-        IonCore.getInstance().getServiceContainer().broadcast("AGENT_INVENTORY", dto);
+        InventoryUpdate record = InventoryUpdate.from(agent);
+        IonCore.getInstance().getServiceContainer().broadcast("AGENT_INVENTORY", record);
     }
 
     public void broadcastGoalEvent(NerrusAgent agent, String eventType, String goalName, String message) {
         if (!agent.getPersona().isSpawned())
             return;
-        AgentGoalEvent dto = new AgentGoalEvent(
+        AgentGoalEvent event = new AgentGoalEvent(
                 agent.getPersona().getUniqueId().toString(),
                 eventType,
                 goalName,
                 message,
                 System.currentTimeMillis());
-        IonCore.getInstance().getServiceContainer().broadcast("AGENT_GOAL_EVENT", dto);
+        IonCore.getInstance().getServiceContainer().broadcast("AGENT_GOAL_EVENT", event);
     }
 }
