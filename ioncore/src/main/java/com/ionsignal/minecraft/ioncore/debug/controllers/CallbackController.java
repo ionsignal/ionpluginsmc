@@ -6,7 +6,6 @@ import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.ioncore.debug.TimeoutBehavior;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -18,12 +17,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * An execution controller designed for async callback chains (e.g.,
  * {@code CompletableFuture.thenCompose()}).
- * Unlike {@link LatchBasedController}, this controller returns a {@link CompletableFuture} from
- * {@link #pauseAsync(String, String)} that completes when {@link #resume()} is called.
  * 
  * <p>
- * The future's blocking behavior occurs on the offload thread, not the caller's thread, making it
- * safe to use in async callback chains without blocking the main thread.
+ * This implementation is non-blocking. {@link #pauseAsync(String, String)} returns a pending
+ * {@link CompletableFuture} that is manually completed when {@link #resume()} is called.
+ * This ensures no threads are held hostage waiting for user input.
  * 
  * <p>
  * Typical usage pattern:
@@ -35,15 +33,19 @@ import java.util.concurrent.atomic.AtomicReference;
  * }</pre>
  * 
  * <p>
- * Thread Safety: All state is managed via atomic types. The {@code offloadExecutor} is used for
- * blocking the pause latch asynchronously.
+ * Thread Safety: All state is managed via atomic types. Completions happen on the thread
+ * that calls {@link #resume()} (usually Main Thread via Command) or the Timeout Scheduler.
  */
 public class CallbackController implements ExecutionController {
-    private final AtomicReference<CountDownLatch> currentLatch;
+    private final AtomicReference<CompletableFuture<Void>> currentPauseFuture;
+    
     private final AtomicBoolean isPaused;
     private final AtomicBoolean continueToEnd;
     private final AtomicBoolean cancelled;
-    private final Executor offloadExecutor; // Injected from plugin
+    
+    @SuppressWarnings("unused")
+    private final Executor offloadExecutor; 
+    
     private final TimeoutBehavior timeoutBehavior;
     private final long timeoutMillis;
     private final ScheduledExecutorService timeoutScheduler;
@@ -54,14 +56,14 @@ public class CallbackController implements ExecutionController {
      * Creates a callback-based controller with timeout behavior.
      *
      * @param offloadExecutor
-     *            The offload thread executor from the plugin (for async blocking).
+     *            The offload thread executor (unused in non-blocking impl, kept for API compat).
      * @param timeoutBehavior
      *            How to respond when a pause times out.
      * @param timeoutMillis
      *            Timeout duration in milliseconds (0 = no timeout).
      */
     public CallbackController(Executor offloadExecutor, TimeoutBehavior timeoutBehavior, long timeoutMillis) {
-        this.currentLatch = new AtomicReference<>();
+        this.currentPauseFuture = new AtomicReference<>();
         this.isPaused = new AtomicBoolean(false);
         this.continueToEnd = new AtomicBoolean(false);
         this.cancelled = new AtomicBoolean(false);
@@ -89,9 +91,15 @@ public class CallbackController implements ExecutionController {
             return CompletableFuture.completedFuture(null);
         }
 
-        // Create new latch for this pause
-        CountDownLatch latch = new CountDownLatch(1);
-        currentLatch.set(latch);
+        // Create a new pending future for this pause
+        CompletableFuture<Void> pauseFuture = new CompletableFuture<>();
+        
+        // Atomically set the future. If a previous pause wasn't cleared, we cancel it to avoid leaks.
+        CompletableFuture<Void> existing = currentPauseFuture.getAndSet(pauseFuture);
+        if (existing != null && !existing.isDone()) {
+            existing.cancel(false); 
+        }
+
         isPaused.set(true);
 
         // Update session status
@@ -100,26 +108,18 @@ public class CallbackController implements ExecutionController {
         // Schedule timeout if configured
         scheduleTimeout();
 
-        // Return a future that blocks on the offload executor
-        return CompletableFuture.runAsync(() -> {
-            try {
-                latch.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                cancelled.set(true);
-            } finally {
-                isPaused.set(false);
-                cancelCurrentTimeoutTask();
-            }
-        }, offloadExecutor);
+        return pauseFuture;
     }
 
     @Override
     public void resume() {
-        // Count down the latch to unblock waiting futures
-        CountDownLatch latch = currentLatch.getAndSet(null);
-        if (latch != null) {
-            latch.countDown();
+        // Retrieve and clear the current future
+        CompletableFuture<Void> future = currentPauseFuture.getAndSet(null);
+        isPaused.set(false);
+
+        // Unblock the flow
+        if (future != null && !future.isDone()) {
+            future.complete(null);
         }
 
         // Update session status
@@ -138,7 +138,11 @@ public class CallbackController implements ExecutionController {
     @Override
     public void cancel() {
         cancelled.set(true);
-        resume(); // Unblock any waiting futures
+        
+        // Unblock any waiting futures
+        // We complete normally rather than exceptionally to allow the chain to finish gracefully
+        // The consumer should check controller.isCancelled() if it needs to abort logic.
+        resume(); 
 
         // Update session to CANCELLED status
         DebugSession<?> attachedSession = session.get();
@@ -176,6 +180,8 @@ public class CallbackController implements ExecutionController {
         if (timeoutMillis <= 0 || timeoutScheduler == null) {
             return; // No timeout configured
         }
+
+        cancelCurrentTimeoutTask(); // Safety check
 
         ScheduledFuture<?> timeoutTask = timeoutScheduler.schedule(
                 this::handleTimeout,
@@ -232,8 +238,15 @@ public class CallbackController implements ExecutionController {
     /**
      * Shuts down the timeout scheduler. Should be called when the controller is no longer needed.
      */
+    @Override
     public void shutdown() {
         cancelCurrentTimeoutTask();
+        // Clear and cancel any pending pause future to release waiters
+        CompletableFuture<Void> future = currentPauseFuture.getAndSet(null);
+        if (future != null && !future.isDone()) {
+            future.cancel(false);
+        }
+        
         if (timeoutScheduler != null) {
             timeoutScheduler.shutdown();
         }
