@@ -3,7 +3,6 @@ package com.ionsignal.minecraft.ioncore.network;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
 import org.bukkit.plugin.Plugin;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -20,18 +19,29 @@ import java.util.logging.Logger;
  */
 public class IonCoreWebSocketClient extends WebSocketClient {
     private static final Logger LOGGER = Logger.getLogger(IonCoreWebSocketClient.class.getName());
-    private final Plugin plugin;
+
     private final NetworkCommandRegistrar registrar;
     private final Gson gson = new Gson();
     private final AtomicReference<ConnectionState> state = new AtomicReference<>(ConnectionState.DISCONNECTED);
 
-    public IonCoreWebSocketClient(@NotNull String url, @NotNull String key, @NotNull Plugin plugin, @NotNull NetworkCommandRegistrar registrar) {
+    /**
+     * Connection states for the IonCore WebSocket client.
+     */
+    public enum ConnectionState {
+        DISCONNECTED, CONNECTING, CONNECTED, ERROR
+    }
+
+    @SuppressWarnings("unused")
+    private final Plugin plugin;
+
+    public IonCoreWebSocketClient(@NotNull String url, @NotNull String key, @NotNull Plugin plugin,
+            @NotNull NetworkCommandRegistrar registrar) {
         super(URI.create(url));
         this.plugin = plugin;
         this.registrar = registrar;
         addHeader("X-API-Key", key);
         // Ensure connection attempts don't block threads indefinitely
-        setConnectionLostTimeout(30); 
+        setConnectionLostTimeout(30);
     }
 
     @Override
@@ -44,15 +54,12 @@ public class IonCoreWebSocketClient extends WebSocketClient {
     public void onMessage(String message) {
         try {
             JsonObject json = JsonParser.parseString(message).getAsJsonObject();
-            
             if (!json.has("type")) {
                 LOGGER.warning("[IonCore] Received malformed message: missing 'type'");
                 return;
             }
-            
             String type = json.get("type").getAsString();
             String requestId = json.has("requestId") ? json.get("requestId").getAsString() : null;
-            
             // Extract payload as raw string
             String payloadStr = "{}";
             if (json.has("payload")) {
@@ -62,30 +69,29 @@ public class IonCoreWebSocketClient extends WebSocketClient {
                     payloadStr = json.get("payload").getAsString();
                 }
             }
-
             // Dispatch String
             registrar.dispatch(type, payloadStr)
-                .thenAccept(result -> {
-                    LOGGER.info("[IonCore] Command processed successfully: " + type);
-                    if (requestId != null) {
-                        sendAck(requestId, "SUCCESS", result);
-                    }
-                })
-                .exceptionally(ex -> {
-                    LOGGER.log(Level.WARNING, "[IonCore] Command execution failed: " + type, ex);
-                    if (requestId != null) {
-                        sendAck(requestId, "ERROR", ex.getMessage());
-                    }
-                    return null;
-                });
-
+                    .thenAccept(result -> {
+                        LOGGER.info("[IonCore] Command processed successfully: " + type);
+                        if (requestId != null) {
+                            sendAck(requestId, "SUCCESS", result);
+                        }
+                    })
+                    .exceptionally(ex -> {
+                        LOGGER.log(Level.WARNING, "[IonCore] Command execution failed: " + type, ex);
+                        if (requestId != null) {
+                            sendAck(requestId, "ERROR", ex.getMessage());
+                        }
+                        return null;
+                    });
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "[IonCore] Error processing message", e);
         }
     }
 
     private void sendAck(String requestId, String status, Object data) {
-        if (!isOpen()) return;
+        if (!isOpen())
+            return;
         try {
             JsonObject ack = new JsonObject();
             ack.addProperty("type", "ACK");
@@ -114,7 +120,7 @@ public class IonCoreWebSocketClient extends WebSocketClient {
         state.set(ConnectionState.ERROR);
         LOGGER.log(Level.SEVERE, "[IonCore] WebSocket Error", ex);
     }
-    
+
     public ConnectionState getConnectionState() {
         return state.get();
     }
