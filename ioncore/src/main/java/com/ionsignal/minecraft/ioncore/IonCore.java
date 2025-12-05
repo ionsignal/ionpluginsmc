@@ -1,97 +1,81 @@
-// src/main/java/com/ionsignal/minecraft/ioncore/IonCore.java
 package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
-import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.telemetry.TelemetryManager;
-
-import org.bukkit.event.Listener;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * IonCore - Core framework for Ion Signal plugins.
- * Provides networking and debug infrastructure.
+ * Refactored to use strict ServiceContainer pattern.
  */
-public class IonCore extends JavaPlugin implements Listener {
+public class IonCore extends JavaPlugin {
     private static IonCore instance;
 
-    // Debug System
-    private static DebugSessionRegistry debugRegistry;
-    private static VisualizationProviderRegistry visualizationRegistry;
-
-    // Networking System
+    // The single source of truth for all subsystems
     private CoreServiceContainer serviceContainer;
-    private TelemetryManager telemetryManager;
 
     @Override
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
-        // Initialize Debug Framework
-        debugRegistry = new DebugSessionRegistry();
-        visualizationRegistry = new VisualizationProviderRegistry();
-        new DebugVisualizationTask(debugRegistry, visualizationRegistry)
-                .runTaskTimer(this, 0L, 1L);
-        getServer().getPluginManager().registerEvents(this, this);
-        // Initialize Networking Container
-        this.serviceContainer = new CoreServiceContainer(this);
-        // Initialize Telemetry Manager (Silent Listener) <--- NEW BLOCK
-        this.telemetryManager = new TelemetryManager(this);
-        this.telemetryManager.start();
-        getLogger().info("IonCore v" + getPluginMeta().getVersion() + " initialized.");
+        try {
+            // Initialize Service Container
+            this.serviceContainer = new CoreServiceContainer(this);
+            this.serviceContainer.initialize();
+            // Register Event Listeners (Moved out of main class)
+            getServer().getPluginManager().registerEvents(
+                    new CoreEventListener(serviceContainer.getDebugRegistry()),
+                    this);
+            getLogger().info("IonCore v" + getPluginMeta().getVersion() + " initialized.");
+        } catch (ServiceInitializationException e) {
+            getLogger().severe("CRITICAL INITIALIZATION FAILURE: " + e.getMessage());
+            e.printStackTrace();
+            getServer().getPluginManager().disablePlugin(this);
+        }
     }
 
     @Override
     public void onDisable() {
-        if (telemetryManager != null) {
-            telemetryManager.stop();
-        }
-        // Shutdown Networking
         if (serviceContainer != null) {
             serviceContainer.shutdown();
-        }
-        // Cleanup Debug Sessions
-        if (debugRegistry != null) {
-            int sessionCount = debugRegistry.size();
-            debugRegistry.clear();
-            getLogger().info("Cleaned up " + sessionCount + " debug session(s).");
-        }
-        if (visualizationRegistry != null) {
-            visualizationRegistry.clear();
+            serviceContainer = null;
         }
         getLogger().info("IonCore disabled.");
-    }
-
-    @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        if (debugRegistry != null) {
-            debugRegistry.cancelSession(event.getPlayer().getUniqueId());
-        }
     }
 
     public static IonCore getInstance() {
         return instance;
     }
 
-    /**
-     * Access to the Networking Service Container.
-     */
     public CoreServiceContainer getServiceContainer() {
         return serviceContainer;
     }
 
-    public TelemetryManager getTelemetryManager() {
-        return telemetryManager;
-    }
+    // --- Legacy / Static Bridge Accessors ---
+    // TODO: Update IonNerrus to NOT use these (will be deprecated eventually)
+    // These delegate to the container instance to maintain backward compatibility while enforcing the
+    // new architectural boundaries.
 
     public static DebugSessionRegistry getDebugRegistry() {
-        return debugRegistry;
+        ensureInitialized();
+        return instance.serviceContainer.getDebugRegistry();
     }
 
     public static VisualizationProviderRegistry getVisualizationRegistry() {
-        return visualizationRegistry;
+        ensureInitialized();
+        return instance.serviceContainer.getVisualizationRegistry();
+    }
+
+    public TelemetryManager getTelemetryManager() {
+        if (serviceContainer == null)
+            return null;
+        return serviceContainer.getTelemetryManager();
+    }
+
+    private static void ensureInitialized() {
+        if (instance == null || instance.serviceContainer == null) {
+            throw new IllegalStateException("IonCore is not initialized. Ensure the plugin is enabled.");
+        }
     }
 }
