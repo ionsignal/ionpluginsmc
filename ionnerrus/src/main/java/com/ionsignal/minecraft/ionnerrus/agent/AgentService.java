@@ -1,11 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
+import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
+import com.ionsignal.minecraft.ionnerrus.network.AgentTelemetrySource;
 import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
@@ -55,9 +57,15 @@ public class AgentService {
             } else {
                 plugin.getLogger().warning("Could not fetch skin for '" + skinNameToFetch + "'. Spawning with default Steve/Alex skin.");
             }
+            if (!agents.containsKey(persona.getUniqueId())) {
+                return; // Abort spawn, agent was cancelled
+            }
             try {
                 persona.spawn(location);
                 agent.start();
+                if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
+                    IonCore.getInstance().getTelemetryManager().register(new AgentTelemetrySource(agent));
+                }
                 plugin.getLogger().info("Successfully spawned agent: " + name);
                 Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
             } catch (Exception e) {
@@ -74,6 +82,9 @@ public class AgentService {
     public boolean removeAgent(String name) {
         NerrusAgent agent = findAgentByName(name);
         if (agent != null) {
+            if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
+                IonCore.getInstance().getTelemetryManager().unregister(agent.getPersona().getUniqueId().toString());
+            }
             Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
@@ -102,6 +113,9 @@ public class AgentService {
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
             try {
+                if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
+                    IonCore.getInstance().getTelemetryManager().unregister(agent.getPersona().getUniqueId().toString());
+                }
                 personaRegistry.deregister(agent.getPersona());
             } catch (Exception e) {
                 plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());

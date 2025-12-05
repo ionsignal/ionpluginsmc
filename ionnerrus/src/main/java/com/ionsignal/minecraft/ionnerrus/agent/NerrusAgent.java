@@ -63,10 +63,6 @@ public class NerrusAgent {
 
     private volatile boolean isBusyWithDirective = false;
 
-    // Throttling state
-    private int tickCounter = 0;
-    private static final int TELEMETRY_INTERVAL = 10; // Send updates every 10 ticks (0.5s)
-
     /**
      * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
      * isolated message queue and execution controller.
@@ -458,14 +454,6 @@ public class NerrusAgent {
     public void tick() {
         // Standard processing
         processMessages();
-        // Network Telemetry Throttling
-        tickCounter++;
-        if (tickCounter >= TELEMETRY_INTERVAL) {
-            tickCounter = 0;
-            if (broadcaster != null && persona.isSpawned()) {
-                broadcaster.broadcastTelemetry(this);
-            }
-        }
     }
 
     public boolean isBusyWithDirective() {
