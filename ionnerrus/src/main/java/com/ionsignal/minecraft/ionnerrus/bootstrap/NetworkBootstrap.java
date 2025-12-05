@@ -6,9 +6,10 @@ import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.network.dtos.AgentStateDTO;
-import com.ionsignal.minecraft.ionnerrus.network.dtos.DespawnAgentRequest;
-import com.ionsignal.minecraft.ionnerrus.network.dtos.SpawnAgentRequest;
+import com.ionsignal.minecraft.ionnerrus.network.messages.AgentState;
+import com.ionsignal.minecraft.ionnerrus.network.messages.DespawnAgentRequest;
+import com.ionsignal.minecraft.ionnerrus.network.messages.SpawnAgentRequest;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -32,11 +33,11 @@ public class NetworkBootstrap {
         registrar.register("SPAWN_AGENT", this::handleSpawn);
         registrar.register("DESPAWN_AGENT", this::handleDespawn);
         registrar.register("COMMAND_SYNC_STATE", this::handleSync);
-        
+
         plugin.getLogger().info("IonCore Network Integration Enabled: Handlers registered.");
-        
+
         // --- FIX: Force immediate sync on startup ---
-        // This ensures that if the websocket is already open (IonCore loads first), 
+        // This ensures that if the websocket is already open (IonCore loads first),
         // we don't wait for a SYNC command that might have already been missed.
         performSync();
     }
@@ -47,7 +48,7 @@ public class NetworkBootstrap {
             for (NerrusAgent agent : agentService.getAgents()) {
                 // Only sync spawned agents to avoid confusion
                 if (agent.getPersona().isSpawned()) {
-                    AgentStateDTO dto = AgentStateDTO.from(agent);
+                    AgentState dto = AgentState.from(agent);
                     IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", dto);
                     syncedCount++;
                 }
@@ -79,13 +80,13 @@ public class NetworkBootstrap {
             try {
                 // Idempotency: If agent exists/spawned, just resync UI
                 if (agentService.findAgentByName(dto.name()) != null) {
-                     NerrusAgent existing = agentService.findAgentByName(dto.name());
-                     if (existing.getPersona().isSpawned()) {
-                         AgentStateDTO stateDto = AgentStateDTO.from(existing);
-                         IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", stateDto);
-                         result.complete("Agent already active. Synced.");
-                         return;
-                     }
+                    NerrusAgent existing = agentService.findAgentByName(dto.name());
+                    if (existing.getPersona().isSpawned()) {
+                        AgentState stateDto = AgentState.from(existing);
+                        IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", stateDto);
+                        result.complete("Agent already active. Synced.");
+                        return;
+                    }
                 }
 
                 Location spawnLoc = resolveLocation(dto.location());
@@ -93,10 +94,10 @@ public class NetworkBootstrap {
                     throw new IllegalArgumentException("Could not resolve valid spawn location.");
                 }
 
-                String skinArg = (dto.skinTexture() != null && !dto.skinTexture().isEmpty()) 
-                        ? dto.skinTexture() 
-                        : dto.name(); 
-                
+                String skinArg = (dto.skinTexture() != null && !dto.skinTexture().isEmpty())
+                        ? dto.skinTexture()
+                        : dto.name();
+
                 agentService.spawnAgent(dto.name(), spawnLoc, skinArg);
 
                 plugin.getLogger().info("[Network] Spawned agent: " + dto.name());
@@ -139,12 +140,13 @@ public class NetworkBootstrap {
     // --- Helpers ---
 
     private Location resolveLocation(SpawnAgentRequest.SpawnLocationData data) {
-        if (data == null) return getDefaultSpawn();
+        if (data == null)
+            return getDefaultSpawn();
 
         if ("PLAYER".equalsIgnoreCase(data.type()) && data.playerName() != null) {
             Player target = Bukkit.getPlayer(data.playerName());
             if (target != null && target.isOnline()) {
-                return target.getLocation().add(2, 0, 0); 
+                return target.getLocation().add(2, 0, 0);
             }
         } else if ("COORDINATES".equalsIgnoreCase(data.type()) && data.world() != null) {
             World world = Bukkit.getWorld(data.world());

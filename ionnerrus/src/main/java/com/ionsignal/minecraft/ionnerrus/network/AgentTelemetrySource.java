@@ -2,7 +2,8 @@ package com.ionsignal.minecraft.ionnerrus.network;
 
 import com.ionsignal.minecraft.ioncore.telemetry.TelemetrySource;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.network.dtos.AgentTelemetryDTO;
+import com.ionsignal.minecraft.ionnerrus.network.messages.AgentTelemetry;
+
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -28,6 +29,6 @@ public class AgentTelemetrySource implements TelemetrySource {
             return null;
         }
         // Delegate to the DTO factory (safe on Main Thread)
-        return AgentTelemetryDTO.from(agent);
+        return AgentTelemetry.from(agent);
     }
 }

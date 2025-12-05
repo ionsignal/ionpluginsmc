@@ -3,8 +3,8 @@ package com.ionsignal.minecraft.ionnerrus.network;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.network.dtos.InventoryUpdateDTO;
-import com.ionsignal.minecraft.ionnerrus.network.dtos.AgentGoalEventDTO;
+import com.ionsignal.minecraft.ionnerrus.network.messages.AgentGoalEvent;
+import com.ionsignal.minecraft.ionnerrus.network.messages.InventoryUpdate;
 
 /**
  * Handles the broadcasting of DISCRETE EVENTS to the IonCore network layer.
@@ -21,14 +21,14 @@ public class NetworkBroadcaster {
     public void broadcastInventory(NerrusAgent agent) {
         if (!agent.getPersona().isSpawned())
             return;
-        InventoryUpdateDTO dto = InventoryUpdateDTO.from(agent);
+        InventoryUpdate dto = InventoryUpdate.from(agent);
         IonCore.getInstance().getServiceContainer().broadcast("AGENT_INVENTORY", dto);
     }
 
     public void broadcastGoalEvent(NerrusAgent agent, String eventType, String goalName, String message) {
         if (!agent.getPersona().isSpawned())
             return;
-        AgentGoalEventDTO dto = new AgentGoalEventDTO(
+        AgentGoalEvent dto = new AgentGoalEvent(
                 agent.getPersona().getUniqueId().toString(),
                 eventType,
                 goalName,
