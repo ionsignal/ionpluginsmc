@@ -3,10 +3,15 @@ package com.ionsignal.minecraft.ionnerrus.persona.locomotion;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.maneuvers.DropManeuver;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.maneuvers.JumpManeuver;
+import com.ionsignal.minecraft.ionnerrus.persona.locomotion.maneuvers.WaterExitManeuver;
+import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl.BodyMode;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult;
 import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
 
+import net.minecraft.tags.FluidTags;
+
 import org.bukkit.Location;
+import org.bukkit.util.Vector;
 
 import java.util.Optional;
 
@@ -66,6 +71,7 @@ public class LocomotionController {
             switch (currentIntent.movementType()) {
                 case JUMP -> startManeuver(new JumpManeuver(currentIntent.target(), entity.getY()));
                 case DROP -> startManeuver(new DropManeuver(currentIntent.target()));
+                case WATER_EXIT -> startManeuver(new WaterExitManeuver(currentIntent.target())); // Added case
                 case SWIM -> handleSwim(currentIntent, currentSpeed);
                 case WALK -> handleStandardMovement(currentIntent, currentSpeed);
             }
@@ -110,6 +116,7 @@ public class LocomotionController {
     private void handleStandardMovement(SteeringResult intent, float speed) {
         entity.getJumpControl().stop();
         entity.setShiftKeyDown(false);
+        entity.setSprinting(false);
         Location target = intent.target();
         entity.getMoveControl().setWantedPosition(
                 target.getX(),
@@ -118,25 +125,35 @@ public class LocomotionController {
                 speed);
     }
 
+    @SuppressWarnings("null")
     private void handleSwim(SteeringResult intent, float speed) {
-        // Apply forward momentum for normal in-water swimming
+        // Pitch-Based "Dolphin" Swimming
+        // Apply Forward Momentum (Throttle)
         entity.getMoveControl().setWantedPosition(
                 intent.target().getX(),
                 intent.target().getY(),
                 intent.target().getZ(),
-                speed * 0.7f // Swim speed penalty
-        );
-        // Calculate vertical direction manually since desiredVelocity is gone
-        double verticalDiff = intent.target().getY() - entity.getY();
-        if (verticalDiff > 0.5) { // Swim Up
-            entity.getJumpControl().jump();
-            entity.setShiftKeyDown(false);
-        } else if (verticalDiff < -0.5) { // Swim Down
-            entity.getJumpControl().stop();
-            entity.setShiftKeyDown(true);
-        } else { // Level
+                speed);
+        // Handle State & Verticality
+        boolean isSubmerged = entity.isEyeInFluid(FluidTags.WATER);
+        if (isSubmerged) {
+            // Underwater: Use Pitch to steer.
+            // Disable discrete vertical inputs.
             entity.getJumpControl().stop();
             entity.setShiftKeyDown(false);
+            // Sprinting is required for the "swimming" pose and speed
+            entity.setSprinting(true);
+        } else {
+            // Surface: Prevent bobbing.
+            // If target is significantly higher, Jump to breach.
+            double verticalDiff = intent.target().getY() - entity.getY();
+            if (verticalDiff > 0.5) {
+                entity.getJumpControl().jump();
+            } else {
+                entity.getJumpControl().stop();
+            }
+            // Don't sprint at surface to avoid "porpoising" out of water uncontrollably
+            entity.setSprinting(false);
         }
     }
 
@@ -155,6 +172,14 @@ public class LocomotionController {
     public Optional<OrientationIntent> getOrientationIntent() {
         if (currentManeuver != null) {
             return Optional.of(currentManeuver.getOrientation());
+        }
+        // To swim effectively (Dolphin style), the body must align with the velocity vector.
+        if (currentIntent != null && currentIntent.movementType() == SteeringResult.MovementType.SWIM) {
+            Vector dir = currentIntent.target().toVector()
+                    .subtract(entity.getBukkitEntity().getLocation().toVector())
+                    .normalize();
+            // Snap = false, Mode = LOCKED (Body follows head)
+            return Optional.of(new OrientationIntent.AlignToHeading(dir, false, BodyMode.LOCKED));
         }
         return Optional.empty();
     }
