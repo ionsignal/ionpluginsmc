@@ -7,9 +7,12 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap;
+import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkEventListener;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
+import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
@@ -41,6 +44,9 @@ public class ServiceContainer {
     private final HudManager hudManager;
     private final CraftEngineService craftEngineService;
 
+    // Networking
+    private final NetworkBroadcaster networkBroadcaster;
+
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
             PluginConfig config,
@@ -52,7 +58,8 @@ public class ServiceContainer {
             AgentService agentService,
             ChatBubbleService chatBubbleService,
             HudManager hudManager,
-            CraftEngineService craftEngineService) {
+            CraftEngineService craftEngineService,
+            NetworkBroadcaster networkBroadcaster) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -65,6 +72,7 @@ public class ServiceContainer {
         this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
+        this.networkBroadcaster = networkBroadcaster;
     }
 
     public static ServiceContainer initialize(IonNerrus plugin) {
@@ -89,6 +97,12 @@ public class ServiceContainer {
             ChatBubbleService chatBubbleService = initializeChatBubbles(plugin);
             HudManager hudManager = initializeHudManager(plugin);
             CraftEngineService craftEngineService = initializeCraftEngine(plugin);
+            // Layer 5.5: Network Broadcaster & IonCore Integration
+            NetworkBroadcaster networkBroadcaster = null;
+            boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
+            if (isIonCoreEnabled) {
+                networkBroadcaster = new NetworkBroadcaster(plugin);
+            }
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
@@ -97,9 +111,16 @@ public class ServiceContainer {
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
-                    llmService);
+                    llmService,
+                    networkBroadcaster); // Inject Broadcaster (can be null)
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
+            // Layer 7: Network Bootstrap (Wiring)
+            if (isIonCoreEnabled) {
+                initializeNetworkIntegration(plugin, agentService);
+            } else {
+                plugin.getLogger().info("IonCore not found. Running in standalone offline mode.");
+            }
             plugin.getLogger().info("Service container initialized successfully.");
             return new ServiceContainer(
                     plugin,
@@ -113,12 +134,29 @@ public class ServiceContainer {
                     agentService,
                     chatBubbleService,
                     hudManager,
-                    craftEngineService);
+                    craftEngineService,
+                    networkBroadcaster);
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
             throw new ServiceInitializationException(
                     "Unexpected error during service initialization", e);
+        }
+    }
+
+    private static void initializeNetworkIntegration(IonNerrus plugin, AgentService agentService) {
+        try {
+            plugin.getLogger().info("IonCore detected. Initializing Network services...");
+            // Bootstrap (Commands from Web)
+            NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService);
+            netBootstrap.registerAll();
+            // Listener (Events to Web)
+            plugin.getServer().getPluginManager().registerEvents(
+                    new NetworkEventListener(),
+                    plugin);
+        } catch (Exception e) {
+            plugin.getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -275,21 +313,16 @@ public class ServiceContainer {
         return hudManager; // NOTE: Can be null
     }
 
-    /**
-     * Checks if the HUD system is available and ready to use.
-     *
-     * @return true if HUD features can be used, false otherwise
-     */
+    public NetworkBroadcaster getNetworkBroadcaster() {
+        return networkBroadcaster;
+    }
+
     public boolean isHudAvailable() {
         return hudManager != null;
     }
 
     /**
      * Shuts down all services in reverse dependency order.
-     * This method is idempotent - calling it multiple times is safe.
-     *
-     * Shutdown order is critical: high-level services must shut down before
-     * the low-level services they depend on.
      */
     public void shutdown() {
         plugin.getLogger().info("Shutting down service container...");
@@ -332,7 +365,6 @@ public class ServiceContainer {
         } catch (Exception e) {
             plugin.getLogger().severe("Error shutting down " + serviceName + ": " + e.getMessage());
             e.printStackTrace();
-            // Continue with other services - don't let one failure block shutdown
         }
     }
 }

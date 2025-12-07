@@ -1,7 +1,8 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-// import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
+//import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -50,6 +51,7 @@ public class NerrusAgent {
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
     // private final AutonomyEngine autonomyEngine;
+    private final NetworkBroadcaster broadcaster;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
     private final LinkedList<String> actionHistory = new LinkedList<>();
@@ -84,12 +86,14 @@ public class NerrusAgent {
         }
     }
 
-    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
+    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService,
+            NetworkBroadcaster broadcaster) {
         this.persona = persona;
         this.plugin = plugin;
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+        this.broadcaster = broadcaster;
         // this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
@@ -364,6 +368,15 @@ public class NerrusAgent {
 
     private void handleGoalCompletion(GoalResult result) {
         String completedGoalName = currentContext.goal().getClass().getSimpleName();
+        // Broadcast Goal Result
+        if (broadcaster != null) {
+            String status = (result instanceof GoalResult.Success) ? "COMPLETED" : "FAILED";
+            String message = result.message();
+            broadcaster.broadcastGoalEvent(this, status, completedGoalName, message);
+
+            // Also trigger inventory update as goals often change inventory
+            broadcaster.broadcastInventory(this);
+        }
         plugin.getLogger().info(String.format("[%s] Handling completion of %s with result: %s", getName(), completedGoalName,
                 result.getClass().getSimpleName()));
         switch (result) {
@@ -438,6 +451,11 @@ public class NerrusAgent {
         }
     }
 
+    public void tick() {
+        // Standard processing
+        processMessages();
+    }
+
     public boolean isBusyWithDirective() {
         return isBusyWithDirective;
     }
@@ -479,6 +497,22 @@ public class NerrusAgent {
 
     public void speak(String message) {
         persona.speak(message);
+    }
+
+    public String getCurrentGoalName() {
+        return (currentContext != null) ? currentContext.goal().getClass().getSimpleName() : "Idle";
+    }
+
+    public String getCurrentTaskName() {
+        return (currentTask != null) ? currentTask.getClass().getSimpleName() : "None";
+    }
+
+    public List<String> getGoalStackNames() {
+        if (goalStack.isEmpty())
+            return Collections.emptyList();
+        return goalStack.stream()
+                .map(ctx -> ctx.goal().getClass().getSimpleName())
+                .collect(Collectors.toList());
     }
 
     /**
