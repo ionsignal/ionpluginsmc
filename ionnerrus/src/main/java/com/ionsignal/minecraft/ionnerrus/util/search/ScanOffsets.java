@@ -6,6 +6,8 @@ import net.minecraft.core.BlockPos;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
@@ -14,35 +16,38 @@ import java.util.logging.Logger;
  */
 public final class ScanOffsets {
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
-
-    private static final int REACH_RADIUS = 6;
-    public static final int REACH_RADIUS_SQUARED = REACH_RADIUS * REACH_RADIUS;
-    public static final List<BlockPos> HALF_SPHERE_REACH_OFFSETS;
+    private static final int MAX_RADIUS_CAP = 10;
+    private static final Map<Integer, List<BlockPos>> CACHE = new ConcurrentHashMap<>();
 
     private ScanOffsets() {
         // Prevent instantiation
     }
 
     /**
-     * This static initializer runs exactly once when the class is loaded.
-     * It performs the expensive calculation of all offsets within a half-sphere and caches the result
-     * in an immutable list for fast, repeated access.
+     * Retrieves (or computes) a list of offsets representing a half-sphere of the given radius.
+     * 
+     * @param radius
+     *            The radius of the sphere. Clamped between 1 and MAX_RADIUS_CAP (10).
+     * @return An unmodifiable list of BlockPos offsets.
      */
-    static {
-        LOGGER.info("Pre-calculating spherical scan offsets for agent reach...");
-        List<BlockPos> offsets = new ArrayList<>();
-        for (int x = -REACH_RADIUS; x <= REACH_RADIUS; x++) {
-            for (int z = -REACH_RADIUS; z <= REACH_RADIUS; z++) {
-                // Note: y starts at 0 for a half-sphere, representing what an agent can see/reach from their feet
-                // level upwards.
-                for (int y = 0; y <= REACH_RADIUS; y++) {
-                    if (x * x + y * y + z * z <= REACH_RADIUS_SQUARED) {
-                        offsets.add(new BlockPos(x, y, z));
+    public static List<BlockPos> getHalfSphere(int radius) {
+        // Clamp radius to prevent cubic scaling explosions or invalid inputs
+        int r = Math.min(Math.max(1, radius), MAX_RADIUS_CAP);
+        return CACHE.computeIfAbsent(r, key -> {
+            LOGGER.info("Computing spherical scan offsets for radius " + key + "...");
+            List<BlockPos> offsets = new ArrayList<>();
+            int rSquared = key * key;
+            for (int x = -key; x <= key; x++) {
+                for (int z = -key; z <= key; z++) {
+                    // y starts at 0 for a half-sphere (feet upwards)
+                    for (int y = 0; y <= key; y++) {
+                        if (x * x + y * y + z * z <= rSquared) {
+                            offsets.add(new BlockPos(x, y, z));
+                        }
                     }
                 }
             }
-        }
-        HALF_SPHERE_REACH_OFFSETS = Collections.unmodifiableList(offsets);
-        LOGGER.info("Successfully pre-calculated " + HALF_SPHERE_REACH_OFFSETS.size() + " scan offsets.");
+            return Collections.unmodifiableList(offsets);
+        });
     }
 }
