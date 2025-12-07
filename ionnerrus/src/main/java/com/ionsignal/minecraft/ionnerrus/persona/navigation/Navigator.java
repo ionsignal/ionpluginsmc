@@ -40,8 +40,18 @@ public class Navigator {
     // Repath constants
     private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = 144.0;
 
+    // Tactical Steering constants
+    private static final int TACTICAL_STEERING_THROTTLE_TICKS = 5;
+
     private final Persona persona;
     private final LocomotionController locomotion;
+
+    // State for throttling
+    private int tacticalSteeringCooldown = 0;
+    private SteeringResult.MovementType lastTacticalIntent = SteeringResult.MovementType.WALK;
+
+    // Cache last intent for stuck detection context
+    private SteeringResult.MovementType lastMovementType = SteeringResult.MovementType.WALK;
 
     private enum State {
         IDLE, PATH_FOLLOWING, ENGAGING, FOLLOWING
@@ -75,7 +85,6 @@ public class Navigator {
         this.locomotion = locomotion;
     }
 
-    // Overload existing method for backward compatibility
     public CompletableFuture<MovementResult> navigateTo(Location target, ExecutionToken token) {
         return navigateTo(target, NavigationParameters.DEFAULT, token);
     }
@@ -99,7 +108,6 @@ public class Navigator {
                         Throwable cause = ex instanceof CompletionException ? ex.getCause() : ex;
                         if (!(cause instanceof CancellationException)) {
                             persona.getManager().getPlugin().getLogger().warning("Pathfinding failed: " + cause.getMessage());
-                            cause.printStackTrace();
                         }
                         finishPathing(cause instanceof CancellationException ? MovementResult.CANCELLED : MovementResult.FAILURE);
                         return;
@@ -168,9 +176,7 @@ public class Navigator {
             this.pathFollower = null;
         }
         this.isPathfinding = true;
-        Location agentLocation = persona.getLocation();
-        Location targetLocation = followTarget.getLocation();
-        AStarPathfinder.findPath(agentLocation, targetLocation, NavigationParameters.DEFAULT, token)
+        AStarPathfinder.findPath(persona.getLocation(), followTarget.getLocation(), NavigationParameters.DEFAULT, token)
                 .whenCompleteAsync((pathOptional, ex) -> {
                     this.isPathfinding = false;
                     if (state != State.FOLLOWING) {
@@ -250,17 +256,11 @@ public class Navigator {
             return;
         }
         switch (state) {
-            case IDLE:
-                break;
-            case PATH_FOLLOWING:
-                tickPathFollowing();
-                break;
-            case ENGAGING:
-                tickEngaging();
-                break;
-            case FOLLOWING:
-                tickFollowing();
-                break;
+            case IDLE -> {
+            }
+            case PATH_FOLLOWING -> tickPathFollowing();
+            case ENGAGING -> tickEngaging();
+            case FOLLOWING -> tickFollowing();
         }
     }
 
@@ -279,6 +279,8 @@ public class Navigator {
         }
         // Delegate steering calculation to PathFollower and execution to LocomotionController
         SteeringResult result = pathFollower.calculateSteering(currentLocation);
+        // Update cached intent for stuck detection
+        this.lastMovementType = result.movementType();
         float currentSpeed = getSpeed();
         // Apply deceleration logic
         if (result.movementType() == SteeringResult.MovementType.WALK) {
@@ -306,20 +308,34 @@ public class Navigator {
             return;
         }
         Location agentLocation = persona.getLocation();
-        if (agentLocation.distanceSquared(engageTarget.getLocation()) < engageProximitySquared) {
+        Location targetLocation = engageTarget.getLocation();
+        double distSq = agentLocation.distanceSquared(targetLocation);
+        if (distSq < engageProximitySquared) {
             finishPathing(MovementResult.SUCCESS);
             return;
         }
         // Dampen speed as we get closer for a smoother stop
-        Location targetLocation = engageTarget.getLocation();
-        double distance = agentLocation.distance(targetLocation);
         float speed = getSpeed();
-        if (distance < 2.0) {
-            speed *= (distance / 2.0);
+        if (distSq < 4.0) {
+            speed *= (Math.sqrt(distSq) / 2.0);
         }
-        // Send direct steering intent
-        SteeringResult result = new SteeringResult(targetLocation, SteeringResult.MovementType.WALK);
-        locomotion.drive(result, Math.max(speed, 0.1f));
+        // Use throttled TacticalSteering for close-range following
+        if (tacticalSteeringCooldown-- <= 0) {
+            tacticalSteeringCooldown = TACTICAL_STEERING_THROTTLE_TICKS;
+            // Compute and cache
+            lastTacticalIntent = TacticalSteering.compute(
+                    persona.getPersonaEntity(),
+                    targetLocation).orElse(null);
+        }
+        if (lastTacticalIntent != null) {
+            SteeringResult result = new SteeringResult(targetLocation, lastTacticalIntent);
+            // Update cached intent
+            this.lastMovementType = result.movementType();
+            locomotion.drive(result, Math.max(speed, 0.1f));
+        } else {
+            // Path blocked
+            finishPathing(MovementResult.REPATH_NEEDED);
+        }
     }
 
     private void tickFollowing() {
@@ -345,17 +361,31 @@ public class Navigator {
                 this.pathFollower = null;
             }
         } else if (distanceSq < followDistanceSquared) {
-            SteeringResult result = new SteeringResult(targetLocation, SteeringResult.MovementType.WALK);
-            locomotion.drive(result, getSpeed());
-            currentFollowPath = null;
+            // Use throttled TacticalSteering for close-range following
+            if (tacticalSteeringCooldown-- <= 0) {
+                tacticalSteeringCooldown = TACTICAL_STEERING_THROTTLE_TICKS;
+                lastTacticalIntent = TacticalSteering.compute(
+                        persona.getPersonaEntity(),
+                        targetLocation).orElse(null);
+            }
+            if (lastTacticalIntent != null) {
+                SteeringResult result = new SteeringResult(targetLocation, lastTacticalIntent);
+                this.lastMovementType = result.movementType();
+                locomotion.drive(result, getSpeed());
+            } else {
+                finishPathing(MovementResult.REPATH_NEEDED);
+                return;
+            }
             if (this.pathFollower != null) {
                 this.pathFollower.cleanup();
                 this.pathFollower = null;
             }
         } else {
             // Target moved from path end
-            boolean needsRepath = currentFollowPath == null || pathFollower == null || pathFollower.isFinished(agentLocation) ||
-                    currentFollowPath.getPointAtDistance(currentFollowPath.getLength())
+            boolean needsRepath = currentFollowPath == null ||
+                    pathFollower == null || pathFollower.isFinished(agentLocation) ||
+                    currentFollowPath
+                            .getPointAtDistance(currentFollowPath.getLength())
                             .distanceSquared(targetLocation) > FOLLOW_DISTANCE_THRESHOLD_SQUARED;
             if (needsRepath) {
                 finishPathing(MovementResult.REPATH_NEEDED);
@@ -382,7 +412,17 @@ public class Navigator {
             Location currentPos = persona.getLocation();
             double dx = currentPos.getX() - stuckCheckLocation.getX();
             double dz = currentPos.getZ() - stuckCheckLocation.getZ();
-            if ((dx * dx + dz * dz) < STUCK_DISTANCE_THRESHOLD_SQUARED) {
+            double distSq = dx * dx + dz * dz;
+            // Check for Vertical Movement Types
+            boolean checkVertical = switch (lastMovementType) {
+                case SWIM, JUMP, DROP, WATER_EXIT -> true;
+                default -> false;
+            };
+            if (checkVertical) {
+                double dy = currentPos.getY() - stuckCheckLocation.getY();
+                distSq += dy * dy;
+            }
+            if (distSq < STUCK_DISTANCE_THRESHOLD_SQUARED) {
                 totalTicksStuck += ticksSinceStuckCheck;
             } else {
                 // We made horizontal progress, reset stuck counter
@@ -405,17 +445,20 @@ public class Navigator {
         this.stuckCheckLocation = persona.getLocation();
         this.ticksSinceStuckCheck = 0;
         this.totalTicksStuck = 0;
+        resetTacticalSteering();
+        this.lastMovementType = SteeringResult.MovementType.WALK; // Reset default
+    }
+
+    private void resetTacticalSteering() {
+        this.tacticalSteeringCooldown = 0;
+        this.lastTacticalIntent = null;
     }
 
     public void cancelCurrentOperation(MovementResult reason) {
         switch (state) {
-            case PATH_FOLLOWING:
-            case ENGAGING:
-            case FOLLOWING:
-                finishPathing(reason);
-                break;
-            case IDLE:
-                break;
+            case PATH_FOLLOWING, ENGAGING, FOLLOWING -> finishPathing(reason);
+            case IDLE -> {
+            }
         }
     }
 
@@ -439,6 +482,7 @@ public class Navigator {
         this.followTarget = null;
         this.currentFollowPath = null;
         this.state = State.IDLE;
+        resetTacticalSteering();
     }
 
     public boolean isBusy() {
