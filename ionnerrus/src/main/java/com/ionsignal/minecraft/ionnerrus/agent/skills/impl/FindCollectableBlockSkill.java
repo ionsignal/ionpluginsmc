@@ -20,10 +20,13 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -39,10 +42,17 @@ import java.util.stream.Collectors;
 public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResult> {
     public static final boolean VISUALIZE_SEARCH = true;
     private static final double WARN_THRESHOLD_MS = 250.0;
-    private static final int MAX_CANDIDATES_TO_FIND = 15;
-    private static final int MAX_PATHFINDING_ATTEMPTS = 5;
+    private static final int MAX_CANDIDATES_TO_FIND = 10;
+    private static final int MAX_PATHFINDING_ATTEMPTS = 3;
+
+    // Scoring Weights
     private static final double PATH_LENGTH_WEIGHT = 3.0;
-    private static final double EXPOSURE_SCORE_WEIGHT = 1.0;
+    private static final double SCORE_WEIGHT = 1.0;
+
+    // Heuristic Constants
+    private static final double OCCLUSION_PENALTY = 30.0; // Cost equivalent to walking ~15 blocks
+    private static final double EXPOSURE_BONUS = 2.0; // Bonus per exposed face
+
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final Set<Material> materials;
@@ -59,8 +69,10 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
     public CompletableFuture<FindCollectableBlockResult> execute(NerrusAgent agent, ExecutionToken token) {
         Location start = agent.getPersona().getLocation();
         World world = start.getWorld();
-        double reach = agent.getPersona().getPhysicalBody().state().getBlockReach();
         double eyeHeight = agent.getPersona().getPersonaEntity().getEyeHeight();
+        double reach = agent.getPersona().getPhysicalBody().state().getBlockReach();
+        double safeReach = reach - 0.5;
+        int scanRadius = (int) Math.ceil(safeReach);
         if (world == null) {
             return CompletableFuture
                     .completedFuture(FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND, Set.of()));
@@ -79,13 +91,16 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 .thenApplyAsync(snapshot -> {
                     long startTime = System.nanoTime();
                     // Initialize a master cache for this entire search operation preventing re-processing the same
-                    // target block from different standing spots.
+                    // target block from different standing spots and pass the calculated scanRadius to the processor
                     StandardMovement movementStrategy = new StandardMovement();
-                    // Pass the master cache to the processor's constructor.
-                    CollectableTargetProcessor searchProcessor = new CollectableTargetProcessor(reach, eyeHeight);
+                    CollectableTargetProcessor searchProcessor = new CollectableTargetProcessor(reach, eyeHeight, scanRadius);
                     List<CollectionCandidate> candidates = BlockSearch.findReachable(
-                            start, searchRadius, MAX_CANDIDATES_TO_FIND,
-                            movementStrategy, searchProcessor, snapshot);
+                            start,
+                            searchRadius,
+                            MAX_CANDIDATES_TO_FIND,
+                            movementStrategy,
+                            searchProcessor,
+                            snapshot);
                     Set<Material> allFoundMaterials = candidates.stream()
                             .map(candidate -> snapshot.getBlockState(
                                     new BlockPos(
@@ -108,7 +123,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 }, IonNerrus.getInstance().getOffloadThreadExecutor());
     }
 
-    // New private record for scoring
+    // New private record for scoring candidates
     private record ScoredCandidate(CollectableBlock target, double score) implements Comparable<ScoredCandidate> {
         @Override
         public int compareTo(ScoredCandidate other) {
@@ -123,21 +138,25 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
      */
     private Optional<CollectableBlock> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates,
             WorldSnapshot snapshot, ExecutionToken token) {
-        // De-duplicate targets, keeping only the best standing spot for each.
-        // This ensures we don't pathfind to the same block multiple times from different spots.
+        // De-duplication prioritizes heuristic score
         Map<Location, CollectionCandidate> bestCandidates = new HashMap<>();
         for (CollectionCandidate candidate : candidates) {
             bestCandidates.compute(candidate.targetBlockLocation(), (key, existing) -> {
-                if (existing == null ||
-                        agentLocation.distanceSquared(candidate.standingSpot()) < agentLocation.distanceSquared(existing.standingSpot())) {
+                if (existing == null) {
+                    return candidate;
+                }
+                // Prefer the candidate with the lower heuristic score (better visibility/exposure)
+                // If scores are roughly equal, prefer the closer one.
+                if (candidate.heuristicScore() < existing.heuristicScore()) {
                     return candidate;
                 }
                 return existing;
             });
         }
-        // Limit the number of pathfinding operations for performance.
+        // Limit the number of pathfinding operations for performance and sort by heuristicScore before
+        // limiting to ensure we pathfind to the "best" targets first.
         List<CollectionCandidate> finalCandidates = bestCandidates.values().stream()
-                .sorted(Comparator.comparingDouble(c -> agentLocation.distanceSquared(c.standingSpot())))
+                .sorted(Comparator.comparingDouble(CollectionCandidate::heuristicScore))
                 .limit(MAX_PATHFINDING_ATTEMPTS)
                 .collect(Collectors.toList());
         // Pathfind and score each candidate.
@@ -145,7 +164,9 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
         for (CollectionCandidate candidate : finalCandidates) {
             if (VISUALIZE_SEARCH) {
                 IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                    DebugVisualizer.highlightBlock(candidate.standingSpot().getBlock().getLocation(), 60, NamedTextColor.LIGHT_PURPLE);
+                    // Color code: Gold = Exposed/Visible, Red = Occluded
+                    NamedTextColor color = candidate.isOccluded() ? NamedTextColor.RED : NamedTextColor.GOLD;
+                    DebugVisualizer.highlightBlock(candidate.standingSpot().getBlock().getLocation(), 60, color);
                 });
             }
             Optional<Path> pathOpt = AStarPathfinder
@@ -154,9 +175,9 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
             if (pathOpt.isPresent()) {
                 Path path = pathOpt.get();
                 // Calculate the final score for this valid, pathable candidate.
-                double exposureScore = calculateExposureScore(candidate.targetBlockLocation(), snapshot);
+                // We combine the pre-calculated heuristic with the actual path length.
                 double pathLength = path.getLength();
-                double score = (pathLength * PATH_LENGTH_WEIGHT) - (exposureScore * EXPOSURE_SCORE_WEIGHT);
+                double score = (pathLength * PATH_LENGTH_WEIGHT) + (candidate.heuristicScore() * SCORE_WEIGHT);
                 scoredAndPathable.add(new ScoredCandidate(
                         new CollectableBlock(candidate.targetBlockLocation(), candidate.standingSpot(), path),
                         score));
@@ -168,105 +189,111 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                 .map(ScoredCandidate::target);
     }
 
-    /**
-     * Calculate a block's exposure score. A higher score means more faces are exposed to air, making it
-     * easier to break.
-     */
-    @SuppressWarnings("null")
-    private int calculateExposureScore(Location blockLocation, WorldSnapshot snapshot) {
-        int score = 0;
-        BlockPos centerPos = new BlockPos(blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    if (dx == 0 && dy == 0 && dz == 0)
-                        continue;
-                    BlockPos adjacentPos = centerPos.offset(dx, dy, dz);
-                    BlockState adjacentState = snapshot.getBlockState(adjacentPos);
-                    if (adjacentState == null || adjacentState.getCollisionShape(EmptyBlockGetter.INSTANCE, adjacentPos).isEmpty()) {
-                        score++;
-                    }
-                }
-            }
-        }
-        return score;
-    }
-
-    private record CollectionCandidate(Location targetBlockLocation, Location standingSpot) {
+    // Expanded record to hold heuristic data
+    private record CollectionCandidate(
+            Location targetBlockLocation,
+            Location standingSpot,
+            double heuristicScore,
+            boolean isOccluded,
+            int exposureCount) {
     }
 
     /**
-     * Use a pre-computed spherical scan to find all potential targets within reach of a standing spot,
-     * instead of just checking adjacent blocks. A master cache is used to ensure each potential target
-     * is evaluated only once per skill execution for maximum performance.
+     * Use a pre-computed spherical scan to find all potential targets within reach of a standing spot
+     * and perform ray-tracing and exposure checks during the search phase.
      */
     private class CollectableTargetProcessor implements BlockSearch.ISearchProcessor<CollectionCandidate> {
         private final double reachSquared;
         private final double eyeHeight;
+        private final List<BlockPos> offsets;
+        private final BlockPos.MutableBlockPos sharedMutablePos = new BlockPos.MutableBlockPos();
 
-        /**
-         * Constructor to accept the master cache.
-         * 
-         * @param processedTargetBlocks
-         *            A set to track all block positions that have been evaluated as
-         *            potential targets during this skill's execution.
-         */
-        public CollectableTargetProcessor(double reach, double eyeHeight) {
+        public CollectableTargetProcessor(double reach, double eyeHeight, int scanRadius) {
             this.reachSquared = reach * reach;
             this.eyeHeight = eyeHeight;
+            this.offsets = ScanOffsets.getHalfSphere(scanRadius);
         }
 
-        /**
-         * Iterate through pre-computed spherical offsets to find targets within reach.
-         */
         @Override
         @SuppressWarnings("null")
         public List<CollectionCandidate> process(BlockSearch.TraversalNode node, World world, WorldSnapshot snapshot) {
             List<CollectionCandidate> found = new ArrayList<>();
             BlockPos standingPos = node.pos();
-            // Calculate Eye Position for precise reach check (matches BreakBlockSkill logic)
+            // Calculate Eye Position for precise reach check and Ray-Tracing
             Location eyeLocation = new Location(world,
                     standingPos.getX() + 0.5,
                     standingPos.getY() + eyeHeight,
                     standingPos.getZ() + 0.5);
-            // The Main Scan Loop: Iterate over pre-computed half-sphere offsets.
-            for (BlockPos offset : ScanOffsets.HALF_SPHERE_REACH_OFFSETS) {
-                // Step A: Calculate Absolute Position of the potential target.
+            for (BlockPos offset : this.offsets) {
+                // Step A: Calculate Absolute Position
                 BlockPos potentialTargetPos = standingPos.offset(offset);
-                // Step B: Optimization - Distance Check FIRST
-                // We check distance before accessing the snapshot to save performance.
-                // Target center is offset + 0.5
                 Location targetCenter = new Location(world,
                         potentialTargetPos.getX() + 0.5,
                         potentialTargetPos.getY() + 0.5,
                         potentialTargetPos.getZ() + 0.5);
-                if (eyeLocation.distanceSquared(targetCenter) > reachSquared) {
+                // Step B: Distance Check (Fastest)
+                double distSq = eyeLocation.distanceSquared(targetCenter);
+                if (distSq > reachSquared) {
                     continue;
                 }
-                // Step C: World Data Validation: Check if the block is of a desired material.
+                // Step C: Material Check (Fast)
                 BlockState targetState = snapshot.getBlockState(potentialTargetPos);
                 if (targetState == null || !materials.contains(targetState.getBukkitMaterial())) {
                     continue;
                 }
-                // Step D: Gameplay Logic Validation: Check against the skill's exclusion list.
-                // We reuse targetCenter but floor it for the exclusion check if needed,
-                // or just create the block location object.
+                // Step D: Exclusion Check
                 Location targetBlockLocation = new Location(world, potentialTargetPos.getX(), potentialTargetPos.getY(),
                         potentialTargetPos.getZ());
                 if (excludedLocations.contains(targetBlockLocation)) {
                     continue;
                 }
-                // Step E (Success): All checks passed.
-                // We pass the standing location (feet) for pathfinding purposes.
+                // Step E: Exposure Check (Medium)
+                // We calculate how many faces are touching air/passable blocks.
+                int exposure = calculateExposure(potentialTargetPos, snapshot);
+                // Step F: Ray-Trace Check (Slowest - performed last)
+                // We check if we have Line-of-Sight from eyes to block center.
+                boolean isOccluded = checkOcclusion(snapshot, eyeLocation.toVector(), targetCenter.toVector(), potentialTargetPos);
+                // Step G: Scoring
+                // Score = Distance + (Occluded ? Penalty : 0) - (Exposure * Bonus)
+                double distance = Math.sqrt(distSq);
+                double score = distance
+                        + (isOccluded ? OCCLUSION_PENALTY : 0.0)
+                        - (exposure * EXPOSURE_BONUS);
+                // Step H: Add Candidate
                 Location standingLocation = new Location(world, standingPos.getX() + 0.5, standingPos.getY(), standingPos.getZ() + 0.5);
-                found.add(new CollectionCandidate(targetBlockLocation, standingLocation));
-                if (VISUALIZE_SEARCH) {
-                    IonNerrus.getInstance().getMainThreadExecutor().execute(() -> {
-                        DebugVisualizer.highlightBlock(targetBlockLocation, 20, NamedTextColor.GOLD);
-                    });
-                }
+                found.add(new CollectionCandidate(
+                        targetBlockLocation,
+                        standingLocation,
+                        score,
+                        isOccluded,
+                        exposure));
             }
             return found;
+        }
+
+        // Moved logic from outer class to inner processor
+        @SuppressWarnings("null")
+        private int calculateExposure(BlockPos pos, WorldSnapshot snapshot) {
+            int score = 0;
+            // Check 6 cardinal directions
+            for (net.minecraft.core.Direction dir : net.minecraft.core.Direction.values()) {
+                sharedMutablePos.setWithOffset(pos, dir);
+                BlockState adjacent = snapshot.getBlockState(sharedMutablePos);
+                if (adjacent == null || adjacent.getCollisionShape(EmptyBlockGetter.INSTANCE, sharedMutablePos).isEmpty()) {
+                    score++;
+                }
+            }
+            return score;
+        }
+
+        private boolean checkOcclusion(WorldSnapshot snapshot, Vector start, Vector end, BlockPos targetPos) {
+            BlockHitResult hit = snapshot.rayTrace(start, end);
+            if (hit.getType() == HitResult.Type.MISS) {
+                return false; // Clear view
+            }
+            BlockPos hitPos = hit.getBlockPos();
+            // It's occluded if we hit something that ISN'T the target block
+            return !hitPos.equals(targetPos);
         }
     }
 
