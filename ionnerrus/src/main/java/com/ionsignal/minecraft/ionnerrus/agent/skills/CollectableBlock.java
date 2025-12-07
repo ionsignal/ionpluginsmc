@@ -12,8 +12,8 @@ import org.bukkit.Location;
  *            The location of the block to be collected.
  * @param standingLocation
  *            The location the agent should stand at to collect the block.
- * @param pathToStand
+ * @param pathToStandingLocation
  *            The pre-calculated path from the agent's current location to the standingLocation.
  */
-public record CollectableBlock(Location blockLocation, Location standingLocation, Path pathToStand) {
+public record CollectableBlock(Location blockLocation, Location standingLocation, Path pathToStandingLocation) {
 }
