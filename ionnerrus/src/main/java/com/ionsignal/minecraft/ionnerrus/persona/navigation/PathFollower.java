@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * Variable Rabbit Path Follower implementation that projects the agent's position onto the path
  * spline to find `currentDist`. We check deviation (Tether Snap) using the node's `clearanceRadius`
- * and then calculate a dynamic lookahead point based on traversability.
+ * and `apex`, then calculate a dynamic lookahead point based on traversability.
  */
 public class PathFollower {
     // Tuning Constants
@@ -23,8 +23,7 @@ public class PathFollower {
     private static final double TETHER_SLACK = 0.8; // Extra forgiveness before snapping tether
     private static final double PROJECTION_STEP_SIZE = 0.5; // Size of our projection steps
     private static final double PROJECTION_SEARCH_WINDOW = 5.0; // How far forward/back to search for projection
-    private static final double MIN_CORRIDOR_CLEARANCE = 0.8; // Prevents cutting corners in tunnels
-    private static final double COMPLETION_THRESHOLD = 0.15; // Proximity to be considered done
+    private static final double COMPLETION_THRESHOLD = 0.36; // Proximity to be considered done
     private static final double COMPLETION_THRESHOLD_SQUARED = COMPLETION_THRESHOLD * COMPLETION_THRESHOLD;
 
     private final Path path;
@@ -102,42 +101,33 @@ public class PathFollower {
         if (currentNode == null) {
             return new SteeringResult(currentPos, MovementType.WALK);
         }
-        // Calculate Dynamic Lookahead (The Rabbit)
-        // Wider clearance = Further lookahead = Smoother movement
-        // Narrow clearance = Shorter lookahead = Tighter cornering
+        // 1. Calculate Ideal Lookahead (Speed based on Clearance)
         double idealLookahead = BASE_LOOKAHEAD * (currentNode.clearanceRadius() / 0.6);
         idealLookahead = Math.min(idealLookahead, MAX_LOOKAHEAD);
         idealLookahead = Math.max(idealLookahead, 0.5); // Minimum lookahead
-        // Scan ahead to see if we are approaching a choke point (narrow corridor) or a special maneuver.
-        // If so, shorten the lookahead to ensure we line up correctly.
-        double effectiveLookahead = idealLookahead;
-        double scanStep = 0.5; // Check resolution (half-block)
-        for (double d = scanStep; d <= idealLookahead; d += scanStep) {
-            double checkDist = currentDist + d;
-            if (checkDist >= path.getLength()) {
-                break;
-            }
-            PathNode nodeAhead = path.getNodeAtDistance(checkDist);
-            // Constraint 1: Choke Points
-            // If the path ahead narrows significantly (e.g., < 0.8m clearance), we must not look past it.
-            // We allow a small buffer so we enter the choke point straight on.
-            if (nodeAhead.clearanceRadius() < MIN_CORRIDOR_CLEARANCE) {
-                effectiveLookahead = d;
-                break;
-            }
-            // Constraint 2: Maneuver Preparation
-            // If a Jump or Drop is coming up, we treat it as a "hard stop" for steering.
-            // We want to steer exactly TO the jump point, not past it.
-            if (nodeAhead.type() != MovementType.WALK) {
-                effectiveLookahead = d;
-                break;
+        // 2. Calculate Geometric Constraints (Braking based on Apex)
+        // Constraint A: The immediate upcoming node (End of current segment)
+        double nextNodeDist = path.getNextNodeDistance(currentDist);
+        PathNode nextNode = path.getNodeAtDistance(nextNodeDist);
+        double constraint1 = nextNodeDist + (nextNode != null ? nextNode.apexRadius() : 100.0);
+        // Constraint B: The node after that (Lookahead for short segments)
+        double constraint2 = Double.MAX_VALUE;
+        // Only check further if we are reasonably close to the first turn
+        if (nextNodeDist - currentDist < 2.0) {
+            double nextNextDist = path.getNextNodeDistance(nextNodeDist + 0.01);
+            if (nextNextDist > nextNodeDist) {
+                PathNode nextNextNode = path.getNodeAtDistance(nextNextDist);
+                constraint2 = nextNextDist + (nextNextNode != null ? nextNextNode.apexRadius() : 100.0);
             }
         }
+        // The absolute furthest distance along the path we are allowed to look
+        double maxPathDist = Math.min(constraint1, constraint2);
+        double maxSafeLookahead = maxPathDist - currentDist;
+        // Ensure we don't stutter by enforcing a minimum vector length
+        maxSafeLookahead = Math.max(maxSafeLookahead, 0.5);
+        // Effective lookahead is the minimum of Ideal (Speed) and Safe (Geometry)
+        double effectiveLookahead = Math.min(idealLookahead, maxSafeLookahead);
         // Determine Target & Movement Type
-        // Default to WALK. We only switch to JUMP/DROP if we are physically close to the node
-        // Edge Case: Immediate Jump/Drop
-        // Even if our lookahead is clamped, if the VERY NEXT node is a maneuver, we must execute it.
-        // This handles the case where we are standing right at the edge.
         MovementType type = MovementType.WALK;
         double targetDist = Math.min(currentDist + effectiveLookahead, path.getLength());
         Location targetLoc = path.getPointAtDistance(targetDist);

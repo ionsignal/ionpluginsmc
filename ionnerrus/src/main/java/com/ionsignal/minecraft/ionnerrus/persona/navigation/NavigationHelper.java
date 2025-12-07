@@ -84,6 +84,21 @@ public final class NavigationHelper {
     }
 
     /**
+     * Checks if a block has ANY collision shape.
+     * This is stricter than !isPassable because it catches things like open trapdoors,
+     * fences, and panes which might be technically passable in some contexts but are
+     * definitely obstructions for cornering.
+     */
+    @SuppressWarnings("null")
+    public static boolean hasCollision(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.isAir()) {
+            return false;
+        }
+        return !state.getCollisionShape(level, pos).isEmpty();
+    }
+
+    /**
      * Calculates the horizontal clearance radius around a specific node.
      * Used by AStarPathfinder to populate path metadata.
      * 
