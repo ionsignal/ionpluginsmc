@@ -15,6 +15,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EngageEntitySkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.results.EquipBestToolResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlockResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
@@ -35,9 +36,10 @@ import java.util.logging.Logger;
  * A reactive, state-machine based task for gathering blocks that supports fast/slow collection.
  */
 public class GatherBlockTask implements Task {
-    private static final int MAX_REPOSITION_ATTEMPTS = 2;
-    private static final int MAX_OBSTRUCTION_DEPTH = 3;
-    private static final double FAST_MODE_DIST_SQUARED = 6.0 * 6.0; // Heuristic for switching between Direct Steering and Pathfinding
+    private static final int MAX_REPOSITION_ATTEMPTS = 1;
+    private static final int MAX_OBSTRUCTION_DEPTH = 1;
+    private static final double FAST_MODE_DIST = 3.0;
+    private static final double FAST_MODE_DIST_SQUARED = FAST_MODE_DIST * FAST_MODE_DIST;
 
     private final Logger logger;
     private final int searchRadius;
@@ -50,21 +52,18 @@ public class GatherBlockTask implements Task {
     private Registration cancelRegistration;
 
     // Execution Context
-    private CollectableBlock mainTarget;
-    private Location currentBreakTarget;
     private int obstructionDepth = 0;
     private int repositionAttempts = 0;
+    private CollectableBlock mainTarget;
+    private Location currentBreakTarget;
+    private Item currentDropTarget;
 
     // Collection State
+    private final Set<Integer> failedFastModeTargets = new HashSet<>();
     private final Queue<Item> pendingDrops = new LinkedList<>();
-    private Item currentDropTarget;
 
     private enum State {
         IDLE, SCANNING, APPROACHING, EQUIPPING, BREAKING, COLLECTING, FINISHED
-    }
-
-    // Internal message wrapper for EquipBestToolSkill result
-    private record EquipResult(boolean success) {
     }
 
     public GatherBlockTask(Set<Material> targetBlocks, int searchRadius, Set<Location> attemptedLocations) {
@@ -106,15 +105,19 @@ public class GatherBlockTask implements Task {
             return;
         }
         switch (message) {
+            // Handle Collection Scan
             case FindCollectableBlockResult result when state == State.SCANNING -> handleScanResult(agent, token, result);
+            // Handle Standing Location Approach
             case NavigateToLocationResult result when state == State.APPROACHING -> handleNavigationResult(agent, token, result);
             case MovementResult result when state == State.APPROACHING -> handleEngageResult(agent, token, result);
-            case EquipResult result when state == State.EQUIPPING -> handleEquipResult(agent, token, result);
+            // Handle Equip Tool
+            case EquipBestToolResult result when state == State.EQUIPPING -> handleEquipResult(agent, token, result);
+            // Handle Block Break
             case BreakBlockResult result when state == State.BREAKING -> handleBreakResult(agent, token, result);
-            // We reuse MovementResult for Fast Mode (EngageEntitySkill)
+            // Handle Collection
             case MovementResult result when state == State.COLLECTING -> handleCollectionEngageResult(agent, token, result);
-            // We reuse NavigateToLocationResult for Slow Mode (NavigateToLocationSkill)
             case NavigateToLocationResult result when state == State.COLLECTING -> handleCollectionPathingResult(agent, token, result);
+            // Handle Error
             case SystemError error -> {
                 logger.severe("[GatherBlockTask] System Error received: " + error.error().getMessage());
                 error.error().printStackTrace();
@@ -139,9 +142,10 @@ public class GatherBlockTask implements Task {
                     attemptedLocations.add(mainTarget.blockLocation()); // Mark as attempted to prevent infinite loops
                     this.state = State.APPROACHING;
                     agent.executeSkill(
-                            new NavigateToLocationSkill(mainTarget.standingLocation(), mainTarget.blockLocation()),
-                            token, res -> res // Maps directly to NavigateToLocationResult
-                    );
+                            new NavigateToLocationSkill(
+                                    mainTarget.pathToStandingLocation(),
+                                    mainTarget.blockLocation()),
+                            token, res -> res);
                 } else {
                     logger.severe("[GatherBlockTask] Critical Logic Error: Skill returned SUCCESS but no target present.");
                     fail(agent, token, GatherResult.NO_BLOCKS_IN_RANGE, "Internal logic error.");
@@ -172,19 +176,20 @@ public class GatherBlockTask implements Task {
         }
     }
 
-    @SuppressWarnings("null")
     private void startBreakingSequence(NerrusAgent agent, ExecutionToken token, Location target) {
         this.state = State.EQUIPPING;
         this.currentBreakTarget = target;
         agent.executeSkill(
-                new EquipBestToolSkill(target.getBlock()), token, EquipResult::new);
+                new EquipBestToolSkill(target.getBlock()),
+                token, res -> res);
     }
 
-    private void handleEquipResult(NerrusAgent agent, ExecutionToken token, EquipResult result) {
-        if (result.success()) {
+    private void handleEquipResult(NerrusAgent agent, ExecutionToken token, EquipBestToolResult result) {
+        if (result.status() == EquipBestToolResult.Status.SUCCESS) {
             this.state = State.BREAKING;
             agent.executeSkill(
-                    new BreakBlockSkill(currentBreakTarget), token, res -> res);
+                    new BreakBlockSkill(currentBreakTarget),
+                    token, res -> res);
         } else {
             fail(agent, token, GatherResult.FAILED_TO_COLLECT, "Failed to equip tool.");
         }
@@ -215,15 +220,17 @@ public class GatherBlockTask implements Task {
                     return;
                 }
                 repositionAttempts++;
-                // We want to engage to roughly 50% of our maximum reach to avoid hugging the block.
-                double maxReach = agent.getPersona().getPhysicalBody().state().getBlockReach();
-                double stopDistanceSquared = (maxReach * 0.5) * (maxReach * 0.5);
-                logger.info(String.format("[GatherBlockTask] Target out of reach (Attempt %d/%d). Repositioning to %.2f blocks...",
+                double maxReach = agent.getPersona().getPhysicalBody().state().getBlockReach() * 0.5;
+                double stopDistanceSquared = maxReach * maxReach;
+                logger.info(String.format("[GatherBlockTask] Target out of reach (Attempt %d/%d). Repositioning  to %.2f blocks...",
                         repositionAttempts, MAX_REPOSITION_ATTEMPTS, stopDistanceSquared));
                 this.state = State.APPROACHING;
                 Location center = currentBreakTarget.clone().add(0.5, 0.0, 0.5);
                 agent.executeSkill(
-                        new EngageLocationSkill(center, stopDistanceSquared), token, res -> res);
+                        new EngageLocationSkill(
+                                center,
+                                stopDistanceSquared),
+                        token, res -> res);
             }
             case OBSTRUCTED -> {
                 if (obstructionDepth < MAX_OBSTRUCTION_DEPTH && result.obstruction().isPresent()) {
@@ -237,7 +244,7 @@ public class GatherBlockTask implements Task {
         }
     }
 
-    // The Collection FSM Loop
+    // Collection Loop
     private void processNextDrop(NerrusAgent agent, ExecutionToken token) {
         if (!token.isActive()) {
             return;
@@ -255,17 +262,24 @@ public class GatherBlockTask implements Task {
             processNextDrop(agent, token);
             return;
         }
-        // Heuristic: Fast Mode vs Slow Mode
+        // Check if this specific item failed Fast Mode previously
+        boolean forceSlowMode = failedFastModeTargets.contains(currentDropTarget.getEntityId());
         double distSq = agent.getPersona().getLocation().distanceSquared(currentDropTarget.getLocation());
-        if (distSq < FAST_MODE_DIST_SQUARED) {
+        if (!forceSlowMode && distSq < FAST_MODE_DIST_SQUARED) {
             // Fast Mode: Direct Steering
-            // Stop distance 0.5 to trigger pickup collision
             agent.executeSkill(
-                    new EngageEntitySkill(currentDropTarget, 0.25), token, res -> res);
+                    new EngageEntitySkill(
+                            currentDropTarget,
+                            0.25),
+                    token, res -> res);
         } else {
             // Slow Mode: Pathfinding
+            if (forceSlowMode) {
+                logger.info("[GatherBlockTask] Forcing Slow Mode for item due to previous failure.");
+            }
             agent.executeSkill(
-                    new NavigateToLocationSkill(currentDropTarget.getLocation()), token, res -> res);
+                    new NavigateToLocationSkill(currentDropTarget.getLocation()),
+                    token, res -> res);
         }
     }
 
@@ -279,11 +293,16 @@ public class GatherBlockTask implements Task {
             }
             // Loop
             processNextDrop(agent, token);
-        } else if (result == MovementResult.STUCK || result == MovementResult.UNREACHABLE) {
-            // Fast mode failed. Fallback to Slow Mode (Pathfinding) for this specific item.
-            logger.info("[GatherBlockTask] Fast mode stuck. Promoting to Pathfinding.");
+        } else if (result == MovementResult.STUCK ||
+                result == MovementResult.UNREACHABLE ||
+                result == MovementResult.REPATH_NEEDED) {
+            // Fast mode failed. Record failure to prevent oscillation and fallback to Slow Mode.
+            logger.info("[GatherBlockTask] Fast mode failed (" + result + "). Promoting to Pathfinding.");
+            failedFastModeTargets.add(currentDropTarget.getEntityId());
             agent.executeSkill(
-                    new NavigateToLocationSkill(currentDropTarget.getLocation()), token, res -> res);
+                    new NavigateToLocationSkill(
+                            currentDropTarget.getLocation()),
+                    token, res -> res);
         } else {
             // Cancelled or other failure
             processNextDrop(agent, token);
@@ -294,9 +313,13 @@ public class GatherBlockTask implements Task {
     private void handleCollectionPathingResult(NerrusAgent agent, ExecutionToken token, NavigateToLocationResult result) {
         if (result == NavigateToLocationResult.SUCCESS) {
             // We navigated close to the item. Now trigger Fast Mode to finalize the pickup.
-            // (Pathfinding stops at ~1 block, we need to touch it)
+            // Note: We do NOT add to failedFastModeTargets here because we are already close enough
+            // that Fast Mode should work (or fail immediately if inventory is full).
             agent.executeSkill(
-                    new EngageEntitySkill(currentDropTarget, 0.25), token, res -> res);
+                    new EngageEntitySkill(
+                            currentDropTarget,
+                            0.25),
+                    token, res -> res);
         } else {
             // Pathfinding failed. Item unreachable. Skip.
             logger.warning("[GatherBlockTask] Item unreachable via pathfinding. Skipping.");

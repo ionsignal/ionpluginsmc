@@ -135,9 +135,8 @@ public class GatherBlockGoal implements Goal {
                 // Loop back to inventory check
                 this.attemptedLocations.clear(); // Reset cache on success
             case FAILED_TO_COLLECT: // Transient failure, retry logic handles it
-                // this.state = State.VERIFYING_INVENTORY;
-                // checkInventory(agent, token);
-                complete();
+                this.state = State.VERIFYING_INVENTORY;
+                checkInventory(agent, token);
                 break;
             case NO_REACHABLE_BLOCKS_IN_RANGE:
                 fail("I see " + params.groupName() + ", but I can't reach them.");
