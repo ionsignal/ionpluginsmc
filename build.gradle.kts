@@ -109,8 +109,11 @@ tasks {
 
         // For MOJANG_PRODUCTION, use jar outputs (IonCore)
         pluginJars(
-            ioncore.tasks.named<Jar>("jar")
-                .flatMap { it.archiveFile }
+            ioncore.tasks.named("shadowJar")
+                .flatMap { task ->
+                    @Suppress("UNCHECKED_CAST")
+                    (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
+                }
         )
         
         // For MOJANG_PRODUCTION, use shadowJar output (IonNerrus)
