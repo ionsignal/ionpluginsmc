@@ -32,6 +32,7 @@ import java.util.logging.Logger;
 public class AStarPathfinder {
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final int MAX_ITERATIONS = 8000;
+    private static final int MAX_BREATH_TICKS = 200; // ~10 seconds of underwater travel
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final BlockPos startPos;
@@ -90,8 +91,6 @@ public class AStarPathfinder {
     }
 
     private Optional<Path> calculatePath() {
-        // LOGGER.info(String.format("Starting A* pathfinding from %s to %s", startPos.toString(),
-        // endPos.toString()));
         BlockPos actualStartPos = resolveStartPosition(startPos);
         BlockPos actualEndPos = endPos;
         if (actualStartPos == null || actualEndPos == null) {
@@ -101,15 +100,16 @@ public class AStarPathfinder {
         // Prepare for pathing
         PriorityQueue<Node> openSet = new PriorityQueue<>();
         Map<BlockPos, Node> allNodes = new HashMap<>();
-        Node startNode = new Node(actualStartPos, null, 0, getHeuristic(actualStartPos, actualEndPos));
+        Node startNode = new Node(actualStartPos, null, 0,
+                getHeuristic(actualStartPos, actualEndPos), 0);
         openSet.add(startNode);
         allNodes.put(actualStartPos, startNode);
         // Begin iterations
         long startTime = System.nanoTime();
         int iterations = 0;
         while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
-            // Async Cancellation Check
-            // This allows the heavy calculation to abort immediately if the main thread cancels the goal.
+            // Async Cancellation Check allowing the heavy calculation to abort immediately if the main thread
+            // cancels the goal.
             if (token != null && !token.isActive()) {
                 throw new CancellationException("Pathfinding cancelled via execution token");
             }
@@ -138,8 +138,7 @@ public class AStarPathfinder {
     }
 
     /**
-     * Reconstructs the path and calculates metadata (Clearance, MovementType) for each node. This runs
-     * on the async thread.
+     * Calculates metadata clearance, movement type, apex radius for each node.
      */
     private Path reconstructAndEnrichPath(Node endNode) {
         LinkedList<BlockPos> rawPositions = new LinkedList<>();
@@ -150,37 +149,100 @@ public class AStarPathfinder {
         }
         List<PathNode> enrichedNodes = new ArrayList<>(rawPositions.size());
         for (int i = 0; i < rawPositions.size(); i++) {
+            // Calculate Clearance and Apex Radius
             BlockPos current = rawPositions.get(i);
+            BlockPos prev = (i > 0) ? rawPositions.get(i - 1) : null;
             BlockPos next = (i < rawPositions.size() - 1) ? rawPositions.get(i + 1) : null;
-            // Calculate Clearance (Drivability)
-            // We check a radius of up to 2.0 blocks.
             double clearance = NavigationHelper.calculateClearance(snapshot, current, 2.0);
-            // Determine Movement Type
+            double apexRadius = calculateApexRadius(snapshot, prev, current, next);
             MovementType type = MovementType.WALK; // Default
             if (next != null) {
-                if (isWater(current) || isWater(next)) {
+                boolean currentWater = isWater(current);
+                boolean nextWater = isWater(next);
+                if (currentWater && !nextWater && next.getY() >= current.getY()) {
+                    type = MovementType.WATER_EXIT;
+                } else if (currentWater || nextWater) {
                     type = MovementType.SWIM;
                 } else {
                     int yDiff = next.getY() - current.getY();
                     if (yDiff > 0) {
                         type = MovementType.JUMP;
                     } else if (yDiff < 0) {
-                        // Ledge Detection:
-                        // We check the block at the destination X/Z, but at the CURRENT Y-1 level.
-                        // If that space is AIR, we are walking off a ledge (DROP).
-                        // If that space is SOLID, we are walking down a surface/stair (WALK).
+                        // Ledge detection checking passability (Air/Water = Passable = Drop)
                         BlockPos ledgeCheck = new BlockPos(next.getX(), current.getY() - 1, next.getZ());
-                        // Use NavigationHelper to check passability (Air/Water = Passable = Drop)
                         if (NavigationHelper.isPassable(snapshot, ledgeCheck)) {
                             type = MovementType.DROP;
                         }
-                        // Else: It is solid, so we treat it as a standard WALK down.
                     }
                 }
             }
-            enrichedNodes.add(new PathNode(current, type, clearance));
+            enrichedNodes.add(new PathNode(current, type, clearance, apexRadius));
         }
         return new Path(enrichedNodes, this.world);
+    }
+
+    /**
+     * Calculates the "Apex Radius" for a node, which represents how tight the turn is.
+     * This solves the "Corner Cutting Paradox" by enforcing tighter lookaheads at obstructions.
+     */
+    private double calculateApexRadius(WorldSnapshot snapshot, BlockPos prev, BlockPos curr, BlockPos next) {
+        // Endpoints
+        if (prev == null || next == null) {
+            // Default endpoints to Loose (1.5) to allow smooth start/stop.
+            return 1.5;
+        }
+        // Verticality (Jumps/Drops)
+        // If Y-level changes, we must be tight to ensure we line up for the maneuver.
+        if (prev.getY() != curr.getY() || curr.getY() != next.getY()) {
+            return 0.5;
+        }
+        int dx1 = curr.getX() - prev.getX();
+        int dz1 = curr.getZ() - prev.getZ();
+        int dx2 = next.getX() - curr.getX();
+        int dz2 = next.getZ() - curr.getZ();
+        // Turn Detection
+        if (dx1 != dx2 || dz1 != dz2) {
+            // Corner Logic: Vector Subtraction
+            // P_apex = P_prev + P_next - P_curr
+            // Since P_next - P_curr is the exit vector, we add that to P_prev.
+            // Simplified: The block "inside" the turn.
+            BlockPos apexPos = new BlockPos(
+                    prev.getX() + dx2,
+                    curr.getY(),
+                    prev.getZ() + dz2);
+            // Check collision at Feet and Head
+            if (NavigationHelper.hasCollision(snapshot, apexPos) ||
+                    NavigationHelper.hasCollision(snapshot, apexPos.above())) {
+                // Tight Turn (Obstruction detected)
+                return 0.5;
+            }
+            // Loose Turn (Open Air)
+            return 1.5;
+        } else {
+            // Straight Logic: Orthogonal Flank Check
+            BlockPos left, right;
+            if (dx1 == 0) { // Moving North/South
+                left = curr.offset(-1, 0, 0);
+                right = curr.offset(1, 0, 0);
+            } else if (dz1 == 0) { // Moving East/West
+                left = curr.offset(0, 0, -1);
+                right = curr.offset(0, 0, 1);
+            } else {
+                // Diagonal Movement (e.g. +1, +1)
+                // Flanks are the adjacent cardinals: (+1, 0) and (0, +1)
+                left = curr.offset(dx1, 0, 0);
+                right = curr.offset(0, 0, dz1);
+            }
+            boolean leftSolid = NavigationHelper.hasCollision(snapshot, left) || NavigationHelper.hasCollision(snapshot, left.above());
+            boolean rightSolid = NavigationHelper.hasCollision(snapshot, right) || NavigationHelper.hasCollision(snapshot, right.above());
+            if (leftSolid && rightSolid) {
+                return 0.8; // Doorway/Hallway
+            }
+            if (leftSolid || rightSolid) {
+                return 1.0; // Wall Following
+            }
+            return 2.0; // Open Field
+        }
     }
 
     private BlockPos resolveStartPosition(BlockPos pos) {
@@ -194,6 +256,16 @@ public class AStarPathfinder {
     private List<Node> getNeighbors(Node node) {
         List<Node> neighbors = new ArrayList<>();
         BlockPos currentPos = node.pos;
+        // Breath cost in water and not at the surface, accumulate breath cost.
+        int nextUnderwaterTicks = node.underwaterTicks;
+        if (isWater(currentPos) && !isSurface(currentPos)) {
+            nextUnderwaterTicks += 20; // Approx 1 second per block traversal
+        } else {
+            nextUnderwaterTicks = 0; // Reset breath at surface or on land
+        }
+        if (nextUnderwaterTicks > MAX_BREATH_TICKS) {
+            return neighbors; // Prune path: Agent would drown
+        }
         // Add swimming neighbors
         if (params.canSwim() && isWater(currentPos)) {
             for (int x = -1; x <= 1; x++) {
@@ -208,7 +280,7 @@ public class AStarPathfinder {
                             // let the more specific walking logic handle it to ensure correct costs.
                             if (isValidStandingPos(swimPos))
                                 continue;
-                            addNeighbor(neighbors, node, swimPos);
+                            addNeighbor(neighbors, node, swimPos, nextUnderwaterTicks);
                         }
                     }
                 }
@@ -225,19 +297,19 @@ public class AStarPathfinder {
                     if (!isWater(exitPos) && isValidStandingPos(exitPos)) {
                         // Can we exit water here?
                         if (canExitWaterTo(currentPos, exitPos)) {
-                            addNeighbor(neighbors, node, exitPos);
+                            addNeighbor(neighbors, node, exitPos, 0); // Reset breath on land
                         }
                     }
                     // Check for jumping out of water onto higher ground
                     BlockPos jumpExitPos = currentPos.offset(x, 1, z);
                     if (!isWater(jumpExitPos) && isValidStandingPos(jumpExitPos)) {
                         if (canExitWaterTo(currentPos, jumpExitPos)) {
-                            addNeighbor(neighbors, node, jumpExitPos);
+                            addNeighbor(neighbors, node, jumpExitPos, 0); // Reset breath on land
                         }
                     }
                     // Check for lily pads and similar surfaces
                     if (isWaterWithSurface(exitPos)) {
-                        addNeighbor(neighbors, node, exitPos.above());
+                        addNeighbor(neighbors, node, exitPos.above(), 0);
                     }
                 }
             }
@@ -254,13 +326,13 @@ public class AStarPathfinder {
                 if (isValidStandingPos(walkPos)) {
                     // For diagonal moves, perform an additional clearance check.
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                        addNeighbor(neighbors, node, walkPos);
+                        addNeighbor(neighbors, node, walkPos, 0);
                     }
                 } else if (isWater(walkPos) && isAirOrPassable(snapshot.getBlockState(walkPos.above()))) {
                     // This handles walking from land directly into a water block.
                     // Also check clearance when moving diagonally into water.
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                        addNeighbor(neighbors, node, walkPos);
+                        addNeighbor(neighbors, node, walkPos, 0);
                     }
                 }
                 // Climb
@@ -268,7 +340,7 @@ public class AStarPathfinder {
                 if (params.climbHeight() >= 1 && isValidStandingPos(climbPos) && hasHeadroomForJump(currentPos)) {
                     // For diagonal climbs, perform an additional clearance check.
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
-                        addNeighbor(neighbors, node, climbPos);
+                        addNeighbor(neighbors, node, climbPos, 0);
                     }
                 }
             }
@@ -276,10 +348,9 @@ public class AStarPathfinder {
         // Add drop down neighbors
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {
-                if (x == 0 && z == 0)
+                if (x == 0 && z == 0) {
                     continue;
-                // Check if we can fall from here
-                // First, check if the space we'd step into before falling is clear.
+                }
                 boolean isDiagonal = x != 0 && z != 0;
                 BlockPos dropPos = currentPos.offset(x, 0, z);
                 if (isAirOrPassable(snapshot.getBlockState(dropPos)) && isAirOrPassable(snapshot.getBlockState(dropPos.above()))) {
@@ -289,7 +360,7 @@ public class AStarPathfinder {
                         BlockPos fallDestination = findLandingSpot(dropPos.below(), params.maxFallDistance());
                         if (fallDestination != null && !fallDestination.equals(currentPos)) {
                             if (isFallPathClear(dropPos, fallDestination)) {
-                                addNeighbor(neighbors, node, fallDestination);
+                                addNeighbor(neighbors, node, fallDestination, 0);
                             }
                         }
                     }
@@ -302,37 +373,22 @@ public class AStarPathfinder {
             BlockPos fallDestination = findLandingSpot(currentPos.below(), params.maxFallDistance());
             if (fallDestination != null && !fallDestination.equals(currentPos)) {
                 if (isFallPathClear(currentPos, fallDestination)) {
-                    addNeighbor(neighbors, node, fallDestination);
+                    addNeighbor(neighbors, node, fallDestination, 0);
                 }
             }
         }
         return neighbors;
     }
 
-    private void addNeighbor(List<Node> neighbors, Node parent, BlockPos pos) {
+    private void addNeighbor(List<Node> neighbors, Node parent, BlockPos pos, int underwaterTicks) {
         double gCost = parent.gCost + getMoveCost(parent.pos, pos);
         double hCost = getHeuristic(pos, endPos);
-        neighbors.add(new Node(pos, parent, gCost, hCost));
+        neighbors.add(new Node(pos, parent, gCost, hCost, underwaterTicks));
     }
 
     private boolean isDiagonalMoveClear(BlockPos from, BlockPos to) {
         int dx = to.getX() - from.getX();
         int dz = to.getZ() - from.getZ();
-        // // EXPENSIVE LOGIC, IMPROVES PATHING (maybe enable indoors/caves)
-        // // CHANGE: Check intermediate positions for entity collision box
-        // // Entity occupies roughly 0.6x0.6 blocks, so check a slightly wider path
-        // for (float t = 0.1f; t <= 0.9f; t += 0.2f) {
-        // double checkX = from.getX() + dx * t;
-        // double checkZ = from.getZ() + dz * t;
-        // double checkY = from.getY() + (to.getY() - from.getY()) * t;
-        // BlockPos checkPos = BlockPos.containing(checkX, checkY, checkZ);
-        // if (!isPassableWithCollisionCheck(checkPos) ||
-        // !isPassableWithCollisionCheck(checkPos.above())) {
-        // return false;
-        // }
-        // }
-        // Check at destination Y-level
-        // Enhanced check for partial blocks using collision shapes
         BlockPos corner1Base = from.offset(dx, 0, 0);
         BlockPos corner2Base = from.offset(0, 0, dz);
         BlockPos corner1AtDestY = corner1Base.atY(to.getY());
@@ -371,8 +427,11 @@ public class AStarPathfinder {
         if (state == null)
             return false;
         Material mat = state.getBukkitMaterial();
-        return Tag.SLABS.isTagged(mat) || Tag.STAIRS.isTagged(mat) || Tag.FENCES.isTagged(mat) ||
-                Tag.WALLS.isTagged(mat) || Tag.FENCE_GATES.isTagged(mat);
+        return Tag.SLABS.isTagged(mat) ||
+                Tag.STAIRS.isTagged(mat) ||
+                Tag.FENCES.isTagged(mat) ||
+                Tag.WALLS.isTagged(mat) ||
+                Tag.FENCE_GATES.isTagged(mat);
     }
 
     @SuppressWarnings("null")
@@ -425,9 +484,9 @@ public class AStarPathfinder {
         // The landing spot itself is already validated by `isValidStandingPos`.
         // We need to check the column of air the entity falls through.
         // The fall starts at the takeoff Y-level and at the landing X/Z coordinates.
-        BlockPos.MutableBlockPos fallColumnPos = new BlockPos.MutableBlockPos(landingPos.getX(), 0, landingPos.getZ());
         // Iterate from the Y-level of the takeoff position down to the Y-level of the landing position.
         // We check the full 1x2 space at each Y-level of the fall.
+        BlockPos.MutableBlockPos fallColumnPos = new BlockPos.MutableBlockPos(landingPos.getX(), 0, landingPos.getZ());
         for (int y = takeoffPos.getY(); y >= landingPos.getY(); y--) {
             fallColumnPos.setY(y);
             // Check the space for the entity's feet.
@@ -474,6 +533,12 @@ public class AStarPathfinder {
             return false;
         BlockState state = snapshot.getBlockState(pos);
         return state != null && state.getBukkitMaterial() == Material.WATER;
+    }
+
+    // Added helper for breath logic
+    private boolean isSurface(BlockPos pos) {
+        BlockState above = snapshot.getBlockState(pos.above());
+        return above != null && above.getBukkitMaterial().isAir();
     }
 
     private boolean isPassableForSwimming(BlockPos pos) {
@@ -600,12 +665,14 @@ public class AStarPathfinder {
         final Node parent;
         final double gCost;
         final double fCost;
+        final int underwaterTicks;
 
-        Node(BlockPos pos, Node parent, double gCost, double hCost) {
+        Node(BlockPos pos, Node parent, double gCost, double hCost, int underwaterTicks) {
             this.pos = pos;
             this.parent = parent;
             this.gCost = gCost;
             this.fCost = gCost + hCost;
+            this.underwaterTicks = underwaterTicks;
         }
 
         @Override

@@ -19,11 +19,16 @@ import org.bukkit.World;
  *            The "Drivability" metric. Distance to the nearest obstacle.
  *            0.5 = Tight corridor (Rail movement).
  *            3.0+ = Open field (Smooth cornering).
+ * @param apexRadius
+ *            The "Geometric Constraint" metric. Determines how tight the turn must be.
+ *            0.5 = Tight turn (Corner/Doorway).
+ *            2.0 = Loose turn (Open Air).
  */
 public record PathNode(
         BlockPos pos,
         MovementType type,
-        double clearanceRadius) {
+        double clearanceRadius,
+        double apexRadius) {
 
     /**
      * Converts the block position to a centered Bukkit Location.

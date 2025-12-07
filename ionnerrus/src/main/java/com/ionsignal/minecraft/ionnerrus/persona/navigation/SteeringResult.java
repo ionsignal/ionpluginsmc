@@ -1,3 +1,4 @@
+// src/main/java/com/ionsignal/minecraft/ionnerrus/persona/navigation/SteeringResult.java
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import org.bukkit.Location;
@@ -13,7 +14,7 @@ public record SteeringResult(
         MovementType movementType,
         Optional<Vector> exitHeading) {
     public enum MovementType {
-        WALK, JUMP, DROP, SWIM;
+        WALK, JUMP, DROP, SWIM, WATER_EXIT;
 
         /**
          * Checks if the agent is within the "Completion Zone" of the target destination.
@@ -37,6 +38,8 @@ public record SteeringResult(
                     return dx <= 0.94 && dz <= 0.94;
                 case SWIM:
                     return agentPos.distanceSquared(targetPos) < 1.5 * 1.5;
+                case WATER_EXIT:
+                    return dx <= 1.0 && dz <= 1.0 && dy >= -0.1;
                 case WALK:
                 default:
                     return false;
