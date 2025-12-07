@@ -3,19 +3,13 @@ package com.ionsignal.minecraft.ionnerrus.persona;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSession;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
-
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugState;
-
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Optional;
 
-/**
- * A BukkitRunnable responsible for ticking all active Personas on the main server thread, enhanced
- * with `ioncore` debug session integration for agent message processing.
- */
 public class NerrusTick extends BukkitRunnable {
     private final NerrusManager manager;
 
@@ -25,62 +19,52 @@ public class NerrusTick extends BukkitRunnable {
 
     @Override
     public void run() {
-        // Original persona ticking
+        // Tick Physical Personas (Physics/Movement)
         for (Persona persona : manager.getRegistry().getAll()) {
             if (persona.isSpawned()) {
-                // Check if this specific entity is paused via IonCore
                 if (isPaused(persona)) {
-                    continue; // Skip physics tick (freezes the agent)
+                    continue;
                 }
                 try {
                     persona.tick();
                 } catch (Exception e) {
-                    manager.getLogger().severe("Error ticking persona " + persona.getName() + " (" + persona.getUniqueId() + ")");
+                    manager.getLogger().severe("Error ticking persona " + persona.getName());
                     e.printStackTrace();
                 }
-
             }
         }
-        // Process agent messages to drive the message processing loop
+        // Tick Agents (Brain/Network)
         IonNerrus plugin = IonNerrus.getInstance();
         if (plugin != null && plugin.getAgentService() != null) {
             for (NerrusAgent agent : plugin.getAgentService().getAgents()) {
                 try {
-                    // Unified debug session integration check for active debug session for this agent
+                    // Debug Session Logic
                     Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore
                             .getDebugRegistry()
                             .getActiveSession(agent.getPersona().getUniqueId(), AgentDebugState.class);
                     if (sessionOpt.isPresent()) {
                         DebugSession<AgentDebugState> session = sessionOpt.get();
                         ExecutionController controller = session.getController().orElse(null);
-                        // Complete visualization flow skips agent message processing if controller is paused to allow for
-                        // inspection between ticks
                         if (controller != null && controller.isPaused()) {
-                            continue;
+                            continue; // Skip if paused by debug tool
                         }
-                        // Update state snapshot and mark visualization dirty which captures the current agent state before
-                        // processing next message
+                        // Update Debug Snapshot
                         AgentDebugState snapshot = AgentDebugState.snapshot(agent);
-                        session.setState(snapshot); // Atomically marks visualization dirty
-                        // Signal pause point to controller (non-blocking for TickBasedController)
+                        session.setState(snapshot);
                         if (controller != null) {
                             String nextMsg = snapshot.nextMessage() != null ? snapshot.nextMessage() : "No messages";
                             controller.pause("Message Processing", "Next: " + nextMsg);
                         }
                     }
-                    // Process agent messages (will be skipped if controller is paused)
-                    agent.processMessages();
+                    agent.tick();
                 } catch (Exception e) {
-                    manager.getLogger().severe("Error processing mailbox for agent " + agent.getName());
+                    manager.getLogger().severe("Error ticking agent " + agent.getName());
                     e.printStackTrace();
                 }
             }
         }
     }
 
-    /**
-     * Helper to check if a Persona is currently paused by a debug session.
-     */
     private boolean isPaused(Persona persona) {
         Optional<DebugSession<AgentDebugState>> sessionOpt = IonCore.getDebugRegistry()
                 .getActiveSession(persona.getUniqueId(), AgentDebugState.class);
