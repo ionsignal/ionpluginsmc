@@ -4,6 +4,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.Skill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.results.EquipBestToolResult;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.ActionResult;
 
 import net.minecraft.core.BlockPos;
@@ -23,7 +24,7 @@ import java.util.concurrent.CompletableFuture;
  * A skill to find the best tool in the agent's inventory for a given block
  * and equip it in the main hand.
  */
-public class EquipBestToolSkill implements Skill<Boolean> {
+public class EquipBestToolSkill implements Skill<EquipBestToolResult> {
 
     private final Block targetBlock;
 
@@ -31,18 +32,18 @@ public class EquipBestToolSkill implements Skill<Boolean> {
         this.targetBlock = targetBlock;
     }
 
-    private record ToolSwapRequest(int sourceSlot, int destSlot, boolean success) {
+    // Internal record to pass data between the analysis phase and execution phase
+    private record ToolSwapRequest(int sourceSlot, int destSlot, Material material, boolean success) {
     }
 
     @Override
     @SuppressWarnings("null")
-    public CompletableFuture<Boolean> execute(NerrusAgent agent, ExecutionToken token) {
-        // Step 1: Analyze inventory on the main thread to determine what needs to happen.
-        // We return a ToolSwapRequest record to pass data to the next stage.
+    public CompletableFuture<EquipBestToolResult> execute(NerrusAgent agent, ExecutionToken token) {
+        // Analyze inventory on the main thread to determine what needs to happen.
         return CompletableFuture.supplyAsync(() -> {
             PlayerInventory inventory = agent.getPersona().getInventory();
             if (inventory == null) {
-                return new ToolSwapRequest(-1, -1, false);
+                return new ToolSwapRequest(-1, -1, null, false);
             }
             // Find the best tool currently in the inventory
             // Note: Accessing NMS block state via CraftWorld is generally safe for reads,
@@ -80,32 +81,47 @@ public class EquipBestToolSkill implements Skill<Boolean> {
                             bestToolSlot = inventory.first(defaultToolType);
                         } else {
                             // No space for the default tool, fail the skill.
-                            return new ToolSwapRequest(-1, -1, false);
+                            return new ToolSwapRequest(-1, -1, null, false);
                         }
                     }
                 }
             }
             // Determine if a swap is actually needed
             int mainHandSlot = inventory.getHeldItemSlot();
-            if (bestToolSlot == -1 || bestToolSlot == mainHandSlot) {
-                // No swap needed (either no tool found or already holding it)
-                return new ToolSwapRequest(-1, -1, true);
+            if (bestToolSlot == -1) {
+                // No tool found, and no default could be provided.
+                // We return success=true here but with slot -1 to indicate "No Tool Available" logic in next step
+                // or we can handle it as a specific failure case.
+                // However, if bestToolSlot is -1, it means we are using hands.
+                // If the block REQUIRES a tool (e.g. diamond ore), this might be an issue,
+                // but for general gathering, hands are valid.
+                // Let's assume hands are valid if no tool found.
+                ItemStack held = inventory.getItem(mainHandSlot);
+                Material heldType = held != null ? held.getType() : Material.AIR;
+                return new ToolSwapRequest(-1, -1, heldType, true);
             }
-            return new ToolSwapRequest(bestToolSlot, mainHandSlot, true);
+            Material toolType = inventory.getItem(bestToolSlot).getType();
+            if (bestToolSlot == mainHandSlot) {
+                // No swap needed (already holding it)
+                return new ToolSwapRequest(-1, -1, toolType, true);
+            }
+            return new ToolSwapRequest(bestToolSlot, mainHandSlot, toolType, true);
         }, IonNerrus.getInstance().getMainThreadExecutor())
                 .thenCompose(request -> {
                     // Step 2: Execute the swap if needed via the PhysicalBody
                     if (!request.success) {
-                        return CompletableFuture.completedFuture(false);
+                        return CompletableFuture.completedFuture(EquipBestToolResult.failure());
                     }
                     if (request.sourceSlot == -1) {
-                        // Success, but no swap needed
-                        return CompletableFuture.completedFuture(true);
+                        // Success, but no swap needed (either hands or already equipped)
+                        return CompletableFuture.completedFuture(EquipBestToolResult.success(request.material));
                     }
                     // Delegate the physical action to the body
                     return agent.getPersona().getPhysicalBody().actions()
                             .swapItems(request.sourceSlot, request.destSlot, token)
-                            .thenApply(result -> result == ActionResult.SUCCESS);
+                            .thenApply(result -> result == ActionResult.SUCCESS
+                                    ? EquipBestToolResult.success(request.material)
+                                    : EquipBestToolResult.failure());
                 });
     }
 
