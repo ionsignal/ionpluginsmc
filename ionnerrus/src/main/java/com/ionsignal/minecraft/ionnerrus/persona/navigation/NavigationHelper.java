@@ -21,6 +21,11 @@ import org.bukkit.Tag;
  * Operates on NMS BlockGetter to support both ServerLevel (Sync) and WorldSnapshot (Async).
  */
 public final class NavigationHelper {
+    // Standard step height for Minecraft entities (Slabs, Carpets, etc.)
+    public static final double MAX_STEP_HEIGHT = 0.6;
+    // Threshold for checking headroom above partial blocks (approx carpet height + epsilon)
+    private static final double HEADROOM_CHECK_THRESHOLD = 0.2;
+
     private NavigationHelper() {
     }
 
@@ -46,64 +51,122 @@ public final class NavigationHelper {
     }
 
     /**
+     * Calculates the maximum Y-level of a block's collision shape relative to its base.
+     * Returns 0.0 for Air or non-colliding blocks.
+     */
+    @SuppressWarnings("null")
+    public static double getMaxCollisionHeight(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.isAir())
+            return 0.0;
+        VoxelShape shape = state.getCollisionShape(level, pos);
+        if (shape.isEmpty())
+            return 0.0;
+        return shape.max(Direction.Axis.Y);
+    }
+
+    /**
+     * Checks if a block can be stepped onto/into (e.g., Carpet, Slab, Air).
+     * A block is traversable if its collision height is within step height limits
+     * and it is not a fence/wall/leaf.
+     */
+    @SuppressWarnings("null")
+    public static boolean isTraversable(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        Material mat = state.getBukkitMaterial();
+        // Explicitly reject obstacles that might have low collision but are logically impassable
+        if (Tag.LEAVES.isTagged(mat) || Tag.FENCES.isTagged(mat) ||
+                Tag.WALLS.isTagged(mat) || Tag.FENCE_GATES.isTagged(mat)) {
+            // Note: Open fence gates usually have empty collision, handled by getMaxCollisionHeight check below
+            // if needed,
+            // but Tag check is safer for general logic unless we check block state properties.
+            // For now, assume closed. AStarPathfinder can refine this if needed.
+            if (Tag.FENCE_GATES.isTagged(mat)) {
+                // If collision is empty (Open), it's traversable.
+                return getMaxCollisionHeight(level, pos) <= MAX_STEP_HEIGHT;
+            }
+            return false;
+        }
+        if (Tag.STAIRS.isTagged(mat)) {
+            return true;
+        }
+        return getMaxCollisionHeight(level, pos) <= MAX_STEP_HEIGHT;
+    }
+
+    /**
+     * Checks if a block is effectively empty space (Air, Water, Grass, etc).
+     * Used for head/body clearance checks.
+     */
+    public static boolean isClear(BlockGetter level, BlockPos pos) {
+        return getMaxCollisionHeight(level, pos) <= 0.0;
+    }
+
+    /**
      * Checks if a given block is a valid spot for a Persona to stand on.
-     * A valid spot has a walkable surface below and two passable blocks of space for the body.
+     * 
+     * - Accepts Partial Blocks (Carpets, Slabs) as the "Feet" block.
+     * - Rejects "Floating Grid" nodes (Air directly above Carpet).
+     * - Performs dynamic headroom checks based on floor height.
      */
     @SuppressWarnings("null")
     public static boolean isValidStandingSpot(BlockGetter level, BlockPos pos) {
-        // Check for a walkable surface below
+        // 1. Check Ground (Support)
         BlockPos below = pos.below();
         BlockState groundState = level.getBlockState(below);
         // Fast Check: Is the top face sturdy? (Stone, Dirt, Planks)
         boolean isSturdy = groundState.isFaceSturdy(level, below, Direction.UP);
         // Leaves are not sturdy but are valid support
         boolean isLeaves = Tag.LEAVES.isTagged(groundState.getBukkitMaterial());
-        // Geometric Check: Does it have a collision box that supports feet?
-        // We reject shapes > 1.0 (like Fences) to prevent walking into them from neighbors.
-        // We accept shapes <= 1.0 (Slabs, Carpets, Farmland, Glass).
-        boolean hasValidCollision = false;
+        // If the ground is NOT sturdy/leaves, it must be a valid collision block (Glass, etc.)
+        // BUT, if the ground is "Traversable" (e.g. Carpet), it cannot serve as ground for the block above.
+        // This forces the pathfinder to pick the Carpet itself as the node.
         if (!isSturdy && !isLeaves) {
-            VoxelShape shape = groundState.getCollisionShape(level, below);
-            hasValidCollision = !shape.isEmpty() && shape.max(Direction.Axis.Y) <= 1.0;
+            if (isTraversable(level, below) && isClear(level, pos)) {
+                return false; // Prevent floating grid above carpets/slabs
+            }
+            // Allow standing on Glass/Obsidian/etc which are not "Traversable" (Full height) but maybe not
+            // "Sturdy" in some versions
+            if (getMaxCollisionHeight(level, below) < 1.0) {
+                return false; // Reject standing on weird small blocks that aren't traversable
+            }
         }
-        if (!isSturdy && !isLeaves && !hasValidCollision) {
+        // 2. Check Feet
+        if (!isTraversable(level, pos)) {
             return false;
         }
-        // Check for two blocks of passable space for the body and head.
-        return isPassable(level, pos) && isPassable(level, pos.above());
+        // 3. Check Head
+        if (!isClear(level, pos.above())) {
+            return false;
+        }
+        if (Tag.STAIRS.isTagged(level.getBlockState(pos).getBukkitMaterial())) {
+            if (!isClear(level, pos.above(2))) {
+                return false;
+            }
+        }
+        // 4. Dynamic Headroom Check (The "Concussion" Fix)
+        // If standing on a slab (height 0.5), head is at 2.3. Must check pos.above(2).
+        // If standing on carpet (height 0.06), head is at 1.86. Fits in pos.above().
+        double floorHeight = getMaxCollisionHeight(level, pos);
+        if (floorHeight > HEADROOM_CHECK_THRESHOLD) {
+            if (!isClear(level, pos.above(2))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
-     * Checks if a block is passable for a Persona (e.g., air, water, non-colliding blocks).
+     * Checks if a block is passable (Legacy wrapper, prefer isTraversable/isClear).
      */
-    @SuppressWarnings("null")
     public static boolean isPassable(BlockGetter level, BlockPos pos) {
-        BlockState state = level.getBlockState(pos);
-        Material mat = state.getBukkitMaterial();
-        if (Tag.LEAVES.isTagged(mat)) {
-            return false; // Personas treat leaves as obstacles for pathing
-        }
-        if (state.isAir() || mat == Material.WATER) {
-            return true;
-        }
-        // Use NMS collision shape check
-        VoxelShape shape = state.getCollisionShape(level, pos);
-        return shape.isEmpty();
+        return isClear(level, pos);
     }
 
     /**
      * Checks if a block has ANY collision shape.
-     * This is stricter than !isPassable because it catches things like open trapdoors,
-     * fences, and panes which might be technically passable in some contexts but are
-     * definitely obstructions for cornering.
      */
-    @SuppressWarnings("null")
     public static boolean hasCollision(BlockGetter level, BlockPos pos) {
-        BlockState state = level.getBlockState(pos);
-        if (state.isAir()) {
-            return false;
-        }
-        return !state.getCollisionShape(level, pos).isEmpty();
+        return getMaxCollisionHeight(level, pos) > 0.0;
     }
 
     /**
@@ -121,8 +184,8 @@ public final class NavigationHelper {
     @SuppressWarnings("null")
     public static double calculateClearance(BlockGetter level, BlockPos center, double maxRadius) {
         double minDistance = maxRadius;
-        // Simple radial check in 8 directions + diagonals
-        // We check at the feet level and head level
+        // Check if we are in a water context (Swimming) to adjust obstruction logic
+        boolean isSwimming = !level.getFluidState(center).isEmpty();
         int checkRadius = (int) Math.ceil(maxRadius);
         for (int x = -checkRadius; x <= checkRadius; x++) {
             for (int z = -checkRadius; z <= checkRadius; z++) {
@@ -133,21 +196,20 @@ public final class NavigationHelper {
                 if (dist > maxRadius) {
                     continue;
                 }
-                // Check for environmental hazards (Voids/Drops)
-                // If the block is Air (Walking), we must ensure there is ground below.
-                // We skip this for Water (Swimming), as deep water is safe.
                 BlockPos checkPos = center.offset(x, 0, z);
-                boolean isObstructed = !isPassable(level, checkPos) || !isPassable(level, checkPos.above());
-                if (!isObstructed) {
-                    BlockState state = level.getBlockState(checkPos);
-                    if (state.isAir()) {
-                        BlockState below = level.getBlockState(checkPos.below());
-                        // It is a void if the block below is not sturdy and not leaves
-                        boolean hasGround = below.isFaceSturdy(level, checkPos.below(), Direction.UP)
-                                || Tag.LEAVES.isTagged(below.getBukkitMaterial());
-                        if (!hasGround) {
-                            isObstructed = true;
-                        }
+                boolean isObstructed;
+                if (isSwimming) {
+                    // Obstruction is any aside from water/air and we do not check for ground because we are swimming.
+                    isObstructed = hasCollision(level, checkPos);
+                } else {
+                    // Check for physical obstruction (wall/column) and must be traversable and clear
+                    if (!isTraversable(level, checkPos) || !isClear(level, checkPos.above())) {
+                        isObstructed = true;
+                    } else {
+                        // Check Environmental Hazard (Void/Drop)
+                        // If physically clear, we must ensure it's a valid place to stand.
+                        // This handles voids, lava, or deep drops.
+                        isObstructed = !isValidStandingSpot(level, checkPos);
                     }
                 }
                 if (isObstructed) {
@@ -212,8 +274,9 @@ public final class NavigationHelper {
                 for (int y = minY; y < maxY; y++) {
                     for (int z = minZ; z < maxZ; z++) {
                         cursor.set(x, y, z);
-                        BlockState state = level.getBlockState(cursor);
-                        if (!state.isAir()) {
+                        if (hasCollision(level, cursor)) {
+                            // Check intersection
+                            BlockState state = level.getBlockState(cursor);
                             VoxelShape shape = state.getCollisionShape(level, cursor);
                             if (!shape.isEmpty() && shape.bounds().move(x, y, z).intersects(checkBounds)) {
                                 // Found physical support!

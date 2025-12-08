@@ -111,16 +111,23 @@ public class LocomotionController {
     }
 
     /**
-     * Handles standard ground movement based on the intent.
+     * Handles standard ground movement based on the intent and clamps wantedY to prevent burrowing into
+     * carpets/stairs.
      */
     private void handleStandardMovement(SteeringResult intent, float speed) {
         entity.getJumpControl().stop();
         entity.setShiftKeyDown(false);
         entity.setSprinting(false);
         Location target = intent.target();
+        // Prevent driving into the floor if on a partial block (Carpet/Slab)
+        // or if climbing stairs (where target Y is higher than current Y).
+        double wantedY = target.getY();
+        if (!entity.onClimbable() && !entity.isInWater()) {
+            wantedY = Math.max(target.getY(), entity.getY());
+        }
         entity.getMoveControl().setWantedPosition(
                 target.getX(),
-                target.getY(),
+                wantedY,
                 target.getZ(),
                 speed);
     }

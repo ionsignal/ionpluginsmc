@@ -23,7 +23,6 @@ import java.util.Optional;
  */
 public final class TacticalSteering {
     private static final double MAX_JUMP_HEIGHT = 1.25;
-    private static final double MAX_STEP_HEIGHT = 0.6; // Standard step height (slabs, carpets)
     private static final double LOOKAHEAD_DIST = 1.0;
 
     private TacticalSteering() {
@@ -49,7 +48,7 @@ public final class TacticalSteering {
         double distSqr = dx * dx + dz * dz;
         if (distSqr < 0.01) {
             // We are horizontally aligned, check vertical
-            if (target.getY() > entity.getY() + MAX_STEP_HEIGHT) {
+            if (target.getY() > entity.getY() + NavigationHelper.MAX_STEP_HEIGHT) {
                 // Check headroom before recommending JUMP to prevent "bunny-hopping"
                 // Construct the bounding box at the target Y level to see if the entity fits.
                 Vec3 targetPos = new Vec3(entity.getX(), target.getY(), entity.getZ());
@@ -101,7 +100,7 @@ public final class TacticalSteering {
         // Calculate height relative to entity feet
         double obstacleHeight = maxObstacleY - entity.getY();
         // Case A: Auto-Step (Slabs, Carpets)
-        if (obstacleHeight <= MAX_STEP_HEIGHT) {
+        if (obstacleHeight <= NavigationHelper.MAX_STEP_HEIGHT) {
             return Optional.of(MovementType.WALK);
         }
         // Case B: Jumpable (Logs, Fences if < 1.25)
