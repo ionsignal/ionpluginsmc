@@ -60,11 +60,23 @@ public class DropManeuver implements Maneuver {
         }
         switch (state) {
             case APPROACHING_EDGE -> {
-                // Drive towards the edge
+                // Calculate overshoot vector to force edge traversal (Edge Drive)
+                Vector driveDir = calculateDriveVector(entity);
+                double wantedX, wantedZ;
+                if (driveDir.lengthSquared() > 0.001) {
+                    // Drive towards a virtual point 2 blocks ahead to ensure we walk OFF the ledge
+                    wantedX = entity.getX() + (driveDir.getX() * 2.0);
+                    wantedZ = entity.getZ() + (driveDir.getZ() * 2.0);
+                } else {
+                    // Fallback: Target is directly below (Vertical Drop), just try to move to it
+                    wantedX = targetWaypoint.getX();
+                    wantedZ = targetWaypoint.getZ();
+                }
+                // Drive towards the edge/overshoot point
                 entity.getMoveControl().setWantedPosition(
-                        targetWaypoint.getX(),
+                        wantedX,
                         targetWaypoint.getY(),
-                        targetWaypoint.getZ(),
+                        wantedZ,
                         DROP_APPROACH_SPEED);
                 if (!entity.onGround()) {
                     entity.getMoveControl().stop();
@@ -101,21 +113,16 @@ public class DropManeuver implements Maneuver {
         return new OrientationIntent.Idle();
     }
 
-    /*
-     * @Override
-     * public OrientationIntent getOrientation() {
-     * // While falling, we want to snap the body to the exit heading to prepare for the next move.
-     * if (state == DropState.FALLING && exitHeading.isPresent()) {
-     * Vector heading = exitHeading.get();
-     * // If heading is purely vertical, preserve current yaw (Idle) to prevent snapping to South (0,0).
-     * if ((heading.getX() * heading.getX() + heading.getZ() * heading.getZ()) < 0.01) {
-     * return new OrientationIntent.Idle();
-     * }
-     * // Snap = true (Instant turn), Mode = LOCKED (Body follows head)
-     * return new OrientationIntent.AlignToHeading(exitHeading.get(), true, BodyMode.LOCKED);
-     * }
-     * // While approaching, look at the drop point naturally.
-     * return new OrientationIntent.FocusOnLocation(targetWaypoint, BodyMode.FREE);
-     * }
-     */
+    // Helper to calculate the drive direction
+    private Vector calculateDriveVector(PersonaEntity entity) {
+        // Geometric direction to target
+        Vector toTarget = targetWaypoint.toVector().subtract(entity.getBukkitEntity().getLocation().toVector());
+        toTarget.setY(0); // Horizontal only
+        // If we have a distinct horizontal direction, use it.
+        if (toTarget.lengthSquared() > 0.001) {
+            return toTarget.normalize();
+        }
+        // Zero vector (Vertical drop)
+        return new Vector(0, 0, 0);
+    }
 }
