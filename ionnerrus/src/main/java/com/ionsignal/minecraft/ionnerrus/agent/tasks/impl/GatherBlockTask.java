@@ -41,6 +41,10 @@ public class GatherBlockTask implements Task {
     private static final double FAST_MODE_DIST = 3.0;
     private static final double FAST_MODE_DIST_SQUARED = FAST_MODE_DIST * FAST_MODE_DIST;
 
+    // Collection State
+    private final Set<Integer> failedFastModeTargets = new HashSet<>();
+    private final Queue<Item> pendingDrops = new LinkedList<>();
+
     private final Logger logger;
     private final int searchRadius;
     private final Set<Material> targetBlocks;
@@ -58,9 +62,8 @@ public class GatherBlockTask implements Task {
     private Location currentBreakTarget;
     private Item currentDropTarget;
 
-    // Collection State
-    private final Set<Integer> failedFastModeTargets = new HashSet<>();
-    private final Queue<Item> pendingDrops = new LinkedList<>();
+    private boolean hadDrops = false;
+    private boolean collectedAny = false;
 
     private enum State {
         IDLE, SCANNING, APPROACHING, EQUIPPING, BREAKING, COLLECTING, FINISHED
@@ -206,6 +209,7 @@ public class GatherBlockTask implements Task {
                     logger.info("[GatherBlockTask] Block broken. Processing drops...");
                     // Populate queue with captured drops
                     if (result.droppedItems() != null && !result.droppedItems().isEmpty()) {
+                        hadDrops = true; // Mark that we actually generated items
                         pendingDrops.addAll(result.droppedItems());
                         logger.info("[GatherBlockTask] " + result.droppedItems().size() + " items dropped.");
                     }
@@ -253,6 +257,11 @@ public class GatherBlockTask implements Task {
         currentDropTarget = pendingDrops.poll();
         // Queue Empty? Done.
         if (currentDropTarget == null) {
+            // Check if we failed to collect anything despite drops existing
+            if (hadDrops && !collectedAny) {
+                fail(agent, token, GatherResult.FAILED_TO_COLLECT, "Failed to collect any drops.");
+                return;
+            }
             finish();
             return;
         }
@@ -287,8 +296,13 @@ public class GatherBlockTask implements Task {
     private void handleCollectionEngageResult(NerrusAgent agent, ExecutionToken token, MovementResult result) {
         if (result == MovementResult.SUCCESS) {
             // We arrived. Verify pickup.
-            if (currentDropTarget.isValid() && !currentDropTarget.isDead()) {
+            if (!currentDropTarget.isValid() || currentDropTarget.isDead()) {
+                collectedAny = true; // Item is gone, assume collected
+            } else {
                 // Item still exists after we stood on it. Inventory likely full.
+                // If the item exists but wasn't picked up, it's likely because we can't carry it.
+                // NOTE: For now, ignore this edge case as per current development phase.
+                // TODO: Check for full inventory here to prevent infinite loops.
                 logger.warning("[GatherBlockTask] Failed to pick up item (Inventory Full?). Skipping.");
             }
             // Loop
@@ -297,12 +311,19 @@ public class GatherBlockTask implements Task {
                 result == MovementResult.UNREACHABLE ||
                 result == MovementResult.REPATH_NEEDED) {
             // Fast mode failed. Record failure to prevent oscillation and fallback to Slow Mode.
-            logger.info("[GatherBlockTask] Fast mode failed (" + result + "). Promoting to Pathfinding.");
-            failedFastModeTargets.add(currentDropTarget.getEntityId());
-            agent.executeSkill(
-                    new NavigateToLocationSkill(
-                            currentDropTarget.getLocation()),
-                    token, res -> res);
+            if (failedFastModeTargets.contains(currentDropTarget.getEntityId())) {
+                // We already tried pathfinding, and it led us back here (Stuck).
+                // This item is physically unreachable despite pathfinding success.
+                logger.warning("[GatherBlockTask] Item unreachable (Oscillation detected). Skipping.");
+                processNextDrop(agent, token);
+            } else {
+                logger.info("[GatherBlockTask] Fast mode failed. Promoting to Pathfinding.");
+                failedFastModeTargets.add(currentDropTarget.getEntityId());
+                agent.executeSkill(
+                        new NavigateToLocationSkill(
+                                currentDropTarget.getLocation()),
+                        token, res -> res);
+            }
         } else {
             // Cancelled or other failure
             processNextDrop(agent, token);

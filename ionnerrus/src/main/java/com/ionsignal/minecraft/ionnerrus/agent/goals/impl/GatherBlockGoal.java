@@ -109,6 +109,8 @@ public class GatherBlockGoal implements Goal {
         } else {
             // Transition to "gathering" blocks state
             this.state = State.GATHERING_BATCH;
+            // Reset status for new batch
+            this.lastGatherStatus = GatherResult.SUCCESS;
             // Start the heavy Task
             agent.setCurrentTask(new GatherBlockTask(
                     materials,
@@ -135,6 +137,7 @@ public class GatherBlockGoal implements Goal {
                 // Loop back to inventory check
                 this.attemptedLocations.clear(); // Reset cache on success
             case FAILED_TO_COLLECT: // Transient failure, retry logic handles it
+                logger.warning("[GatherBlockGoal] Task failed to collect drops. Retrying.");
                 this.state = State.VERIFYING_INVENTORY;
                 checkInventory(agent, token);
                 break;
