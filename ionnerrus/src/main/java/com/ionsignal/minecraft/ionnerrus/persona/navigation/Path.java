@@ -18,8 +18,9 @@ public class Path {
     @SuppressWarnings("unused")
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
-    private final List<PathNode> nodes;
     private final World world;
+    private final Location startLocation;
+    private final List<PathNode> nodes;
 
     // Cached data for spline interpolation
     private final double[] cumulativeDistances;
@@ -29,26 +30,31 @@ public class Path {
     private final List<Location> legacyPoints;
 
     /**
-     * Constructs a new Path from enriched PathNodes.
+     * Constructs a new Path from enriched PathNodes with a "Safe Splice" from the exact start.
      *
+     * @param actualStart
+     *            The exact location of the agent when pathfinding started.
      * @param nodes
-     *            The list of PathNodes.
+     *            The list of PathNodes (grid centers).
      * @param world
      *            The world in which the path exists.
      */
-    public Path(List<PathNode> nodes, World world) {
+    public Path(Location actualStart, List<PathNode> nodes, World world) {
+        this.startLocation = actualStart;
         this.nodes = Collections.unmodifiableList(nodes);
         this.world = world;
-
         // Pre-calculate spline distances
         this.cumulativeDistances = new double[nodes.size()];
         this.legacyPoints = new ArrayList<>(nodes.size());
-
         double lengthAccumulator = 0.0;
         if (!nodes.isEmpty()) {
-            cumulativeDistances[0] = 0.0;
-            legacyPoints.add(nodes.get(0).toLocation(world));
-
+            // Segment 0 is now: actualStart -> nodes[0]
+            // cumulativeDistances[0] is the distance to nodes[0] from actualStart.
+            Location firstNodeLoc = nodes.get(0).toLocation(world);
+            double spliceDist = actualStart.distance(firstNodeLoc);
+            cumulativeDistances[0] = spliceDist;
+            lengthAccumulator = spliceDist;
+            legacyPoints.add(firstNodeLoc);
             for (int i = 1; i < nodes.size(); i++) {
                 Location prev = nodes.get(i - 1).toLocation(world);
                 Location curr = nodes.get(i).toLocation(world);
@@ -69,6 +75,10 @@ public class Path {
         if (nodes.isEmpty()) {
             return null;
         }
+        // If we are before Node 0, Node 0 is the destination.
+        if (distance < cumulativeDistances[0]) {
+            return nodes.get(0).toLocation(world);
+        }
         int index = findSegmentIndex(distance);
         // The destination is the NEXT node.
         int nextIndex = Math.min(index + 1, nodes.size() - 1);
@@ -84,12 +94,27 @@ public class Path {
      */
     public Location getPointAtDistance(double distance) {
         if (nodes.isEmpty())
-            return null;
+            return startLocation; // Fallback
         if (distance <= 0)
-            return nodes.get(0).toLocation(world);
+            return startLocation; // Start at exact location
         if (distance >= totalLength)
             return nodes.get(nodes.size() - 1).toLocation(world);
-        // Binary search for the segment
+        // Check if we are in the splice segment (Start -> Node 0)
+        if (distance < cumulativeDistances[0]) {
+            double len = cumulativeDistances[0];
+            if (len < 0.001)
+                return nodes.get(0).toLocation(world);
+            double t = distance / len;
+            Vector vecA = startLocation.toVector();
+            Vector vecB = nodes.get(0).toLocation(world).toVector();
+            Vector result = vecA.add(vecB.subtract(vecA).multiply(t));
+            return result.toLocation(world);
+        }
+        // Single-node paths have no internal segments to interpolate.
+        if (nodes.size() < 2) {
+            return nodes.get(0).toLocation(world);
+        }
+        // Standard Binary Search
         int index = findSegmentIndex(distance);
         // Linear Interpolation
         double distA = cumulativeDistances[index];
@@ -113,8 +138,10 @@ public class Path {
     public PathNode getNodeAtDistance(double distance) {
         if (nodes.isEmpty())
             return null;
-        if (distance <= 0)
+        // If in splice segment, return Node 0 (we are moving towards it)
+        if (distance < cumulativeDistances[0]) {
             return nodes.get(0);
+        }
         if (distance >= totalLength)
             return nodes.get(nodes.size() - 1);
 
@@ -131,10 +158,14 @@ public class Path {
      * @return The cumulative distance to the next node, or totalLength if at/past the end.
      */
     public double getNextNodeDistance(double distance) {
-        if (nodes.isEmpty() || nodes.size() < 2) {
+        if (nodes.isEmpty()) {
             return totalLength;
         }
-        if (distance >= totalLength) {
+        // If we are before Node 0, Node 0 is the next node.
+        if (distance < cumulativeDistances[0]) {
+            return cumulativeDistances[0];
+        }
+        if (nodes.size() < 2 || distance >= totalLength) {
             return totalLength;
         }
         int index = findSegmentIndex(distance);

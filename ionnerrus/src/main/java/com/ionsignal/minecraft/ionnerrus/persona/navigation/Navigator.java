@@ -98,9 +98,22 @@ public class Navigator {
         state = State.PATH_FOLLOWING;
         activeFuture = new CompletableFuture<>();
         resetStuckDetection();
-        // Initiate pathfinding
-        AStarPathfinder.findPath(persona.getLocation(), target, params, token)
+        // Capture dimensions on main thread
+        float width = persona.getPersonaEntity().getBbWidth();
+        float height = persona.getPersonaEntity().getBbHeight();
+        // Construct Request Object
+        PathfindingRequest request = new PathfindingRequest(
+                persona.getLocation(),
+                target,
+                width,
+                height,
+                params);
+        // Initiate pathfinding with request object
+        AStarPathfinder.findPath(request, token)
                 .whenCompleteAsync((pathOptional, ex) -> {
+                    if (!token.isActive()) {
+                        return;
+                    }
                     if (state != State.PATH_FOLLOWING) {
                         return;
                     }
@@ -176,7 +189,17 @@ public class Navigator {
             this.pathFollower = null;
         }
         this.isPathfinding = true;
-        AStarPathfinder.findPath(persona.getLocation(), followTarget.getLocation(), NavigationParameters.DEFAULT, token)
+        // Capture dimensions
+        float width = persona.getPersonaEntity().getBbWidth();
+        float height = persona.getPersonaEntity().getBbHeight();
+        // Construct Request Object
+        PathfindingRequest request = new PathfindingRequest(
+                persona.getLocation(),
+                followTarget.getLocation(),
+                width,
+                height,
+                NavigationParameters.DEFAULT);
+        AStarPathfinder.findPath(request, token)
                 .whenCompleteAsync((pathOptional, ex) -> {
                     this.isPathfinding = false;
                     if (state != State.FOLLOWING) {

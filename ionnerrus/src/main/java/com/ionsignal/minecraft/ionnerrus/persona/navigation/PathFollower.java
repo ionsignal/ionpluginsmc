@@ -20,7 +20,7 @@ public class PathFollower {
     private static final boolean SHOW_RABBIT = true;
     private static final double BASE_LOOKAHEAD = 1.2; // Base lookahead in meters
     private static final double MAX_LOOKAHEAD = 5.0; // Max lookahead for open areas
-    private static final double TETHER_SLACK = 0.8; // Extra forgiveness before snapping tether
+    private static final double TETHER_SLACK = 1.2; // Extra forgiveness before snapping tether
     private static final double PROJECTION_STEP_SIZE = 0.5; // Size of our projection steps
     private static final double PROJECTION_SEARCH_WINDOW = 5.0; // How far forward/back to search for projection
     private static final double COMPLETION_THRESHOLD = 0.36; // Proximity to be considered done

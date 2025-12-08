@@ -8,15 +8,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
-import org.bukkit.block.Block;
-import org.bukkit.block.Biome;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Tag;
-import org.bukkit.World;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -32,38 +28,27 @@ import java.util.logging.Logger;
 public class AStarPathfinder {
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final int MAX_ITERATIONS = 8000;
-    private static final int MAX_BREATH_TICKS = 200; // ~10 seconds of underwater travel
+    private static final int MAX_BREATH_TICKS = 200;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
-    private final BlockPos startPos;
-    private final BlockPos endPos;
-    private final World world;
-    private final NavigationParameters params;
+    private final PathfindingRequest request;
     private final WorldSnapshot snapshot;
     private final ExecutionToken token;
 
-    private AStarPathfinder(
-            BlockPos startPos,
-            BlockPos endPos,
-            World world,
-            NavigationParameters params,
-            WorldSnapshot snapshot,
-            ExecutionToken token) {
-        this.startPos = startPos;
-        this.endPos = endPos;
-        this.world = world;
-        this.params = params;
+    private AStarPathfinder(PathfindingRequest request, WorldSnapshot snapshot, ExecutionToken token) {
+        this.request = request;
         this.snapshot = snapshot;
         this.token = token;
     }
 
-    // Create a snapshot and call the new overloaded method.
-    public static CompletableFuture<Optional<Path>> findPath(
-            Location start, Location end,
-            NavigationParameters params, ExecutionToken token) {
-        BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
-        BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
-        int padding = 16; // Accounts for more complex pathing scenarios like falling around obstacles
+    /**
+     * Public Entry Point.
+     * Calculates bounds, creates the snapshot asynchronously, then executes the pathfinder.
+     */
+    public static CompletableFuture<Optional<Path>> findPath(PathfindingRequest request, ExecutionToken token) {
+        BlockPos startPos = request.startBlock();
+        BlockPos endPos = request.endBlock();
+        int padding = 16;
         BlockPos min = new BlockPos(
                 Math.min(startPos.getX(), endPos.getX()) - padding,
                 Math.min(startPos.getY(), endPos.getY()) - padding,
@@ -72,56 +57,50 @@ public class AStarPathfinder {
                 Math.max(startPos.getX(), endPos.getX()) + padding,
                 Math.max(startPos.getY(), endPos.getY()) + padding,
                 Math.max(startPos.getZ(), endPos.getZ()) + padding);
-        // Asynchronously create the snapshot, then compose it with `findPath`
-        return WorldSnapshot.create(start.getWorld(), min, max)
-                .thenCompose(snapshot -> findPath(start, end, params, snapshot, token));
+        return WorldSnapshot.create(request.start().getWorld(), min, max)
+                .thenCompose(snapshot -> CompletableFuture.supplyAsync(
+                        () -> new AStarPathfinder(request, snapshot, token).calculatePath(),
+                        IonNerrus.getInstance().getOffloadThreadExecutor()));
     }
 
-    // Update signature to accept ExecutionToken
-    public static CompletableFuture<Optional<Path>> findPath(
-            Location start, Location end,
-            NavigationParameters params,
-            WorldSnapshot snapshot,
-            ExecutionToken token) {
-        BlockPos startPos = new BlockPos(start.getBlockX(), start.getBlockY(), start.getBlockZ());
-        BlockPos endPos = new BlockPos(end.getBlockX(), end.getBlockY(), end.getBlockZ());
-        return CompletableFuture.supplyAsync(
-                () -> new AStarPathfinder(startPos, endPos, start.getWorld(), params, snapshot, token).calculatePath(),
-                IonNerrus.getInstance().getOffloadThreadExecutor());
+    /**
+     * Public Entry Point (Immediate).
+     * Executes pathfinding synchronously on the calling thread using an EXISTING snapshot.
+     * Use this when running inside a Skill that has already captured world state.
+     */
+    public static Optional<Path> computeImmediate(PathfindingRequest request, WorldSnapshot snapshot, ExecutionToken token) {
+        return new AStarPathfinder(request, snapshot, token).calculatePath();
     }
 
     private Optional<Path> calculatePath() {
-        BlockPos actualStartPos = resolveStartPosition(startPos);
-        BlockPos actualEndPos = endPos;
-        if (actualStartPos == null || actualEndPos == null) {
-            LOGGER.info("Could not find valid ground for start or end position, continuing...");
+        // 1. Resolve the exact starting node using physics-aware logic
+        BlockPos actualStartPos = resolveStartNode();
+        BlockPos actualEndPos = request.endBlock();
+        if (actualStartPos == null) {
+            LOGGER.info("Could not find valid ground for start position.");
             return Optional.empty();
         }
-        // Prepare for pathing
+        // 2. Setup A*
         PriorityQueue<Node> openSet = new PriorityQueue<>();
         Map<BlockPos, Node> allNodes = new HashMap<>();
-        Node startNode = new Node(actualStartPos, null, 0,
-                getHeuristic(actualStartPos, actualEndPos), 0);
+        Node startNode = new Node(actualStartPos, null, 0, getHeuristic(actualStartPos, actualEndPos), 0);
         openSet.add(startNode);
         allNodes.put(actualStartPos, startNode);
-        // Begin iterations
         long startTime = System.nanoTime();
         int iterations = 0;
+        // 3. Run A*
         while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
-            // Async Cancellation Check allowing the heavy calculation to abort immediately if the main thread
-            // cancels the goal.
             if (token != null && !token.isActive()) {
                 throw new CancellationException("Pathfinding cancelled via execution token");
             }
             Node currentNode = openSet.poll();
             if (currentNode.pos.equals(actualEndPos)) {
-                // Enrich the path with metadata before returning
                 Path path = reconstructAndEnrichPath(currentNode);
+                // Performance Logging
                 long endTime = System.nanoTime();
-                double durationMillis = (endTime - startTime) / 1000000.0;
+                double durationMillis = (endTime - startTime) / 1_000_000.0;
                 if (durationMillis > WARN_THRESHOLD_MS) {
-                    LOGGER.warning(String.format("Path found in %.3f ms %d iterations with %d points.", durationMillis, iterations,
-                            path.size()));
+                    LOGGER.warning(String.format("Path found in %.3f ms %d iterations.", durationMillis, iterations));
                 }
                 return Optional.of(path);
             }
@@ -133,7 +112,7 @@ public class AStarPathfinder {
                 openSet.add(neighbor);
             }
         }
-        LOGGER.warning(String.format("Pathfinding failed after %d iterations. Open set size: %d", iterations, openSet.size()));
+        LOGGER.warning(String.format("Pathfinding failed after %d iterations.", iterations));
         return Optional.empty();
     }
 
@@ -149,36 +128,38 @@ public class AStarPathfinder {
         }
         List<PathNode> enrichedNodes = new ArrayList<>(rawPositions.size());
         for (int i = 0; i < rawPositions.size(); i++) {
-            // Calculate Clearance and Apex Radius
             BlockPos current = rawPositions.get(i);
             BlockPos prev = (i > 0) ? rawPositions.get(i - 1) : null;
             BlockPos next = (i < rawPositions.size() - 1) ? rawPositions.get(i + 1) : null;
             double clearance = NavigationHelper.calculateClearance(snapshot, current, 2.0);
             double apexRadius = calculateApexRadius(snapshot, prev, current, next);
-            MovementType type = MovementType.WALK; // Default
-            if (next != null) {
-                boolean currentWater = isWater(current);
-                boolean nextWater = isWater(next);
-                if (currentWater && !nextWater && next.getY() >= current.getY()) {
-                    type = MovementType.WATER_EXIT;
-                } else if (currentWater || nextWater) {
-                    type = MovementType.SWIM;
-                } else {
-                    int yDiff = next.getY() - current.getY();
-                    if (yDiff > 0) {
-                        type = MovementType.JUMP;
-                    } else if (yDiff < 0) {
-                        // Ledge detection checking passability (Air/Water = Passable = Drop)
-                        BlockPos ledgeCheck = new BlockPos(next.getX(), current.getY() - 1, next.getZ());
-                        if (NavigationHelper.isPassable(snapshot, ledgeCheck)) {
-                            type = MovementType.DROP;
-                        }
-                    }
-                }
-            }
+            MovementType type = determineMovementType(current, next);
             enrichedNodes.add(new PathNode(current, type, clearance, apexRadius));
         }
-        return new Path(enrichedNodes, this.world);
+        // Safe Splice: Pass the exact start location from the request
+        return new Path(request.start(), enrichedNodes, request.start().getWorld());
+    }
+
+    private MovementType determineMovementType(BlockPos current, BlockPos next) {
+        if (next == null)
+            return MovementType.WALK;
+        boolean currentWater = isWater(current);
+        boolean nextWater = isWater(next);
+        if (currentWater && !nextWater && next.getY() >= current.getY()) {
+            return MovementType.WATER_EXIT;
+        } else if (currentWater || nextWater) {
+            return MovementType.SWIM;
+        }
+        int yDiff = next.getY() - current.getY();
+        if (yDiff > 0) {
+            return MovementType.JUMP;
+        } else if (yDiff < 0) {
+            BlockPos ledgeCheck = new BlockPos(next.getX(), current.getY() - 1, next.getZ());
+            if (NavigationHelper.isPassable(snapshot, ledgeCheck)) {
+                return MovementType.DROP;
+            }
+        }
+        return MovementType.WALK;
     }
 
     /**
@@ -245,11 +226,23 @@ public class AStarPathfinder {
         }
     }
 
-    private BlockPos resolveStartPosition(BlockPos pos) {
-        if (isWater(pos) && params.canSwim()) {
-            return pos;
+    /**
+     * Physics-Aware Start Resolution.
+     * Uses the AABB from the request to find the actual block supporting the entity.
+     */
+    private BlockPos resolveStartNode() {
+        BlockPos nominalStart = request.startBlock();
+        // If swimming, integer pos is fine
+        if (isWater(nominalStart) && request.params().canSwim()) {
+            return nominalStart;
         }
-        return findGround(pos);
+        // Sweep down to find actual support (Fence, Slab, etc.)
+        Optional<BlockPos> support = NavigationHelper.findSupportingBlock(
+                snapshot,
+                request.getStartBounds(),
+                request.params().maxFallDistance());
+        // If found, return the space ABOVE the support.
+        return support.map(BlockPos::above).orElse(null);
     }
 
     @SuppressWarnings("null")
@@ -267,7 +260,7 @@ public class AStarPathfinder {
             return neighbors; // Prune path: Agent would drown
         }
         // Add swimming neighbors
-        if (params.canSwim() && isWater(currentPos)) {
+        if (request.params().canSwim() && isWater(currentPos)) {
             for (int x = -1; x <= 1; x++) {
                 for (int y = -1; y <= 1; y++) {
                     for (int z = -1; z <= 1; z++) {
@@ -287,7 +280,7 @@ public class AStarPathfinder {
             }
         }
         // Handle water-land transitions
-        if (params.canSwim() && isWater(currentPos)) {
+        if (request.params().canSwim() && isWater(currentPos)) {
             for (int x = -1; x <= 1; x++) {
                 for (int z = -1; z <= 1; z++) {
                     if (x == 0 && z == 0)
@@ -337,7 +330,7 @@ public class AStarPathfinder {
                 }
                 // Climb
                 BlockPos climbPos = currentPos.offset(x, 1, z);
-                if (params.climbHeight() >= 1 && isValidStandingPos(climbPos) && hasHeadroomForJump(currentPos)) {
+                if (request.params().climbHeight() >= 1 && isValidStandingPos(climbPos) && hasHeadroomForJump(currentPos)) {
                     // For diagonal climbs, perform an additional clearance check.
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
                         addNeighbor(neighbors, node, climbPos, 0);
@@ -357,7 +350,7 @@ public class AStarPathfinder {
                     // Added check to prevent clipping corners when initiating a diagonal fall.
                     // This ensures the move from the current position to the edge we fall from is physically possible.
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
-                        BlockPos fallDestination = findLandingSpot(dropPos.below(), params.maxFallDistance());
+                        BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
                         if (fallDestination != null && !fallDestination.equals(currentPos)) {
                             if (isFallPathClear(dropPos, fallDestination)) {
                                 addNeighbor(neighbors, node, fallDestination, 0);
@@ -370,7 +363,7 @@ public class AStarPathfinder {
         // Add drop straight down neighbors
         BlockState groundState = snapshot.getBlockState(currentPos.below());
         if (groundState != null && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
-            BlockPos fallDestination = findLandingSpot(currentPos.below(), params.maxFallDistance());
+            BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
             if (fallDestination != null && !fallDestination.equals(currentPos)) {
                 if (isFallPathClear(currentPos, fallDestination)) {
                     addNeighbor(neighbors, node, fallDestination, 0);
@@ -382,7 +375,7 @@ public class AStarPathfinder {
 
     private void addNeighbor(List<Node> neighbors, Node parent, BlockPos pos, int underwaterTicks) {
         double gCost = parent.gCost + getMoveCost(parent.pos, pos);
-        double hCost = getHeuristic(pos, endPos);
+        double hCost = getHeuristic(pos, request.endBlock());
         neighbors.add(new Node(pos, parent, gCost, hCost, underwaterTicks));
     }
 
@@ -529,7 +522,7 @@ public class AStarPathfinder {
     }
 
     private boolean isWater(BlockPos pos) {
-        if (!params.canSwim())
+        if (!request.params().canSwim())
             return false;
         BlockState state = snapshot.getBlockState(pos);
         return state != null && state.getBukkitMaterial() == Material.WATER;
@@ -559,55 +552,10 @@ public class AStarPathfinder {
         }
         if (mat.isAir())
             return true;
-        if (mat == Material.WATER && params.canSwim())
+        if (mat == Material.WATER && request.params().canSwim())
             return true;
         // Use collision shape as the primary check. This correctly handles fences, walls, leaves, etc.
         return state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
-    }
-
-    private BlockPos findGround(BlockPos start) {
-        // Determine search range based on terrain/biome
-        int searchRange = getSearchRangeForLocation(start);
-        return findGround(start, searchRange);
-    }
-
-    private int getSearchRangeForLocation(BlockPos pos) {
-        // Get biome at position to determine appropriate search range
-        Block block = world.getBlockAt(pos.getX(), pos.getY(), pos.getZ());
-        Biome biome = block.getBiome();
-        String biomeName = biome.getKey().getKey();
-        if (biomeName.contains("mountain") || biomeName.contains("peak") ||
-                biomeName.contains("slope") || biomeName.contains("cliff")) {
-            return 30; // Mountains need more vertical search
-        }
-        if (biomeName.contains("cave") || biomeName.contains("deep")) {
-            return 25; // Caves and deep dark need extensive search
-        }
-        if (biomeName.contains("ocean") || biomeName.contains("river")) {
-            return 20; // Water biomes might need to search deeper
-        }
-        if (biomeName.contains("jungle") || biomeName.contains("forest")) {
-            return 15; // Trees might require some vertical search
-        }
-        return 10; // Default for relatively flat biomes
-    }
-
-    private BlockPos findGround(BlockPos start, int searchRange) {
-        // Search down first
-        BlockPos current = start;
-        for (int i = 0; i < searchRange; i++) {
-            if (isValidStandingPos(current))
-                return current;
-            current = current.below();
-        }
-        // If not found, search up from original start
-        current = start.above();
-        for (int i = 0; i < searchRange; i++) {
-            if (isValidStandingPos(current))
-                return current;
-            current = current.above();
-        }
-        return null; // No valid ground found in range
     }
 
     private BlockPos findLandingSpot(BlockPos start, int searchRange) {
