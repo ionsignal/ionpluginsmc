@@ -19,6 +19,8 @@ public class PathFollower {
     // Tuning Constants
     private static final boolean SHOW_RABBIT = true;
     private static final double BASE_LOOKAHEAD = 1.2; // Base lookahead in meters
+    private static final double MAX_VERTICAL_DROP = 1.5; // Prevents snaps when lagging behind on stairs (Path Y=65, Agent Y=64 -> dy=-1.0)
+    private static final double MAX_VERTICAL_RISE = 2.5; // Accommodate Jump Boost II + Slabs (0.5 + 1.25 + 0.5 = 2.25)
     private static final double MAX_LOOKAHEAD = 5.0; // Max lookahead for open areas
     private static final double TETHER_SLACK = 1.2; // Extra forgiveness before snapping tether
     private static final double PROJECTION_STEP_SIZE = 0.5; // Size of our projection steps
@@ -63,15 +65,19 @@ public class PathFollower {
         if (currentPos.distanceSquared(finalPoint) < COMPLETION_THRESHOLD_SQUARED) {
             isFinished = true;
         }
-        // Tether Check (lost)
-        // Allowed deviation = clearanceRadius + slack
+        // Tether Check with asymmetric vertical tolerance
         PathNode currentNode = path.getNodeAtDistance(currentDist);
         if (currentNode != null) {
-            double allowedDeviation = currentNode.clearanceRadius() + TETHER_SLACK;
+            double allowedHorizontalDeviation = currentNode.clearanceRadius() + TETHER_SLACK;
             Location projectedPoint = path.getPointAtDistance(currentDist);
-            double actualDeviation = currentPos.distance(projectedPoint);
-            // Update off-path status based on current deviation
-            this.isOffPath = actualDeviation > allowedDeviation;
+            double dx = currentPos.getX() - projectedPoint.getX();
+            double dz = currentPos.getZ() - projectedPoint.getZ();
+            double dy = currentPos.getY() - projectedPoint.getY();
+            double horizontalDistSq = dx * dx + dz * dz;
+            double limitSq = allowedHorizontalDeviation * allowedHorizontalDeviation;
+            boolean horizontalFail = horizontalDistSq > limitSq;
+            boolean verticalFail = dy < -MAX_VERTICAL_DROP || dy > MAX_VERTICAL_RISE;
+            this.isOffPath = horizontalFail || verticalFail;
         }
     }
 

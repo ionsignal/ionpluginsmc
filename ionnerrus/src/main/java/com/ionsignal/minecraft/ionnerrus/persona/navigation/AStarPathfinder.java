@@ -8,11 +8,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 import org.bukkit.Material;
-import org.bukkit.Tag;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -154,8 +151,18 @@ public class AStarPathfinder {
         if (yDiff > 0) {
             return MovementType.JUMP;
         } else if (yDiff < 0) {
+            // Explicitly handle single-block step downs.
+            // If we are moving down exactly 1 block grid position (e.g. Y=65 to Y=64),
+            // this covers both:
+            // 1. Cardinal Step (Stone -> Carpet): yDiff -1
+            // 2. Diagonal Step (Stone -> Carpet): yDiff -1
+            // In both cases, gravity handles the transition safely without a complex maneuver.
+            if (yDiff == -1) {
+                return MovementType.WALK;
+            }
+            // Otherwise, check for drop
             BlockPos ledgeCheck = new BlockPos(next.getX(), current.getY() - 1, next.getZ());
-            if (NavigationHelper.isPassable(snapshot, ledgeCheck)) {
+            if (NavigationHelper.isTraversable(snapshot, ledgeCheck) || NavigationHelper.isClear(snapshot, ledgeCheck)) {
                 return MovementType.DROP;
             }
         }
@@ -228,7 +235,7 @@ public class AStarPathfinder {
 
     /**
      * Physics-Aware Start Resolution.
-     * Uses the AABB from the request to find the actual block supporting the entity.
+     * Snaps to Traversable blocks (Carpets) instead of Air above them.
      */
     private BlockPos resolveStartNode() {
         BlockPos nominalStart = request.startBlock();
@@ -241,8 +248,16 @@ public class AStarPathfinder {
                 snapshot,
                 request.getStartBounds(),
                 request.params().maxFallDistance());
-        // If found, return the space ABOVE the support.
-        return support.map(BlockPos::above).orElse(null);
+        if (support.isPresent()) {
+            BlockPos supportPos = support.get();
+            // If the support block itself is traversable (Carpet, Slab), use it as the node.
+            if (NavigationHelper.isTraversable(snapshot, supportPos)) {
+                return supportPos;
+            }
+            // Otherwise (Full Block), use the space above.
+            return supportPos.above();
+        }
+        return null;
     }
 
     @SuppressWarnings("null")
@@ -268,10 +283,8 @@ public class AStarPathfinder {
                             continue;
                         // A valid swim destination is a water or air block with space for the head.
                         BlockPos swimPos = currentPos.offset(x, y, z);
-                        if (isPassableForSwimming(swimPos) && isAirOrPassable(snapshot.getBlockState(swimPos.above()))) {
-                            // If the swim destination is also a valid standing position (e.g. shallow water),
-                            // let the more specific walking logic handle it to ensure correct costs.
-                            if (isValidStandingPos(swimPos))
+                        if (isPassableForSwimming(swimPos) && NavigationHelper.isClear(snapshot, swimPos.above())) {
+                            if (NavigationHelper.isValidStandingSpot(snapshot, swimPos))
                                 continue;
                             addNeighbor(neighbors, node, swimPos, nextUnderwaterTicks);
                         }
@@ -287,51 +300,44 @@ public class AStarPathfinder {
                         continue;
                     // Check for water exit points
                     BlockPos exitPos = currentPos.offset(x, 0, z);
-                    if (!isWater(exitPos) && isValidStandingPos(exitPos)) {
-                        // Can we exit water here?
-                        if (canExitWaterTo(currentPos, exitPos)) {
-                            addNeighbor(neighbors, node, exitPos, 0); // Reset breath on land
-                        }
+                    if (!isWater(exitPos) && NavigationHelper.isValidStandingSpot(snapshot, exitPos)) {
+                        if (canExitWaterTo(currentPos, exitPos))
+                            addNeighbor(neighbors, node, exitPos, 0);
                     }
-                    // Check for jumping out of water onto higher ground
                     BlockPos jumpExitPos = currentPos.offset(x, 1, z);
-                    if (!isWater(jumpExitPos) && isValidStandingPos(jumpExitPos)) {
-                        if (canExitWaterTo(currentPos, jumpExitPos)) {
-                            addNeighbor(neighbors, node, jumpExitPos, 0); // Reset breath on land
-                        }
-                    }
-                    // Check for lily pads and similar surfaces
-                    if (isWaterWithSurface(exitPos)) {
-                        addNeighbor(neighbors, node, exitPos.above(), 0);
+                    if (!isWater(jumpExitPos) && NavigationHelper.isValidStandingSpot(snapshot, jumpExitPos)) {
+                        if (canExitWaterTo(currentPos, jumpExitPos))
+                            addNeighbor(neighbors, node, jumpExitPos, 0);
                     }
                 }
             }
         }
-        // Add walking and climbing neighbors
-        // Restructured neighbor logic to handle straight and diagonal moves separately.
+        // Walk & Climb
         for (int x = -1; x <= 1; x++) {
             for (int z = -1; z <= 1; z++) {
-                if (x == 0 && z == 0)
+                if (x == 0 && z == 0) {
                     continue;
-                // Walk
+                }
                 boolean isDiagonal = x != 0 && z != 0;
+                // Walk
                 BlockPos walkPos = currentPos.offset(x, 0, z);
-                if (isValidStandingPos(walkPos)) {
-                    // For diagonal moves, perform an additional clearance check.
-                    if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                        addNeighbor(neighbors, node, walkPos, 0);
+                if (NavigationHelper.isValidStandingSpot(snapshot, walkPos)) {
+                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                        if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
+                            addNeighbor(neighbors, node, walkPos, 0);
+                        }
                     }
-                } else if (isWater(walkPos) && isAirOrPassable(snapshot.getBlockState(walkPos.above()))) {
-                    // This handles walking from land directly into a water block.
-                    // Also check clearance when moving diagonally into water.
-                    if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                        addNeighbor(neighbors, node, walkPos, 0);
+                } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
+                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                        if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
+                            addNeighbor(neighbors, node, walkPos, 0);
+                        }
                     }
                 }
                 // Climb
                 BlockPos climbPos = currentPos.offset(x, 1, z);
-                if (request.params().climbHeight() >= 1 && isValidStandingPos(climbPos) && hasHeadroomForJump(currentPos)) {
-                    // For diagonal climbs, perform an additional clearance check.
+                if (request.params().climbHeight() >= 1 && NavigationHelper.isValidStandingSpot(snapshot, climbPos)
+                        && hasHeadroomForJump(currentPos)) {
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
                         addNeighbor(neighbors, node, climbPos, 0);
                     }
@@ -346,9 +352,9 @@ public class AStarPathfinder {
                 }
                 boolean isDiagonal = x != 0 && z != 0;
                 BlockPos dropPos = currentPos.offset(x, 0, z);
-                if (isAirOrPassable(snapshot.getBlockState(dropPos)) && isAirOrPassable(snapshot.getBlockState(dropPos.above()))) {
-                    // Added check to prevent clipping corners when initiating a diagonal fall.
-                    // This ensures the move from the current position to the edge we fall from is physically possible.
+                // Use isTraversable/isClear
+                if ((NavigationHelper.isTraversable(snapshot, dropPos) || NavigationHelper.isClear(snapshot, dropPos)) &&
+                        NavigationHelper.isClear(snapshot, dropPos.above())) {
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
                         BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
                         if (fallDestination != null && !fallDestination.equals(currentPos)) {
@@ -360,9 +366,11 @@ public class AStarPathfinder {
                 }
             }
         }
-        // Add drop straight down neighbors
+        // Drop Straight Down
         BlockState groundState = snapshot.getBlockState(currentPos.below());
-        if (groundState != null && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
+        // Check if ground is NOT traversable (i.e. it's air or fluid)
+        if (!NavigationHelper.isTraversable(snapshot, currentPos.below())
+                && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
             BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
             if (fallDestination != null && !fallDestination.equals(currentPos)) {
                 if (isFallPathClear(currentPos, fallDestination)) {
@@ -379,146 +387,54 @@ public class AStarPathfinder {
         neighbors.add(new Node(pos, parent, gCost, hCost, underwaterTicks));
     }
 
+    /**
+     * Uses isTraversable for corner checks to allow diagonal movement over carpets.
+     */
     private boolean isDiagonalMoveClear(BlockPos from, BlockPos to) {
         int dx = to.getX() - from.getX();
         int dz = to.getZ() - from.getZ();
         BlockPos corner1Base = from.offset(dx, 0, 0);
         BlockPos corner2Base = from.offset(0, 0, dz);
-        BlockPos corner1AtDestY = corner1Base.atY(to.getY());
-        BlockPos corner2AtDestY = corner2Base.atY(to.getY());
-        if (!isPassableWithCollisionCheck(corner1AtDestY) || !isPassableWithCollisionCheck(corner1AtDestY.above())) {
-            return false;
-        }
-        if (!isPassableWithCollisionCheck(corner2AtDestY) || !isPassableWithCollisionCheck(corner2AtDestY.above())) {
-            return false;
-        }
-        // Additional check for stairs and slabs at the corners
-        BlockState corner1State = snapshot.getBlockState(corner1AtDestY);
-        BlockState corner2State = snapshot.getBlockState(corner2AtDestY);
-        if (isPartialBlock(corner1State) || isPartialBlock(corner2State)) {
-            // For partial blocks, do a more thorough collision check
-            return checkPartialBlockClearance(from, to, corner1AtDestY, corner2AtDestY);
-        }
-        return true;
-    }
-
-    @SuppressWarnings("null")
-    private boolean isPassableWithCollisionCheck(BlockPos pos) {
-        BlockState state = snapshot.getBlockState(pos);
-        if (state == null)
-            return false;
-        VoxelShape shape = state.getCollisionShape(EmptyBlockGetter.INSTANCE, pos);
-        if (shape.isEmpty()) {
-            return true;
-        }
-        // Check if the collision shape allows passage
-        AABB entityBox = new AABB(0.3, 0, 0.3, 0.7, 1.0, 0.7);
-        return !shape.bounds().intersects(entityBox);
-    }
-
-    private boolean isPartialBlock(BlockState state) {
-        if (state == null)
-            return false;
-        Material mat = state.getBukkitMaterial();
-        return Tag.SLABS.isTagged(mat) ||
-                Tag.STAIRS.isTagged(mat) ||
-                Tag.FENCES.isTagged(mat) ||
-                Tag.WALLS.isTagged(mat) ||
-                Tag.FENCE_GATES.isTagged(mat);
-    }
-
-    @SuppressWarnings("null")
-    private boolean checkPartialBlockClearance(BlockPos from, BlockPos to, BlockPos corner1, BlockPos corner2) {
-        // Use collision shapes to determine if diagonal movement is possible
-        BlockState state1 = snapshot.getBlockState(corner1);
-        BlockState state2 = snapshot.getBlockState(corner2);
-        if (state1 != null) {
-            VoxelShape shape1 = state1.getCollisionShape(EmptyBlockGetter.INSTANCE, corner1);
-            if (!shape1.isEmpty() && shape1.max(Direction.Axis.Y) > 0.5) {
-                return false; // Too tall to step over diagonally
-            }
-        }
-        if (state2 != null) {
-            VoxelShape shape2 = state2.getCollisionShape(EmptyBlockGetter.INSTANCE, corner2);
-            if (!shape2.isEmpty() && shape2.max(Direction.Axis.Y) > 0.5) {
-                return false; // Too tall to step over diagonally
-            }
-        }
-        return true;
+        // We check the block at the destination Y level (feet level)
+        BlockPos corner1 = corner1Base.atY(to.getY());
+        BlockPos corner2 = corner2Base.atY(to.getY());
+        // A corner is clear if it is Traversable (Carpet/Air) OR Clear (Air).
+        // It is blocked if it is a Full Block / Fence.
+        boolean c1Clear = NavigationHelper.isTraversable(snapshot, corner1) || NavigationHelper.isClear(snapshot, corner1);
+        boolean c2Clear = NavigationHelper.isTraversable(snapshot, corner2) || NavigationHelper.isClear(snapshot, corner2);
+        // Also check head clearance at corners
+        boolean c1Head = NavigationHelper.isClear(snapshot, corner1.above());
+        boolean c2Head = NavigationHelper.isClear(snapshot, corner2.above());
+        return c1Clear && c1Head && c2Clear && c2Head;
     }
 
     private boolean canExitWaterTo(BlockPos waterPos, BlockPos landPos) {
-        // Check if we can exit water to this position
         BlockPos aboveLand = landPos.above();
-        if (!isAirOrPassable(snapshot.getBlockState(aboveLand))) {
-            return false; // No headroom to exit
-        }
-        // Check if the exit requires jumping (higher than water level)
+        if (!NavigationHelper.isClear(snapshot, aboveLand))
+            return false;
         if (landPos.getY() > waterPos.getY()) {
-            // Need space above water to jump
-            return isAirOrPassable(snapshot.getBlockState(waterPos.above()));
+            return NavigationHelper.isClear(snapshot, waterPos.above());
         }
         return true;
-    }
-
-    @SuppressWarnings("null")
-    private boolean isWaterWithSurface(BlockPos pos) {
-        if (!isWater(pos))
-            return false;
-        BlockState above = snapshot.getBlockState(pos.above());
-        if (above == null)
-            return false;
-        Material mat = above.getBukkitMaterial();
-        return mat == Material.LILY_PAD || Tag.WOOL_CARPETS.isTagged(mat)
-                || (mat.isSolid() && above.getCollisionShape(EmptyBlockGetter.INSTANCE, pos.above()).isEmpty());
     }
 
     private boolean isFallPathClear(BlockPos takeoffPos, BlockPos landingPos) {
-        // The landing spot itself is already validated by `isValidStandingPos`.
-        // We need to check the column of air the entity falls through.
-        // The fall starts at the takeoff Y-level and at the landing X/Z coordinates.
-        // Iterate from the Y-level of the takeoff position down to the Y-level of the landing position.
-        // We check the full 1x2 space at each Y-level of the fall.
         BlockPos.MutableBlockPos fallColumnPos = new BlockPos.MutableBlockPos(landingPos.getX(), 0, landingPos.getZ());
         for (int y = takeoffPos.getY(); y >= landingPos.getY(); y--) {
             fallColumnPos.setY(y);
-            // Check the space for the entity's feet.
-            BlockState feetState = snapshot.getBlockState(fallColumnPos);
-            if (!isAirOrPassable(feetState)) {
+            // Use isTraversable/isClear
+            if (!NavigationHelper.isTraversable(snapshot, fallColumnPos) && !NavigationHelper.isClear(snapshot, fallColumnPos)) {
                 return false;
             }
-            // Check the space for the entity's head.
-            BlockState headState = snapshot.getBlockState(fallColumnPos.above());
-            if (!isAirOrPassable(headState)) {
+            if (!NavigationHelper.isClear(snapshot, fallColumnPos.above())) {
                 return false;
             }
         }
         return true;
     }
 
-    @SuppressWarnings("null")
-    private boolean isValidStandingPos(BlockPos pos) {
-        BlockState ground = snapshot.getBlockState(pos.below());
-        if (ground == null) {
-            return false;
-        }
-        boolean canStandOn = ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP)
-                || Tag.LEAVES.isTagged(ground.getBukkitMaterial());
-        if (!canStandOn) {
-            return false;
-        }
-        BlockState feet = snapshot.getBlockState(pos);
-        if (feet == null || !isAirOrPassable(feet)) {
-            return false;
-        }
-        BlockState head = snapshot.getBlockState(pos.above());
-        return head != null && isAirOrPassable(head);
-    }
-
     private boolean hasHeadroomForJump(BlockPos pos) {
-        // To jump, the block at `pos.above(2)` must be clear
-        BlockState twoAbove = snapshot.getBlockState(pos.above(2));
-        return twoAbove != null && isAirOrPassable(twoAbove);
+        return NavigationHelper.isClear(snapshot, pos.above(2));
     }
 
     private boolean isWater(BlockPos pos) {
@@ -528,10 +444,8 @@ public class AStarPathfinder {
         return state != null && state.getBukkitMaterial() == Material.WATER;
     }
 
-    // Added helper for breath logic
     private boolean isSurface(BlockPos pos) {
-        BlockState above = snapshot.getBlockState(pos.above());
-        return above != null && above.getBukkitMaterial().isAir();
+        return NavigationHelper.isClear(snapshot, pos.above());
     }
 
     private boolean isPassableForSwimming(BlockPos pos) {
@@ -542,27 +456,10 @@ public class AStarPathfinder {
         return mat == Material.WATER || mat.isAir();
     }
 
-    @SuppressWarnings("null")
-    private boolean isAirOrPassable(BlockState state) {
-        if (state == null)
-            return false;
-        Material mat = state.getBukkitMaterial();
-        if (Tag.LEAVES.isTagged(mat)) {
-            return false;
-        }
-        if (mat.isAir())
-            return true;
-        if (mat == Material.WATER && request.params().canSwim())
-            return true;
-        // Use collision shape as the primary check. This correctly handles fences, walls, leaves, etc.
-        return state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
-    }
-
     private BlockPos findLandingSpot(BlockPos start, int searchRange) {
         BlockPos current = start;
         for (int i = 0; i < searchRange; i++) {
-            // A valid landing spot is either a valid standing position OR a water block.
-            if (isValidStandingPos(current) || isWater(current)) {
+            if (NavigationHelper.isValidStandingSpot(snapshot, current) || isWater(current)) {
                 return current;
             }
             current = current.below();
@@ -576,13 +473,7 @@ public class AStarPathfinder {
         int dz = Math.abs(from.getZ() - to.getZ());
         // Penalize vertical movement to prefer flatter paths
         double verticalCost = dy * 1.5;
-        // Use standard diagonal distance for horizontal movement
-        double horizontalCost;
-        if (dx >= 1 && dz >= 1) { // Corrected diagonal check
-            horizontalCost = 1.414;
-        } else {
-            horizontalCost = dx + dz;
-        }
+        double horizontalCost = (dx >= 1 && dz >= 1) ? 1.414 : (dx + dz);
         double totalCost = horizontalCost + verticalCost;
         // Additional cost modifiers
         if (isWater(to)) {
@@ -592,7 +483,10 @@ public class AStarPathfinder {
         if (isWater(from) && !isWater(to)) {
             totalCost *= 1.5; // Exiting water has extra cost
         }
-        // Check for difficult terrain
+        // UPDATED: Add small penalty for Partial Blocks to prefer Air/Flat ground
+        if (NavigationHelper.isTraversable(snapshot, to) && !NavigationHelper.isClear(snapshot, to)) {
+            totalCost += 0.2;
+        }
         BlockState toState = snapshot.getBlockState(to.below());
         if (toState != null) {
             Material mat = toState.getBukkitMaterial();
