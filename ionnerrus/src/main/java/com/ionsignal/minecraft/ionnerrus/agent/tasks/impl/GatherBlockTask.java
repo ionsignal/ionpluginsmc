@@ -20,6 +20,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlo
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocationResult;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -38,6 +39,8 @@ import java.util.logging.Logger;
 public class GatherBlockTask implements Task {
     private static final int MAX_REPOSITION_ATTEMPTS = 1;
     private static final int MAX_OBSTRUCTION_DEPTH = 1;
+    private static final int MAX_NAVIGATION_RETRIES = 3;
+    private static final int MAX_COLLECTION_RETRIES = 2;
     private static final double FAST_MODE_DIST = 3.0;
     private static final double FAST_MODE_DIST_SQUARED = FAST_MODE_DIST * FAST_MODE_DIST;
 
@@ -58,6 +61,11 @@ public class GatherBlockTask implements Task {
     // Execution Context
     private int obstructionDepth = 0;
     private int repositionAttempts = 0;
+
+    // Added retry counters
+    private int navigationRetries = 0;
+    private int collectionRetries = 0;
+
     private CollectableBlock mainTarget;
     private Location currentBreakTarget;
     private Item currentDropTarget;
@@ -139,6 +147,7 @@ public class GatherBlockTask implements Task {
             case SUCCESS -> {
                 if (result.optimalTarget().isPresent()) {
                     this.repositionAttempts = 0;
+                    this.navigationRetries = 0;
                     this.mainTarget = result.optimalTarget().get();
                     this.currentBreakTarget = this.mainTarget.blockLocation();
                     logger.info("[GatherBlockTask] Target found at " + mainTarget.blockLocation());
@@ -164,6 +173,24 @@ public class GatherBlockTask implements Task {
         if (result == NavigateToLocationResult.SUCCESS) {
             // Navigation complete, start the breaking sequence (Equip -> Break)
             startBreakingSequence(agent, token, currentBreakTarget);
+        } else if (result == NavigateToLocationResult.STUCK) {
+            // Retry logic for Tether Snaps / Physics Glitches
+            if (navigationRetries < MAX_NAVIGATION_RETRIES) {
+                navigationRetries++;
+                logger.info(String.format("[GatherBlockTask] Navigation stuck (Attempt %d/%d). Retrying path...",
+                        navigationRetries, MAX_NAVIGATION_RETRIES));
+                // Extract destination from the original path to force a fresh pathfinding calculation
+                Path oldPath = mainTarget.pathToStandingLocation();
+                Location destination = oldPath.getPointAtDistance(oldPath.getLength());
+
+                agent.executeSkill(
+                        new NavigateToLocationSkill(
+                                destination,
+                                mainTarget.blockLocation()),
+                        token, res -> res);
+            } else {
+                fail(agent, token, GatherResult.NO_REACHABLE_BLOCKS_IN_RANGE, "Navigation stuck after retries.");
+            }
         } else {
             fail(agent, token, GatherResult.NO_REACHABLE_BLOCKS_IN_RANGE, "Navigation failed: " + result);
         }
@@ -271,6 +298,8 @@ public class GatherBlockTask implements Task {
             processNextDrop(agent, token);
             return;
         }
+        // Reset collection retries for new item
+        this.collectionRetries = 0;
         // Check if this specific item failed Fast Mode previously
         boolean forceSlowMode = failedFastModeTargets.contains(currentDropTarget.getEntityId());
         double distSq = agent.getPersona().getLocation().distanceSquared(currentDropTarget.getLocation());
@@ -300,9 +329,7 @@ public class GatherBlockTask implements Task {
                 collectedAny = true; // Item is gone, assume collected
             } else {
                 // Item still exists after we stood on it. Inventory likely full.
-                // If the item exists but wasn't picked up, it's likely because we can't carry it.
                 // NOTE: For now, ignore this edge case as per current development phase.
-                // TODO: Check for full inventory here to prevent infinite loops.
                 logger.warning("[GatherBlockTask] Failed to pick up item (Inventory Full?). Skipping.");
             }
             // Loop
@@ -310,6 +337,18 @@ public class GatherBlockTask implements Task {
         } else if (result == MovementResult.STUCK ||
                 result == MovementResult.UNREACHABLE ||
                 result == MovementResult.REPATH_NEEDED) {
+            // Retry logic for Fast Mode glitches
+            if (result == MovementResult.STUCK && collectionRetries < MAX_COLLECTION_RETRIES) {
+                collectionRetries++;
+                logger.info(String.format("[GatherBlockTask] Collection stuck (Attempt %d/%d). Retrying approach...",
+                        collectionRetries, MAX_COLLECTION_RETRIES));
+                agent.executeSkill(
+                        new EngageEntitySkill(
+                                currentDropTarget,
+                                0.25),
+                        token, res -> res);
+                return;
+            }
             // Fast mode failed. Record failure to prevent oscillation and fallback to Slow Mode.
             if (failedFastModeTargets.contains(currentDropTarget.getEntityId())) {
                 // We already tried pathfinding, and it led us back here (Stuck).

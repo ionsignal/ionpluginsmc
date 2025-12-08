@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.results.FindCollectableBlo
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.AStarPathfinder;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationParameters;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.PathfindingRequest;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
 
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
@@ -71,6 +72,8 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
         World world = start.getWorld();
         double eyeHeight = agent.getPersona().getPersonaEntity().getEyeHeight();
         double reach = agent.getPersona().getPhysicalBody().state().getBlockReach();
+        float width = agent.getPersona().getPersonaEntity().getBbWidth();
+        float height = agent.getPersona().getPersonaEntity().getBbHeight();
         double safeReach = reach - 0.5;
         int scanRadius = (int) Math.ceil(safeReach);
         if (world == null) {
@@ -113,7 +116,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                         log(startTime, FindCollectableBlockResult.Status.NO_TARGETS_FOUND);
                         return FindCollectableBlockResult.failure(FindCollectableBlockResult.Status.NO_TARGETS_FOUND, allFoundMaterials);
                     }
-                    Optional<CollectableBlock> finalTarget = evaluateCandidates(start, candidates, snapshot, token);
+                    Optional<CollectableBlock> finalTarget = evaluateCandidates(start, width, height, candidates, snapshot, token);
                     // Construct the final result using the new factory methods, passing the found materials.
                     FindCollectableBlockResult finalResult = finalTarget
                             .map(target -> FindCollectableBlockResult.success(target, allFoundMaterials))
@@ -136,8 +139,12 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
      * This method is completely rewritten to implement a multi-factor scoring system.
      * It now considers path length and block exposure to find the truly optimal target.
      */
-    private Optional<CollectableBlock> evaluateCandidates(Location agentLocation, List<CollectionCandidate> candidates,
-            WorldSnapshot snapshot, ExecutionToken token) {
+    private Optional<CollectableBlock> evaluateCandidates(
+            Location agentLocation,
+            float width, float height,
+            List<CollectionCandidate> candidates,
+            WorldSnapshot snapshot,
+            ExecutionToken token) {
         // De-duplication prioritizes heuristic score
         Map<Location, CollectionCandidate> bestCandidates = new HashMap<>();
         for (CollectionCandidate candidate : candidates) {
@@ -169,9 +176,15 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
                     DebugVisualizer.highlightBlock(candidate.standingSpot().getBlock().getLocation(), 60, color);
                 });
             }
-            Optional<Path> pathOpt = AStarPathfinder
-                    .findPath(agentLocation, candidate.standingSpot(), NavigationParameters.DEFAULT, snapshot, token)
-                    .join();
+            // Construct request using captured dimensions
+            PathfindingRequest request = new PathfindingRequest(
+                    agentLocation,
+                    candidate.standingSpot(),
+                    width,
+                    height,
+                    NavigationParameters.DEFAULT);
+            // Use immediate pathfinding on the existing snapshot
+            Optional<Path> pathOpt = AStarPathfinder.computeImmediate(request, snapshot, token);
             if (pathOpt.isPresent()) {
                 Path path = pathOpt.get();
                 // Calculate the final score for this valid, pathable candidate.

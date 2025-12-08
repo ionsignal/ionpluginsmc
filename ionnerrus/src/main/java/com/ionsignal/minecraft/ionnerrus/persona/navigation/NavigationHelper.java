@@ -5,10 +5,13 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+
+import java.util.Optional;
 
 import org.bukkit.Material;
 import org.bukkit.Tag;
@@ -51,14 +54,19 @@ public final class NavigationHelper {
         // Check for a walkable surface below
         BlockPos below = pos.below();
         BlockState groundState = level.getBlockState(below);
-        // Check face solidity
-        boolean canStandOn = groundState.isFaceSturdy(level, below, Direction.UP);
-        // Fallback for leaves/tags if needed, though collision check usually suffices
-        if (!canStandOn && Tag.LEAVES.isTagged(groundState.getBukkitMaterial())) {
-            // Leaves are technically standable in Minecraft physics
-            canStandOn = true;
+        // Fast Check: Is the top face sturdy? (Stone, Dirt, Planks)
+        boolean isSturdy = groundState.isFaceSturdy(level, below, Direction.UP);
+        // Leaves are not sturdy but are valid support
+        boolean isLeaves = Tag.LEAVES.isTagged(groundState.getBukkitMaterial());
+        // Geometric Check: Does it have a collision box that supports feet?
+        // We reject shapes > 1.0 (like Fences) to prevent walking into them from neighbors.
+        // We accept shapes <= 1.0 (Slabs, Carpets, Farmland, Glass).
+        boolean hasValidCollision = false;
+        if (!isSturdy && !isLeaves) {
+            VoxelShape shape = groundState.getCollisionShape(level, below);
+            hasValidCollision = !shape.isEmpty() && shape.max(Direction.Axis.Y) <= 1.0;
         }
-        if (!canStandOn) {
+        if (!isSturdy && !isLeaves && !hasValidCollision) {
             return false;
         }
         // Check for two blocks of passable space for the body and head.
@@ -172,5 +180,50 @@ public final class NavigationHelper {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Performs a physics-aware sweep to find the actual block supporting the entity.
+     * This solves the "Fence/Ledge" problem where integer math fails to find ground.
+     *
+     * @param level
+     *            The snapshot or world.
+     * @param entityBounds
+     *            The AABB of the entity at its exact current location.
+     * @param maxDrop
+     *            Maximum distance to check downwards.
+     * @return The BlockPos of the supporting block (e.g., the Fence), if found.
+     */
+    public static Optional<BlockPos> findSupportingBlock(BlockGetter level, AABB entityBounds, double maxDrop) {
+        // We sweep the entity's bounding box downwards to find the first collision.
+        // We check in increments of 0.5 blocks to ensure we catch thin blocks like trapdoors/slabs.
+        double step = 0.5;
+        for (double yOffset = 0; yOffset <= maxDrop; yOffset += step) {
+            AABB checkBounds = entityBounds.move(0, -yOffset, 0).deflate(0.001, 0.0, 0.001);
+            // Check for collision with blocks in this AABB
+            int minX = (int) Math.floor(checkBounds.minX);
+            int maxX = (int) Math.ceil(checkBounds.maxX);
+            int minY = (int) Math.floor(checkBounds.minY);
+            int maxY = (int) Math.ceil(checkBounds.maxY);
+            int minZ = (int) Math.floor(checkBounds.minZ);
+            int maxZ = (int) Math.ceil(checkBounds.maxZ);
+            BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+            for (int x = minX; x < maxX; x++) {
+                for (int y = minY; y < maxY; y++) {
+                    for (int z = minZ; z < maxZ; z++) {
+                        cursor.set(x, y, z);
+                        BlockState state = level.getBlockState(cursor);
+                        if (!state.isAir()) {
+                            VoxelShape shape = state.getCollisionShape(level, cursor);
+                            if (!shape.isEmpty() && shape.bounds().move(x, y, z).intersects(checkBounds)) {
+                                // Found physical support!
+                                return Optional.of(cursor.immutable());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Optional.empty();
     }
 }
