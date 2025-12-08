@@ -12,10 +12,12 @@ import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
+import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -46,37 +48,103 @@ public class AgentService {
         this.broadcaster = broadcaster;
     }
 
-    public NerrusAgent spawnAgent(String name, Location location, String skinNameToFetch) {
+    /**
+     * Spawns an agent with a specific skin name to fetch from Mojang API.
+     *
+     * @param name
+     *            The name of the agent.
+     * @param location
+     *            The spawn location.
+     * @param skinNameToFetch
+     *            The username to fetch the skin from. If null, defaults to the agent name.
+     * @return The created agent instance.
+     */
+    public NerrusAgent spawnAgent(String name, Location location, @Nullable String skinNameToFetch) {
+        NerrusAgent agent = createAgentBase(name);
+        String lookupName = (skinNameToFetch != null && !skinNameToFetch.isEmpty()) ? skinNameToFetch : name;
+
+        // Async Fetch -> Main Thread Spawn
+        NerrusManager.getInstance().getSkinCache().fetchSkin(lookupName).thenAcceptAsync(skinData -> {
+            if (skinData == null) {
+                plugin.getLogger().warning("Could not fetch skin for '" + lookupName + "'. Spawning with default Steve/Alex skin.");
+            }
+            finalizeSpawn(agent, location, skinData);
+        }, plugin.getMainThreadExecutor());
+
+        return agent;
+    }
+
+    /**
+     * Spawns an agent with pre-existing SkinData (e.g. from a web payload).
+     *
+     * @param name
+     *            The name of the agent.
+     * @param location
+     *            The spawn location.
+     * @param skinData
+     *            The explicit skin data to apply.
+     * @return The created agent instance.
+     */
+    public NerrusAgent spawnAgent(String name, Location location, SkinData skinData) {
+        NerrusAgent agent = createAgentBase(name);
+        // Execute on main thread to ensure NMS safety during spawn
+        if (Bukkit.isPrimaryThread()) {
+            finalizeSpawn(agent, location, skinData);
+        } else {
+            plugin.getMainThreadExecutor().execute(() -> finalizeSpawn(agent, location, skinData));
+        }
+        return agent;
+    }
+
+    /**
+     * Convenience method to spawn an agent using its name for the skin lookup.
+     */
+    public NerrusAgent spawnAgent(String name, Location location) {
+        return spawnAgent(name, location, (String) null);
+    }
+
+    /**
+     * Internal helper to create the Agent and Persona structure.
+     * Does NOT spawn the entity in the world.
+     */
+    private NerrusAgent createAgentBase(String name) {
         Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name, Optional.empty());
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
         NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService, broadcaster);
         agents.put(persona.getUniqueId(), agent);
-        NerrusManager.getInstance().getSkinCache().fetchSkin(skinNameToFetch).thenAcceptAsync(skinData -> {
-            if (skinData != null) {
-                persona.setSkin(skinData);
-            } else {
-                plugin.getLogger().warning("Could not fetch skin for '" + skinNameToFetch + "'. Spawning with default Steve/Alex skin.");
-            }
-            if (!agents.containsKey(persona.getUniqueId())) {
-                return; // Abort spawn, agent was cancelled
-            }
-            try {
-                persona.spawn(location);
-                agent.start();
-                if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
-                    IonCore.getInstance().getTelemetryManager().register(new AgentTelemetrySource(agent));
-                }
-                plugin.getLogger().info("Successfully spawned agent: " + name);
-                Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
-            } catch (Exception e) {
-                plugin.getLogger().severe("Error spawning agent " + name + ": " + e.getMessage());
-            }
-        }, plugin.getMainThreadExecutor());
         return agent;
     }
 
-    public NerrusAgent spawnAgent(String name, Location location) {
-        return spawnAgent(name, location, null);
+    /**
+     * Internal helper to finalize the spawn process on the main thread.
+     * Applies skin, spawns entity, starts agent loop, and registers telemetry.
+     */
+    private void finalizeSpawn(NerrusAgent agent, Location location, @Nullable SkinData skinData) {
+        Persona persona = agent.getPersona();
+
+        // Concurrency check: Ensure agent wasn't removed while waiting for skin/thread
+        if (!agents.containsKey(persona.getUniqueId())) {
+            return;
+        }
+
+        if (skinData != null) {
+            persona.setSkin(skinData);
+        }
+
+        try {
+            persona.spawn(location);
+            agent.start();
+            if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
+                IonCore.getInstance().getTelemetryManager().register(new AgentTelemetrySource(agent));
+            }
+            plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
+            Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error spawning agent " + agent.getName() + ": " + e.getMessage());
+            e.printStackTrace();
+            // Cleanup failed agent
+            removeAgent(agent.getName());
+        }
     }
 
     public boolean removeAgent(String name) {

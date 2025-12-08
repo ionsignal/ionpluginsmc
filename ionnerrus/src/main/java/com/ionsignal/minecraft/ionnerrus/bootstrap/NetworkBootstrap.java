@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.network.messages.AgentState;
 import com.ionsignal.minecraft.ionnerrus.network.messages.DespawnAgentRequest;
 import com.ionsignal.minecraft.ionnerrus.network.messages.SpawnAgentRequest;
+import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -36,9 +37,6 @@ public class NetworkBootstrap {
 
         plugin.getLogger().info("IonCore Network Integration Enabled: Handlers registered.");
 
-        // --- FIX: Force immediate sync on startup ---
-        // This ensures that if the websocket is already open (IonCore loads first),
-        // we don't wait for a SYNC command that might have already been missed.
         performSync();
     }
 
@@ -46,7 +44,6 @@ public class NetworkBootstrap {
         Bukkit.getScheduler().runTask(plugin, () -> {
             int syncedCount = 0;
             for (NerrusAgent agent : agentService.getAgents()) {
-                // Only sync spawned agents to avoid confusion
                 if (agent.getPersona().isSpawned()) {
                     AgentState dto = AgentState.from(agent);
                     IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", dto);
@@ -94,11 +91,19 @@ public class NetworkBootstrap {
                     throw new IllegalArgumentException("Could not resolve valid spawn location.");
                 }
 
-                String skinArg = (dto.skinTexture() != null && !dto.skinTexture().isEmpty())
-                        ? dto.skinTexture()
-                        : dto.name();
-
-                agentService.spawnAgent(dto.name(), spawnLoc, skinArg);
+                // --- SKIN HANDLING LOGIC ---
+                // Priority 1: Direct Base64 Texture from Dashboard
+                if (dto.skinTexture() != null && !dto.skinTexture().isEmpty()) {
+                    SkinData directSkin = new SkinData(dto.skinTexture(), dto.skinSignature());
+                    // Call the new overload that accepts SkinData directly
+                    agentService.spawnAgent(dto.name(), spawnLoc, directSkin);
+                } 
+                // Priority 2: Fetch by Username (Fallback)
+                else {
+                    String skinName = (dto.skin() != null && !dto.skin().isEmpty()) ? dto.skin() : dto.name();
+                    // Call the old overload that fetches from API
+                    agentService.spawnAgent(dto.name(), spawnLoc, skinName);
+                }
 
                 plugin.getLogger().info("[Network] Spawned agent: " + dto.name());
                 result.complete("Agent " + dto.name() + " spawned successfully.");
