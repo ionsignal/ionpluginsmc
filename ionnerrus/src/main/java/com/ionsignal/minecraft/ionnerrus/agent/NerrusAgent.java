@@ -454,6 +454,11 @@ public class NerrusAgent {
     public void tick() {
         // Standard processing
         processMessages();
+        // Tick the active task if one exists
+        if (currentTask != null && currentContext != null) {
+            // Ensure we pass the correct token for the active context
+            currentTask.tick(this, currentContext.token());
+        }
     }
 
     public boolean isBusyWithDirective() {

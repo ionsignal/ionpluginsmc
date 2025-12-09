@@ -1,3 +1,4 @@
+// src/main/java/com/ionsignal/minecraft/ionnerrus/agent/tasks/impl/GatherBlockTask.java
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
@@ -22,14 +23,20 @@ import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Item;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityPickupItemEvent;
 
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
@@ -47,6 +54,7 @@ public class GatherBlockTask implements Task {
     // Collection State
     private final Set<Integer> failedFastModeTargets = new HashSet<>();
     private final Queue<Item> pendingDrops = new LinkedList<>();
+    private final Set<UUID> collectedItems = new HashSet<>();
 
     private final Logger logger;
     private final int searchRadius;
@@ -57,6 +65,7 @@ public class GatherBlockTask implements Task {
     private CompletableFuture<Void> taskFuture;
     private State state = State.IDLE;
     private Registration cancelRegistration;
+    private Listener pickupListener;
 
     // Execution Context
     private int obstructionDepth = 0;
@@ -88,8 +97,20 @@ public class GatherBlockTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
         this.taskFuture = new CompletableFuture<>();
         this.state = State.SCANNING;
+        // Register event listener to track pickups precisely
+        this.pickupListener = new Listener() {
+            @EventHandler(ignoreCancelled = true)
+            public void onPickup(EntityPickupItemEvent event) {
+                // Verify it's this agent picking up
+                if (event.getEntity().getUniqueId().equals(agent.getPersona().getUniqueId())) {
+                    collectedItems.add(event.getItem().getUniqueId());
+                }
+            }
+        };
+        Bukkit.getPluginManager().registerEvents(pickupListener, IonNerrus.getInstance());
         // Bind cancellation logic
         this.cancelRegistration = token.onCancel(() -> {
+            cleanup();
             if (!taskFuture.isDone()) {
                 logger.info("[GatherBlockTask] Cancelled by token.");
                 taskFuture.cancel(true);
@@ -100,6 +121,7 @@ public class GatherBlockTask implements Task {
             if (cancelRegistration != null) {
                 cancelRegistration.close();
             }
+            cleanup();
         });
         logger.info("[GatherBlockTask] Scanning for blocks...");
         agent.executeSkill(
@@ -280,6 +302,11 @@ public class GatherBlockTask implements Task {
         if (!token.isActive()) {
             return;
         }
+        // Check if PREVIOUS target was collected before polling next
+        if (currentDropTarget != null &&
+                collectedItems.contains(currentDropTarget.getUniqueId())) {
+            collectedAny = true;
+        }
         // Poll next item
         currentDropTarget = pendingDrops.poll();
         // Queue Empty? Done.
@@ -290,6 +317,12 @@ public class GatherBlockTask implements Task {
                 return;
             }
             finish();
+            return;
+        }
+        // Check if already collected via event listener (Instant Pickup)
+        if (collectedItems.contains(currentDropTarget.getUniqueId())) {
+            collectedAny = true;
+            processNextDrop(agent, token);
             return;
         }
         // Validate Item (Merge/Despawn Check)
@@ -323,17 +356,26 @@ public class GatherBlockTask implements Task {
 
     // Handle Fast Mode Result
     private void handleCollectionEngageResult(NerrusAgent agent, ExecutionToken token, MovementResult result) {
-        if (result == MovementResult.SUCCESS) {
-            // We arrived. Verify pickup.
-            if (!currentDropTarget.isValid() || currentDropTarget.isDead()) {
+        if (result == MovementResult.SUCCESS || result == MovementResult.TARGET_LOST) {
+            // Check immediately - by the time we receive this result, the pickup event
+            // has already fired (NMS entity tick runs before Bukkit scheduler)
+            if (collectedItems.contains(currentDropTarget.getUniqueId())) {
+                collectedAny = true;
+                logger.info("[GatherBlockTask] Item collected successfully.");
+                this.state = State.COLLECTING;
+                processNextDrop(agent, token);
+            } else if (!currentDropTarget.isValid() || currentDropTarget.isDead()) {
+                // Item is gone but not in our collection set - despawned or merged
+                logger.info("[GatherBlockTask] Item disappeared (despawn/merge). Skipping.");
                 collectedAny = true; // Item is gone, assume collected
+                this.state = State.COLLECTING;
+                processNextDrop(agent, token);
             } else {
-                // Item still exists after we stood on it. Inventory likely full.
-                // NOTE: For now, ignore this edge case as per current development phase.
-                logger.warning("[GatherBlockTask] Failed to pick up item (Inventory Full?). Skipping.");
+                // Item still exists but we "reached" it - inventory full?
+                logger.warning("[GatherBlockTask] Reached item but failed to pick up (Inventory full?).");
+                this.state = State.COLLECTING;
+                processNextDrop(agent, token);
             }
-            // Loop
-            processNextDrop(agent, token);
         } else if (result == MovementResult.STUCK ||
                 result == MovementResult.UNREACHABLE ||
                 result == MovementResult.REPATH_NEEDED) {
@@ -398,9 +440,19 @@ public class GatherBlockTask implements Task {
      */
     private void finish() {
         this.state = State.FINISHED;
-        this.pendingDrops.clear(); // Cleanup references
+        cleanup();
         if (!taskFuture.isDone()) {
             taskFuture.complete(null);
+        }
+    }
+
+    // Centralized cleanup method
+    private void cleanup() {
+        this.pendingDrops.clear();
+        this.collectedItems.clear();
+        if (pickupListener != null) {
+            HandlerList.unregisterAll(pickupListener);
+            pickupListener = null;
         }
     }
 }

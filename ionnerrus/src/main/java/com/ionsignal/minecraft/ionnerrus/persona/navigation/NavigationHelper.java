@@ -99,11 +99,11 @@ public final class NavigationHelper {
             // If standing in OPEN/PHANTOM (Air/Grass), we need support below.
             BlockPos below = pos.below();
             BlockClassification groundType = BlockClassification.classify(level, below);
-            // Support must be SOLID, SUPPORTING, or TRAVERSABLE (e.gstanding on a carpet)
+            // Support must be SOLID, SUPPORTING, or TRAVERSABLE (e.g. standing on a carpet)
             if (groundType == BlockClassification.OPEN || groundType == BlockClassification.PHANTOM
                     || groundType == BlockClassification.FLUID) {
                 // Special Case: "Deep Support" for vegetation?
-                // No, isValidStandingSpot is localresolveGround handles deep scans.
+                // No, isValidStandingSpot is local; resolveGround handles deep scans.
                 return false;
             }
             // Prevent "Floating Grid" above Traversable blocks
@@ -236,13 +236,13 @@ public final class NavigationHelper {
      */
     public static BlockPos resolveStartNode(BlockGetter level, Location location, float width, float height, NavigationParameters params) {
         BlockPos feetPos = new BlockPos(location.getBlockX(), location.getBlockY(), location.getBlockZ());
-        // Immediate Checks (Swimmer / Carpet)
+        // Tier 1: Immediate Checks (Swimmer / Carpet)
         BlockClassification feetType = BlockClassification.classify(level, feetPos);
         if (feetType == BlockClassification.TRAVERSABLE)
             return feetPos;
         if (feetType == BlockClassification.FLUID && params.canSwim())
             return feetPos;
-        // AABB Sweep (Ground Adjacency)
+        // Tier 2: AABB Sweep (Ground Adjacency)
         // Create AABB at feet
         double x = location.getX();
         double y = location.getY();
@@ -292,13 +292,13 @@ public final class NavigationHelper {
         }
         if (bestNode != null)
             return bestNode;
-        // Gravity Scan (Deep Scan)
+        // Tier 3: Gravity Scan (Deep Scan)
         // Fallback to the original resolveGround logic which scans straight down from feet
         BlockPos gravityNode = resolveGround(level, feetPos, params.maxFallDistance());
         if (gravityNode != null && isValidStandingSpot(level, gravityNode)) {
             return gravityNode;
         }
-        // Fallback
+        // Tier 4: Fallback
         // If physics fails, trust the integer grid if it looks vaguely valid
         if (isValidStandingSpot(level, feetPos)) {
             return feetPos;
