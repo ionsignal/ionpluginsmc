@@ -62,7 +62,14 @@ public class PathFollower {
         updateProjection(currentPos);
         // Check Completion
         Location finalPoint = path.getPointAtDistance(path.getLength());
-        if (currentPos.distanceSquared(finalPoint) < COMPLETION_THRESHOLD_SQUARED) {
+        // Compensate for partial block vertical offset
+        double adjustedThresholdSq = COMPLETION_THRESHOLD_SQUARED;
+        PathNode finalNode = path.getNodeAtDistance(path.getLength());
+        if (finalNode != null && finalNode.type() == MovementType.WALK) {
+            // Allow extra margin for partial blocks (0.5 block Y offset → 0.25 extra)
+            adjustedThresholdSq = (COMPLETION_THRESHOLD + 0.3) * (COMPLETION_THRESHOLD + 0.3);
+        }
+        if (currentPos.distanceSquared(finalPoint) < adjustedThresholdSq) {
             isFinished = true;
         }
         // Tether Check with asymmetric vertical tolerance
@@ -128,11 +135,12 @@ public class PathFollower {
         }
         // The absolute furthest distance along the path we are allowed to look
         double maxPathDist = Math.min(constraint1, constraint2);
-        double maxSafeLookahead = maxPathDist - currentDist;
-        // Ensure we don't stutter by enforcing a minimum vector length
-        maxSafeLookahead = Math.max(maxSafeLookahead, 0.5);
+        double maxSafeLookahead = Math.max(0, maxPathDist - currentDist);
         // Effective lookahead is the minimum of Ideal (Speed) and Safe (Geometry)
         double effectiveLookahead = Math.min(idealLookahead, maxSafeLookahead);
+        // Apply smoothness floor ONLY up to the geometric limit
+        // Prevents stuttering in open areas while respecting tight constraints
+        effectiveLookahead = Math.max(effectiveLookahead, Math.min(0.5, maxSafeLookahead));
         // Determine Target & Movement Type
         MovementType type = MovementType.WALK;
         double targetDist = Math.min(currentDist + effectiveLookahead, path.getLength());

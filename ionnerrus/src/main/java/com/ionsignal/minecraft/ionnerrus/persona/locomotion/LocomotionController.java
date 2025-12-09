@@ -118,12 +118,16 @@ public class LocomotionController {
         entity.getJumpControl().stop();
         entity.setShiftKeyDown(false);
         entity.setSprinting(false);
+        // When walking down a slope (e.g., Slab -> Floor), the target Y is below us.
+        // We clamp wantedY to our current Y to drive HORIZONTALLY off the ledge.
+        // We let the physics engine handle the vertical drop via gravity.
+        // This prevents "driving into the floor" friction.
         Location target = intent.target();
-        // Prevent driving into the floor if on a partial block (Carpet/Slab)
-        // or if climbing stairs (where target Y is higher than current Y).
         double wantedY = target.getY();
         if (!entity.onClimbable() && !entity.isInWater()) {
-            wantedY = Math.max(target.getY(), entity.getY());
+            if (wantedY < entity.getY()) {
+                wantedY = entity.getY();
+            }
         }
         entity.getMoveControl().setWantedPosition(
                 target.getX(),
