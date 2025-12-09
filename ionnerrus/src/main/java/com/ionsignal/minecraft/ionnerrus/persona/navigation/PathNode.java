@@ -23,12 +23,16 @@ import org.bukkit.World;
  *            The "Geometric Constraint" metric. Determines how tight the turn must be.
  *            0.5 = Tight turn (Corner/Doorway).
  *            2.0 = Loose turn (Open Air).
+ * @param surfaceOffset
+ *            The height off the surface given the bounding box.
+ *            (e.g., 0.5 for slab, 0.0625 for carpet)
  */
 public record PathNode(
         BlockPos pos,
         MovementType type,
         double clearanceRadius,
-        double apexRadius) {
+        double apexRadius,
+        double surfaceOffset) {
 
     /**
      * Converts the block position to a centered Bukkit Location.

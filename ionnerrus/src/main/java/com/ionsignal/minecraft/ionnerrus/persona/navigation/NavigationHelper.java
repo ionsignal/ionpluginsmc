@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.BlockState;
@@ -11,10 +12,8 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
-import java.util.Optional;
-
+import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Tag;
 
 /**
  * Stateless utility for geometric analysis.
@@ -66,91 +65,58 @@ public final class NavigationHelper {
     }
 
     /**
-     * Checks if a block can be stepped onto/into (e.g., Carpet, Slab, Air).
-     * A block is traversable if its collision height is within step height limits
-     * and it is not a fence/wall/leaf.
+     * Checks if a block can be stepped onto/into (e.g., Carpet, Slab, Air) using BlockClassification
+     * for semantic clarity.
      */
-    @SuppressWarnings("null")
     public static boolean isTraversable(BlockGetter level, BlockPos pos) {
-        BlockState state = level.getBlockState(pos);
-        Material mat = state.getBukkitMaterial();
-        // Explicitly reject obstacles that might have low collision but are logically impassable
-        if (Tag.LEAVES.isTagged(mat) || Tag.FENCES.isTagged(mat) ||
-                Tag.WALLS.isTagged(mat) || Tag.FENCE_GATES.isTagged(mat)) {
-            // Note: Open fence gates usually have empty collision, handled by getMaxCollisionHeight check below
-            // if needed,
-            // but Tag check is safer for general logic unless we check block state properties.
-            // For now, assume closed. AStarPathfinder can refine this if needed.
-            if (Tag.FENCE_GATES.isTagged(mat)) {
-                // If collision is empty (Open), it's traversable.
-                return getMaxCollisionHeight(level, pos) <= MAX_STEP_HEIGHT;
-            }
-            return false;
-        }
-        if (Tag.STAIRS.isTagged(mat)) {
-            return true;
-        }
-        return getMaxCollisionHeight(level, pos) <= MAX_STEP_HEIGHT;
+        return BlockClassification.classify(level, pos) == BlockClassification.TRAVERSABLE;
     }
 
     /**
-     * Checks if a block is effectively empty space (Air, Water, Grass, etc).
-     * Used for head/body clearance checks.
+     * Checks if a block is effectively empty space (Air, Grass, etc) using BlockClassification to
+     * handle Phantom blocks (Vegetation).
      */
     public static boolean isClear(BlockGetter level, BlockPos pos) {
-        return getMaxCollisionHeight(level, pos) <= 0.0;
+        BlockClassification type = BlockClassification.classify(level, pos);
+        return type == BlockClassification.OPEN || type == BlockClassification.PHANTOM;
     }
 
     /**
-     * Checks if a given block is a valid spot for a Persona to stand on.
-     * 
-     * - Accepts Partial Blocks (Carpets, Slabs) as the "Feet" block.
-     * - Rejects "Floating Grid" nodes (Air directly above Carpet).
-     * - Performs dynamic headroom checks based on floor height.
+     * Checks if a given block is a valid spot for a Persona to stand on using BlockClassification to
+     * handle Partial Blocks vs Air.
      */
-    @SuppressWarnings("null")
     public static boolean isValidStandingSpot(BlockGetter level, BlockPos pos) {
+        BlockClassification feetType = BlockClassification.classify(level, pos);
+        // Check Feet
+        if (feetType == BlockClassification.SOLID || feetType == BlockClassification.SUPPORTING || feetType == BlockClassification.FLUID) {
+            return false; // Cannot stand inside solid/supporting/fluid blocks
+        }
         // Check Ground (Support)
-        BlockPos below = pos.below();
-        BlockState groundState = level.getBlockState(below);
-        // Skip zero-collision decoration blocks (grass, flowers, ferns, etc.)
-        // These should be treated as transparent/air for support calculations.
-        double belowCollisionHeight = getMaxCollisionHeight(level, below);
-        // If the block below is not Air, but has NO collision (Flower, Grass, Water),
-        // we look one block further down to find the actual solid ground.
-        if (belowCollisionHeight == 0.0 && !groundState.isAir() && groundState.getFluidState().isEmpty()) {
-            below = below.below();
-            groundState = level.getBlockState(below);
-            belowCollisionHeight = getMaxCollisionHeight(level, below);
-        }
-        // Fast Check: Is the top face sturdy? (Stone, Dirt, Planks)
-        boolean isSturdy = groundState.isFaceSturdy(level, below, Direction.UP);
-        // Leaves are not sturdy but are valid support
-        boolean isLeaves = Tag.LEAVES.isTagged(groundState.getBukkitMaterial());
-        // If the ground is NOT sturdy/leaves, it must be a valid collision block (Glass, etc.)
-        // BUT, if the ground is "Traversable" (e.g. Carpet), it cannot serve as ground for the block above.
-        // This forces the pathfinder to pick the Carpet itself as the node.
-        if (!isSturdy && !isLeaves) {
-            if (isTraversable(level, below) && isClear(level, pos)) {
-                return false; // Prevent floating grid above carpets/slabs
+        if (feetType == BlockClassification.TRAVERSABLE) {
+            // If standing IN a Traversable block (Carpet), it provides its own support.
+            // We do NOT check the block below.
+        } else {
+            // If standing in OPEN/PHANTOM (Air/Grass), we need support below.
+            BlockPos below = pos.below();
+            BlockClassification groundType = BlockClassification.classify(level, below);
+            // Support must be SOLID, SUPPORTING, or TRAVERSABLE (e.gstanding on a carpet)
+            if (groundType == BlockClassification.OPEN || groundType == BlockClassification.PHANTOM
+                    || groundType == BlockClassification.FLUID) {
+                // Special Case: "Deep Support" for vegetation?
+                // No, isValidStandingSpot is localresolveGround handles deep scans.
+                return false;
             }
-        }
-        // 2. Check Feet
-        if (!isTraversable(level, pos)) {
-            return false;
-        }
-        // 3. Check Head
-        if (!isClear(level, pos.above())) {
-            return false;
-        }
-        if (Tag.STAIRS.isTagged(level.getBlockState(pos).getBukkitMaterial())) {
-            if (!isClear(level, pos.above(2))) {
+            // Prevent "Floating Grid" above Traversable blocks
+            // If the ground is TRAVERSABLE (Carpet), the valid node is the Carpet itself, not the Air above it.
+            if (groundType == BlockClassification.TRAVERSABLE) {
                 return false;
             }
         }
-        // 4. Dynamic Headroom Check (The "Concussion" Fix)
-        // If standing on a slab (height 0.5), head is at 2.3. Must check pos.above(2).
-        // If standing on carpet (height 0.06), head is at 1.86. Fits in pos.above().
+        // Check Head
+        if (!isClear(level, pos.above())) {
+            return false;
+        }
+        // Dynamic Headroom Check (The "Concussion" Fix)
         double floorHeight = getMaxCollisionHeight(level, pos);
         if (floorHeight > HEADROOM_CHECK_THRESHOLD) {
             if (!isClear(level, pos.above(2))) {
@@ -161,7 +127,7 @@ public final class NavigationHelper {
     }
 
     /**
-     * Checks if a block is passable (Legacy wrapper, prefer isTraversable/isClear).
+     * Checks if a block is passable (Legacy wrapper).
      */
     public static boolean isPassable(BlockGetter level, BlockPos pos) {
         return isClear(level, pos);
@@ -207,8 +173,11 @@ public final class NavigationHelper {
                     // Obstruction is any aside from water/air and we do not check for ground because we are swimming.
                     isObstructed = hasCollision(level, checkPos);
                 } else {
-                    // Check for physical obstruction (wall/column) and must be traversable and clear
-                    if (!isTraversable(level, checkPos) || !isClear(level, checkPos.above())) {
+                    // Use Classification for obstruction check
+                    // Obstruction if not Traversable/Open/Phantom OR Head is blocked
+                    BlockClassification type = BlockClassification.classify(level, checkPos);
+                    if ((type == BlockClassification.SOLID || type == BlockClassification.SUPPORTING || type == BlockClassification.FLUID)
+                            || !isClear(level, checkPos.above())) {
                         isObstructed = true;
                     } else {
                         // Check Environmental Hazard (Void/Drop)
@@ -250,48 +219,129 @@ public final class NavigationHelper {
     }
 
     /**
-     * Performs a physics-aware sweep to find the actual block supporting the entity.
-     * This solves the "Fence/Ledge" problem where integer math fails to find ground.
+     * Performs a robust "Tiered Resolution" to find the valid start node.
+     * Solves "Center-Point Bias" by sweeping the entity's AABB.
      *
      * @param level
-     *            The snapshot or world.
-     * @param entityBounds
-     *            The AABB of the entity at its exact current location.
-     * @param maxDrop
-     *            Maximum distance to check downwards.
-     * @return The BlockPos of the supporting block (e.g., the Fence), if found.
+     *            The world accessor.
+     * @param location
+     *            The entity's exact location.
+     * @param width
+     *            Entity width.
+     * @param height
+     *            Entity height.
+     * @param params
+     *            Navigation parameters (swim/fall).
+     * @return The resolved BlockPos, or null if no valid ground found.
      */
-    public static Optional<BlockPos> findSupportingBlock(BlockGetter level, AABB entityBounds, double maxDrop) {
-        // We sweep the entity's bounding box downwards to find the first collision.
-        // We check in increments of 0.5 blocks to ensure we catch thin blocks like trapdoors/slabs.
-        double step = 0.5;
-        for (double yOffset = 0; yOffset <= maxDrop; yOffset += step) {
-            AABB checkBounds = entityBounds.move(0, -yOffset, 0).deflate(0.001, 0.0, 0.001);
-            // Check for collision with blocks in this AABB
-            int minX = (int) Math.floor(checkBounds.minX);
-            int maxX = (int) Math.ceil(checkBounds.maxX);
-            int minY = (int) Math.floor(checkBounds.minY);
-            int maxY = (int) Math.ceil(checkBounds.maxY);
-            int minZ = (int) Math.floor(checkBounds.minZ);
-            int maxZ = (int) Math.ceil(checkBounds.maxZ);
-            BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-            for (int x = minX; x < maxX; x++) {
-                for (int y = minY; y < maxY; y++) {
-                    for (int z = minZ; z < maxZ; z++) {
-                        cursor.set(x, y, z);
-                        if (hasCollision(level, cursor)) {
-                            // Check intersection
-                            BlockState state = level.getBlockState(cursor);
-                            VoxelShape shape = state.getCollisionShape(level, cursor);
-                            if (!shape.isEmpty() && shape.bounds().move(x, y, z).intersects(checkBounds)) {
-                                // Found physical support!
-                                return Optional.of(cursor.immutable());
+    public static BlockPos resolveStartNode(BlockGetter level, Location location, float width, float height, NavigationParameters params) {
+        BlockPos feetPos = new BlockPos(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        // Immediate Checks (Swimmer / Carpet)
+        BlockClassification feetType = BlockClassification.classify(level, feetPos);
+        if (feetType == BlockClassification.TRAVERSABLE)
+            return feetPos;
+        if (feetType == BlockClassification.FLUID && params.canSwim())
+            return feetPos;
+        // AABB Sweep (Ground Adjacency)
+        // Create AABB at feet
+        double x = location.getX();
+        double y = location.getY();
+        double z = location.getZ();
+        double hw = width / 2.0;
+        // Project down to find support (check blocks intersecting the area immediately below feet)
+        AABB supportBox = new AABB(x - hw, y - 0.5, z - hw, x + hw, y, z + hw);
+        BlockPos bestNode = null;
+        double minDistSq = Double.MAX_VALUE;
+        // Iterate blocks in supportBox
+        int minX = Mth.floor(supportBox.minX);
+        int maxX = Mth.floor(supportBox.maxX);
+        int minY = Mth.floor(supportBox.minY);
+        int maxY = Mth.floor(supportBox.maxY);
+        int minZ = Mth.floor(supportBox.minZ);
+        int maxZ = Mth.floor(supportBox.maxZ);
+        for (int bx = minX; bx <= maxX; bx++) {
+            for (int by = minY; by <= maxY; by++) {
+                for (int bz = minZ; bz <= maxZ; bz++) {
+                    BlockPos candidate = new BlockPos(bx, by, bz);
+                    BlockClassification type = BlockClassification.classify(level, candidate);
+                    BlockPos node = null;
+                    // If we hit solid ground, the node is ABOVE it.
+                    if (type == BlockClassification.SOLID || type == BlockClassification.SUPPORTING) {
+                        node = candidate.above();
+                    }
+                    // If we hit a carpet/slab, the node IS the carpet.
+                    else if (type == BlockClassification.TRAVERSABLE) {
+                        node = candidate;
+                    }
+                    // If we hit fluid and can swim, the node is the fluid.
+                    else if (type == BlockClassification.FLUID && params.canSwim()) {
+                        node = candidate;
+                    }
+                    if (node != null) {
+                        // Verify the node is valid to stand AT
+                        if (isValidStandingSpot(level, node)) {
+                            double distSq = node.distToCenterSqr(x, y, z);
+                            if (distSq < minDistSq) {
+                                minDistSq = distSq;
+                                bestNode = node;
                             }
                         }
                     }
                 }
             }
         }
-        return Optional.empty();
+        if (bestNode != null)
+            return bestNode;
+        // Gravity Scan (Deep Scan)
+        // Fallback to the original resolveGround logic which scans straight down from feet
+        BlockPos gravityNode = resolveGround(level, feetPos, params.maxFallDistance());
+        if (gravityNode != null && isValidStandingSpot(level, gravityNode)) {
+            return gravityNode;
+        }
+        // Fallback
+        // If physics fails, trust the integer grid if it looks vaguely valid
+        if (isValidStandingSpot(level, feetPos)) {
+            return feetPos;
+        }
+        return null;
+    }
+
+    /**
+     * Performs a "Deep Scan" to resolve the actual ground node from a nominal position.
+     * Replaces the old physics raytrace with a classification-based logic.
+     * 
+     * @param level
+     *            The world accessor.
+     * @param nominalStart
+     *            The starting block position (usually entity feet).
+     * @param maxDrop
+     *            Maximum blocks to scan downwards.
+     * @return The resolved BlockPos of the node, or null if no valid ground found.
+     */
+    public static BlockPos resolveGround(BlockGetter level, BlockPos nominalStart, int maxDrop) {
+        // Start scanning from the Head (y+1) to handle being inside Double-Tall Grass
+        BlockPos.MutableBlockPos cursor = nominalStart.mutable().move(Direction.UP);
+        for (int i = 0; i < maxDrop + 2; i++) { // +2 covers Head and Feet
+            // Scan down
+            BlockClassification type = BlockClassification.classify(level, cursor);
+            switch (type) {
+                case SOLID:
+                case SUPPORTING:
+                    // We hit the floor. The node is the block ABOVE.
+                    return cursor.above().immutable();
+                case TRAVERSABLE:
+                    // We hit a Carpet/Slab. This IS the node.
+                    return cursor.immutable();
+                case FLUID:
+                    // We hit water/lava. Not valid ground for walking.
+                    return null;
+                case OPEN:
+                case PHANTOM:
+                    // Air or Grass. Continue falling.
+                    break;
+            }
+            cursor.move(Direction.DOWN);
+        }
+        return null;
     }
 }
