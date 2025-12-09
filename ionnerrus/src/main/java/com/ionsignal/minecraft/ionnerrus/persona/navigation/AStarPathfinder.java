@@ -70,14 +70,14 @@ public class AStarPathfinder {
     }
 
     private Optional<Path> calculatePath() {
-        // 1. Resolve the exact starting node using physics-aware logic
+        // Resolve the exact starting node using physics-aware logic (Sweep -> Gravity -> Fallback)
         BlockPos actualStartPos = resolveStartNode();
         BlockPos actualEndPos = request.endBlock();
         if (actualStartPos == null) {
             LOGGER.info("Could not find valid ground for start position.");
             return Optional.empty();
         }
-        // 2. Setup A*
+        // Setup A*
         PriorityQueue<Node> openSet = new PriorityQueue<>();
         Map<BlockPos, Node> allNodes = new HashMap<>();
         Node startNode = new Node(actualStartPos, null, 0, getHeuristic(actualStartPos, actualEndPos), 0);
@@ -85,7 +85,7 @@ public class AStarPathfinder {
         allNodes.put(actualStartPos, startNode);
         long startTime = System.nanoTime();
         int iterations = 0;
-        // 3. Run A*
+        // Run A*
         while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
             if (token != null && !token.isActive()) {
                 throw new CancellationException("Pathfinding cancelled via execution token");
@@ -131,7 +131,10 @@ public class AStarPathfinder {
             double clearance = NavigationHelper.calculateClearance(snapshot, current, 2.0);
             double apexRadius = calculateApexRadius(snapshot, prev, current, next);
             MovementType type = determineMovementType(current, next);
-            enrichedNodes.add(new PathNode(current, type, clearance, apexRadius));
+            double surfaceHeight = NavigationHelper.getMaxCollisionHeight(snapshot, current);
+            if (surfaceHeight >= 1.0)
+                surfaceHeight = 0.0;
+            enrichedNodes.add(new PathNode(current, type, clearance, apexRadius, surfaceHeight));
         }
         // Safe Splice: Pass the exact start location from the request
         return new Path(request.start(), enrichedNodes, request.start().getWorld());
@@ -234,34 +237,16 @@ public class AStarPathfinder {
     }
 
     /**
-     * Physics-Aware Start Resolution.
-     * Snaps to Traversable blocks (Carpets) instead of Air above them.
+     * Uses NavigationHelper.resolveStartNode for robust start node detection.
      */
     private BlockPos resolveStartNode() {
-        BlockPos nominalStart = request.startBlock();
-        // If swimming, integer pos is fine
-        if (isWater(nominalStart) && request.params().canSwim()) {
-            return nominalStart;
-        }
-        // Sweep down to find actual support (Fence, Slab, etc.)
-        Optional<BlockPos> support = NavigationHelper.findSupportingBlock(
+        // Delegate to the new Tiered Resolution logic in NavigationHelper
+        return NavigationHelper.resolveStartNode(
                 snapshot,
-                request.getStartBounds(),
-                request.params().maxFallDistance());
-        if (support.isPresent()) {
-            BlockPos supportPos = support.get();
-            // If the support block itself is traversable (Carpet, Slab), use it as the node.
-            if (NavigationHelper.isTraversable(snapshot, supportPos)) {
-                return supportPos;
-            }
-            // Otherwise (Full Block), use the space above.
-            return supportPos.above();
-        }
-        // If physics failed (e.g. slight misalignment), check if the integer block position is valid.
-        if (NavigationHelper.isValidStandingSpot(snapshot, nominalStart)) {
-            return nominalStart;
-        }
-        return null;
+                request.start(),
+                request.entityWidth(),
+                request.entityHeight(),
+                request.params());
     }
 
     @SuppressWarnings("null")
@@ -392,7 +377,7 @@ public class AStarPathfinder {
     }
 
     /**
-     * Uses isTraversable for corner checks to allow diagonal movement over carpets.
+     * Uses BlockClassification to prevent clipping through SUPPORTING blocks.
      */
     private boolean isDiagonalMoveClear(BlockPos from, BlockPos to) {
         int dx = to.getX() - from.getX();
@@ -402,14 +387,15 @@ public class AStarPathfinder {
         // We check the block at the destination Y level (feet level)
         BlockPos corner1 = corner1Base.atY(to.getY());
         BlockPos corner2 = corner2Base.atY(to.getY());
-        // A corner is clear if it is Traversable (Carpet/Air) OR Clear (Air).
-        // It is blocked if it is a Full Block / Fence.
-        boolean c1Clear = NavigationHelper.isTraversable(snapshot, corner1) || NavigationHelper.isClear(snapshot, corner1);
-        boolean c2Clear = NavigationHelper.isTraversable(snapshot, corner2) || NavigationHelper.isClear(snapshot, corner2);
+        // Check if corners are blocked by SOLID or SUPPORTING blocks
+        BlockClassification c1Type = BlockClassification.classify(snapshot, corner1);
+        BlockClassification c2Type = BlockClassification.classify(snapshot, corner2);
+        boolean c1Blocked = (c1Type == BlockClassification.SOLID || c1Type == BlockClassification.SUPPORTING);
+        boolean c2Blocked = (c2Type == BlockClassification.SOLID || c2Type == BlockClassification.SUPPORTING);
         // Also check head clearance at corners
         boolean c1Head = NavigationHelper.isClear(snapshot, corner1.above());
         boolean c2Head = NavigationHelper.isClear(snapshot, corner2.above());
-        return c1Clear && c1Head && c2Clear && c2Head;
+        return !c1Blocked && c1Head && !c2Blocked && c2Head;
     }
 
     private boolean canExitWaterTo(BlockPos waterPos, BlockPos landPos) {
@@ -444,8 +430,7 @@ public class AStarPathfinder {
     private boolean isWater(BlockPos pos) {
         if (!request.params().canSwim())
             return false;
-        BlockState state = snapshot.getBlockState(pos);
-        return state != null && state.getBukkitMaterial() == Material.WATER;
+        return BlockClassification.classify(snapshot, pos) == BlockClassification.FLUID;
     }
 
     private boolean isSurface(BlockPos pos) {
@@ -453,11 +438,10 @@ public class AStarPathfinder {
     }
 
     private boolean isPassableForSwimming(BlockPos pos) {
-        BlockState state = snapshot.getBlockState(pos);
-        if (state == null)
-            return false;
-        Material mat = state.getBukkitMaterial();
-        return mat == Material.WATER || mat.isAir();
+        BlockClassification type = BlockClassification.classify(snapshot, pos);
+        return type == BlockClassification.FLUID ||
+                type == BlockClassification.OPEN ||
+                type == BlockClassification.PHANTOM;
     }
 
     private BlockPos findLandingSpot(BlockPos start, int searchRange) {
@@ -487,7 +471,7 @@ public class AStarPathfinder {
         if (isWater(from) && !isWater(to)) {
             totalCost *= 1.5; // Exiting water has extra cost
         }
-        // UPDATED: Add small penalty for Partial Blocks to prefer Air/Flat ground
+        // Add small penalty for Partial Blocks to prefer Air/Flat ground
         if (NavigationHelper.isTraversable(snapshot, to) && !NavigationHelper.isClear(snapshot, to)) {
             totalCost += 0.2;
         }

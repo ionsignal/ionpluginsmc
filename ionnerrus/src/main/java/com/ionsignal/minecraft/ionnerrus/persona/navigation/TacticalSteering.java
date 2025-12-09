@@ -6,7 +6,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.Movem
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -84,7 +83,17 @@ public final class TacticalSteering {
             Level level,
             AABB projectedBox,
             AABB currentBox) {
-        // Only check Block Collisions (Cheaper, prevents jumping over mobs)
+        // Identify the block we are hitting and check the block at feet level + motion
+        BlockPos checkPos = new BlockPos(
+                (int) Math.floor(entity.getX() + (projectedBox.minX - currentBox.minX)),
+                (int) Math.floor(entity.getY()),
+                (int) Math.floor(entity.getZ() + (projectedBox.minZ - currentBox.minZ)));
+        BlockClassification type = BlockClassification.classify(level, checkPos);
+        // Fast Pass: If classification says it's passable, trust it.
+        if (type == BlockClassification.OPEN || type == BlockClassification.PHANTOM || type == BlockClassification.TRAVERSABLE) {
+            return Optional.of(MovementType.WALK);
+        }
+        // Slow Pass: If SOLID or SUPPORTING, check exact height for Jump Logic
         Iterable<VoxelShape> blockCollisions = level.getBlockCollisions(entity, projectedBox);
         double maxObstacleY = -Double.MAX_VALUE;
         boolean hitSomething = false;
@@ -95,7 +104,7 @@ public final class TacticalSteering {
             }
         }
         if (!hitSomething) {
-            return Optional.of(MovementType.WALK); // False positive or non-blocking
+            return Optional.of(MovementType.WALK);
         }
         // Calculate height relative to entity feet
         double obstacleHeight = maxObstacleY - entity.getY();
@@ -140,9 +149,11 @@ public final class TacticalSteering {
         return Optional.empty();
     }
 
-    @SuppressWarnings("null")
     private static boolean hasSupport(Level level, BlockPos pos) {
-        BlockState state = level.getBlockState(pos);
-        return !state.getCollisionShape(level, pos).isEmpty();
+        // Use Classification for support check
+        BlockClassification type = BlockClassification.classify(level, pos);
+        return type == BlockClassification.SOLID ||
+                type == BlockClassification.SUPPORTING ||
+                type == BlockClassification.TRAVERSABLE;
     }
 }
