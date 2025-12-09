@@ -26,6 +26,7 @@ public class AStarPathfinder {
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final int MAX_ITERATIONS = 8000;
     private static final int MAX_BREATH_TICKS = 200;
+    private static final int TARGET_VERTICAL_SEARCH_RANGE = 10;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final PathfindingRequest request;
@@ -72,10 +73,15 @@ public class AStarPathfinder {
     private Optional<Path> calculatePath() {
         // Resolve the exact starting node using physics-aware logic (Sweep -> Gravity -> Fallback)
         BlockPos actualStartPos = resolveStartNode();
-        BlockPos actualEndPos = request.endBlock();
+        // Resolve the end node. If the target is mid-air (falling item), find the ground below it.
+        BlockPos actualEndPos = resolveEndNode();
         if (actualStartPos == null) {
             LOGGER.info("Could not find valid ground for start position.");
             return Optional.empty();
+        }
+        // If resolution failed (e.g. over void), fallback to requested.
+        if (actualEndPos == null) {
+            actualEndPos = request.endBlock();
         }
         // Setup A*
         PriorityQueue<Node> openSet = new PriorityQueue<>();
@@ -101,7 +107,7 @@ public class AStarPathfinder {
                 }
                 return Optional.of(path);
             }
-            for (Node neighbor : getNeighbors(currentNode)) {
+            for (Node neighbor : getNeighbors(currentNode, actualEndPos)) {
                 if (allNodes.containsKey(neighbor.pos) && allNodes.get(neighbor.pos).gCost <= neighbor.gCost) {
                     continue;
                 }
@@ -249,8 +255,35 @@ public class AStarPathfinder {
                 request.params());
     }
 
+    /**
+     * Resolves the end node by checking if the requested target is valid.
+     * If the target is in the air (e.g. falling item), it scans downwards to find the floor.
+     */
+    private BlockPos resolveEndNode() {
+        BlockPos requested = request.endBlock();
+        // Is the requested block already a valid place to stand?
+        if (NavigationHelper.isValidStandingSpot(snapshot, requested)) {
+            return requested;
+        }
+        // Is it a fluid? (Swimming target)
+        if (request.params().canSwim() && isWater(requested)) {
+            return requested;
+        }
+        // Is it Air/Phantom? (Falling item, flying player)
+        // If so, scan downwards to find the ground.
+        if (!NavigationHelper.isTraversable(snapshot, requested)) {
+            BlockPos ground = NavigationHelper.resolveGround(snapshot, requested, TARGET_VERTICAL_SEARCH_RANGE);
+            if (ground != null && NavigationHelper.isValidStandingSpot(snapshot, ground)) {
+                return ground;
+            }
+        }
+        // Fallback: Return requested.
+        // If it's invalid, A* will likely fail to find a path to it, which is the correct behavior.
+        return requested;
+    }
+
     @SuppressWarnings("null")
-    private List<Node> getNeighbors(Node node) {
+    private List<Node> getNeighbors(Node node, BlockPos targetPos) {
         List<Node> neighbors = new ArrayList<>();
         BlockPos currentPos = node.pos;
         // Breath cost in water and not at the surface, accumulate breath cost.
@@ -275,7 +308,7 @@ public class AStarPathfinder {
                         if (isPassableForSwimming(swimPos) && NavigationHelper.isClear(snapshot, swimPos.above())) {
                             if (NavigationHelper.isValidStandingSpot(snapshot, swimPos))
                                 continue;
-                            addNeighbor(neighbors, node, swimPos, nextUnderwaterTicks);
+                            addNeighbor(neighbors, node, swimPos, nextUnderwaterTicks, targetPos);
                         }
                     }
                 }
@@ -291,12 +324,12 @@ public class AStarPathfinder {
                     BlockPos exitPos = currentPos.offset(x, 0, z);
                     if (!isWater(exitPos) && NavigationHelper.isValidStandingSpot(snapshot, exitPos)) {
                         if (canExitWaterTo(currentPos, exitPos))
-                            addNeighbor(neighbors, node, exitPos, 0);
+                            addNeighbor(neighbors, node, exitPos, 0, targetPos);
                     }
                     BlockPos jumpExitPos = currentPos.offset(x, 1, z);
                     if (!isWater(jumpExitPos) && NavigationHelper.isValidStandingSpot(snapshot, jumpExitPos)) {
                         if (canExitWaterTo(currentPos, jumpExitPos))
-                            addNeighbor(neighbors, node, jumpExitPos, 0);
+                            addNeighbor(neighbors, node, jumpExitPos, 0, targetPos);
                     }
                 }
             }
@@ -313,13 +346,13 @@ public class AStarPathfinder {
                 if (NavigationHelper.isValidStandingSpot(snapshot, walkPos)) {
                     if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
                         if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                            addNeighbor(neighbors, node, walkPos, 0);
+                            addNeighbor(neighbors, node, walkPos, 0, targetPos);
                         }
                     }
                 } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
                     if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
                         if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                            addNeighbor(neighbors, node, walkPos, 0);
+                            addNeighbor(neighbors, node, walkPos, 0, targetPos);
                         }
                     }
                 }
@@ -328,7 +361,7 @@ public class AStarPathfinder {
                 if (request.params().climbHeight() >= 1 && NavigationHelper.isValidStandingSpot(snapshot, climbPos)
                         && hasHeadroomForJump(currentPos)) {
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
-                        addNeighbor(neighbors, node, climbPos, 0);
+                        addNeighbor(neighbors, node, climbPos, 0, targetPos);
                     }
                 }
             }
@@ -348,7 +381,7 @@ public class AStarPathfinder {
                         BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
                         if (fallDestination != null && !fallDestination.equals(currentPos)) {
                             if (isFallPathClear(dropPos, fallDestination)) {
-                                addNeighbor(neighbors, node, fallDestination, 0);
+                                addNeighbor(neighbors, node, fallDestination, 0, targetPos);
                             }
                         }
                     }
@@ -363,16 +396,16 @@ public class AStarPathfinder {
             BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
             if (fallDestination != null && !fallDestination.equals(currentPos)) {
                 if (isFallPathClear(currentPos, fallDestination)) {
-                    addNeighbor(neighbors, node, fallDestination, 0);
+                    addNeighbor(neighbors, node, fallDestination, 0, targetPos);
                 }
             }
         }
         return neighbors;
     }
 
-    private void addNeighbor(List<Node> neighbors, Node parent, BlockPos pos, int underwaterTicks) {
+    private void addNeighbor(List<Node> neighbors, Node parent, BlockPos pos, int underwaterTicks, BlockPos targetPos) {
         double gCost = parent.gCost + getMoveCost(parent.pos, pos);
-        double hCost = getHeuristic(pos, request.endBlock());
+        double hCost = getHeuristic(pos, targetPos);
         neighbors.add(new Node(pos, parent, gCost, hCost, underwaterTicks));
     }
 

@@ -57,6 +57,7 @@ public class BukkitPhysicalBody implements PhysicalBody {
 
     // Internal state for tracking Navigator completion
     private MovementResult pendingNavigationResult;
+    private CompletableFuture<MovementResult> pendingFutureTarget;
 
     // State for inventory interaction
     private Entity interactionTarget;
@@ -121,14 +122,16 @@ public class BukkitPhysicalBody implements PhysicalBody {
         locomotionController.tick();
         // Check if Navigator finished this tick
         if (pendingNavigationResult != null) {
-            CompletableFuture<MovementResult> currentFuture = activeMovement;
+            CompletableFuture<MovementResult> targetFuture = pendingFutureTarget;
             MovementResult resultToComplete = pendingNavigationResult;
             activeMovement = null;
             pendingNavigationResult = null;
-            if (currentFuture != null && !currentFuture.isDone()) {
-                currentFuture.complete(resultToComplete);
+            if (targetFuture != null && !targetFuture.isDone()) {
+                targetFuture.complete(resultToComplete);
             }
-            pendingNavigationResult = null;
+            if (activeMovement == targetFuture) {
+                activeMovement = null;
+            }
         }
     }
 
@@ -233,6 +236,7 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
                 navigator.navigateTo(target, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
+                    pendingFutureTarget = future;
                 });
                 return future;
             }
@@ -241,12 +245,14 @@ public class BukkitPhysicalBody implements PhysicalBody {
             public CompletableFuture<MovementResult> moveTo(Path path, ExecutionToken token) {
                 Preconditions.checkState(Bukkit.isPrimaryThread(), "Async physical access detected!");
                 validateMovement();
+                pendingNavigationResult = null;
+                pendingFutureTarget = null;
                 CompletableFuture<MovementResult> future = new CompletableFuture<>();
                 activeMovement = future;
-                pendingNavigationResult = null;
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
                 navigator.navigateTo(path, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
+                    pendingFutureTarget = future;
                 });
                 return future;
             }
@@ -261,6 +267,7 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
                 navigator.engageOn(target, stopDistanceSquared, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.STUCK : result;
+                    pendingFutureTarget = future;
                 });
                 return future;
             }
@@ -276,6 +283,7 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
                 navigator.followOn(target, followDistance, stopDistance, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
+                    pendingFutureTarget = future;
                 });
                 return future;
             }

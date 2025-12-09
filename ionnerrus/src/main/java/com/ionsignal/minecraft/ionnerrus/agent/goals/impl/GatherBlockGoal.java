@@ -134,9 +134,12 @@ public class GatherBlockGoal implements Goal {
         // Analyze the result of the task that just finished
         switch (lastGatherStatus) {
             case SUCCESS:
-                // Loop back to inventory check
-                this.attemptedLocations.clear(); // Reset cache on success
-            case FAILED_TO_COLLECT: // Transient failure, retry logic handles it
+                this.attemptedLocations.clear();
+                this.state = State.VERIFYING_INVENTORY;
+                checkInventory(agent, token);
+                break;
+            case FAILED_TO_COLLECT:
+                // Transient failure (e.g., item despawned, inventory full), retry
                 logger.warning("[GatherBlockGoal] Task failed to collect drops. Retrying.");
                 this.state = State.VERIFYING_INVENTORY;
                 checkInventory(agent, token);

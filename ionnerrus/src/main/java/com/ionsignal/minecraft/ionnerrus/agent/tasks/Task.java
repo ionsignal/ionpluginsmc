@@ -19,6 +19,19 @@ public interface Task {
     CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token);
 
     /**
+     * Called every server tick while this task is active.
+     * Use this for time-sensitive logic or polling without creating external Runnables.
+     * 
+     * @param agent
+     *            The agent.
+     * @param token
+     *            The execution token.
+     */
+    default void tick(NerrusAgent agent, ExecutionToken token) {
+        // Default no-op
+    }
+
+    /**
      * Called when a message is dispatched to the agent while this task is active allowing the Task to
      * handle tactical updates (like Repath requests) internally.
      * 
