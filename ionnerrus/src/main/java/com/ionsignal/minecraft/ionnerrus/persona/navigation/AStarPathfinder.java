@@ -257,6 +257,10 @@ public class AStarPathfinder {
             // Otherwise (Full Block), use the space above.
             return supportPos.above();
         }
+        // If physics failed (e.g. slight misalignment), check if the integer block position is valid.
+        if (NavigationHelper.isValidStandingSpot(snapshot, nominalStart)) {
+            return nominalStart;
+        }
         return null;
     }
 

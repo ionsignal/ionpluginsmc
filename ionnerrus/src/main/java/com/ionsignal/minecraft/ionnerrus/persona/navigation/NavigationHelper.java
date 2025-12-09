@@ -110,9 +110,19 @@ public final class NavigationHelper {
      */
     @SuppressWarnings("null")
     public static boolean isValidStandingSpot(BlockGetter level, BlockPos pos) {
-        // 1. Check Ground (Support)
+        // Check Ground (Support)
         BlockPos below = pos.below();
         BlockState groundState = level.getBlockState(below);
+        // Skip zero-collision decoration blocks (grass, flowers, ferns, etc.)
+        // These should be treated as transparent/air for support calculations.
+        double belowCollisionHeight = getMaxCollisionHeight(level, below);
+        // If the block below is not Air, but has NO collision (Flower, Grass, Water),
+        // we look one block further down to find the actual solid ground.
+        if (belowCollisionHeight == 0.0 && !groundState.isAir() && groundState.getFluidState().isEmpty()) {
+            below = below.below();
+            groundState = level.getBlockState(below);
+            belowCollisionHeight = getMaxCollisionHeight(level, below);
+        }
         // Fast Check: Is the top face sturdy? (Stone, Dirt, Planks)
         boolean isSturdy = groundState.isFaceSturdy(level, below, Direction.UP);
         // Leaves are not sturdy but are valid support
@@ -123,11 +133,6 @@ public final class NavigationHelper {
         if (!isSturdy && !isLeaves) {
             if (isTraversable(level, below) && isClear(level, pos)) {
                 return false; // Prevent floating grid above carpets/slabs
-            }
-            // Allow standing on Glass/Obsidian/etc which are not "Traversable" (Full height) but maybe not
-            // "Sturdy" in some versions
-            if (getMaxCollisionHeight(level, below) < 1.0) {
-                return false; // Reject standing on weird small blocks that aren't traversable
             }
         }
         // 2. Check Feet
