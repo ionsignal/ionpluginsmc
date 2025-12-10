@@ -26,7 +26,7 @@ public class PathFollower {
     private static final double TETHER_SLACK = 1.2; // Extra forgiveness before snapping tether
     private static final double PROJECTION_STEP_SIZE = 0.5; // Size of our projection steps
     private static final double PROJECTION_SEARCH_WINDOW = 5.0; // How far forward to search
-    private static final double REACQUISITION_WINDOW = 1.0;
+    private static final double REACQUISITION_WINDOW = 1.0; // Lookback window (knock-back)
     private static final double COMPLETION_THRESHOLD = 0.36; // Proximity to be considered done
     private static final double COMPLETION_THRESHOLD_SQUARED = COMPLETION_THRESHOLD * COMPLETION_THRESHOLD;
 
