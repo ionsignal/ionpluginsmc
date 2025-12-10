@@ -1,3 +1,4 @@
+// src/main/java/com/ionsignal/minecraft/ionnerrus/persona/navigation/PathFollower.java
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
@@ -24,7 +25,8 @@ public class PathFollower {
     private static final double MAX_LOOKAHEAD = 5.0; // Max lookahead for open areas
     private static final double TETHER_SLACK = 1.2; // Extra forgiveness before snapping tether
     private static final double PROJECTION_STEP_SIZE = 0.5; // Size of our projection steps
-    private static final double PROJECTION_SEARCH_WINDOW = 5.0; // How far forward/back to search for projection
+    private static final double PROJECTION_SEARCH_WINDOW = 5.0; // How far forward to search
+    private static final double REACQUISITION_WINDOW = 1.0;
     private static final double COMPLETION_THRESHOLD = 0.36; // Proximity to be considered done
     private static final double COMPLETION_THRESHOLD_SQUARED = COMPLETION_THRESHOLD * COMPLETION_THRESHOLD;
 
@@ -207,8 +209,8 @@ public class PathFollower {
      */
     public void snapToSegment(double distance) {
         this.currentDist = Math.min(Math.max(0, distance), path.getLength());
-        // Update the ratchet. We never search before this point again.
-        this.minSearchDist = this.currentDist;
+        // Update the ratchet but allow searching slightly backwards to handle knockback.
+        this.minSearchDist = Math.max(0, this.currentDist - REACQUISITION_WINDOW);
         // Clear off-path status since we are forcibly snapping to a valid point
         this.isOffPath = false;
     }
@@ -220,7 +222,7 @@ public class PathFollower {
     private void updateProjection(Location agentPos) {
         double bestDist = currentDist;
         double minDeviation = Double.MAX_VALUE;
-        double startSearch = Math.max(minSearchDist, currentDist - 1.0);
+        double startSearch = Math.max(minSearchDist, currentDist - REACQUISITION_WINDOW);
         double endSearch = Math.min(path.getLength(), currentDist + PROJECTION_SEARCH_WINDOW);
         for (double d = startSearch; d <= endSearch; d += PROJECTION_STEP_SIZE) {
             Location point = path.getPointAtDistance(d);
