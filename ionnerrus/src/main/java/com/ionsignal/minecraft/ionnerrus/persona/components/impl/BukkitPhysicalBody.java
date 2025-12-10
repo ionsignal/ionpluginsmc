@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.action.ActionController;
 import com.ionsignal.minecraft.ionnerrus.persona.action.ActionStatus;
+import com.ionsignal.minecraft.ionnerrus.persona.action.impl.SwapItemAction;
 import com.ionsignal.minecraft.ionnerrus.persona.action.impl.BlockBreakerAction;
 import com.ionsignal.minecraft.ionnerrus.persona.action.impl.PlaceBlockAction;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
@@ -234,6 +235,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 activeMovement = future;
                 pendingNavigationResult = null;
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
+                if (!token.isActive()) {
+                    return future;
+                }
                 navigator.navigateTo(target, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
                     pendingFutureTarget = future;
@@ -250,6 +254,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 CompletableFuture<MovementResult> future = new CompletableFuture<>();
                 activeMovement = future;
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
+                if (!token.isActive()) {
+                    return future;
+                }
                 navigator.navigateTo(path, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
                     pendingFutureTarget = future;
@@ -265,6 +272,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 activeMovement = future;
                 pendingNavigationResult = null;
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
+                if (!token.isActive()) {
+                    return future;
+                }
                 navigator.engageOn(target, stopDistanceSquared, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.STUCK : result;
                     pendingFutureTarget = future;
@@ -281,6 +291,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 activeMovement = future;
                 pendingNavigationResult = null;
                 bindToken(future, token, MovementResult.CANCELLED, () -> this.stop());
+                if (!token.isActive()) {
+                    return future;
+                }
                 navigator.followOn(target, followDistance, stopDistance, token).whenComplete((result, ex) -> {
                     pendingNavigationResult = (ex != null) ? MovementResult.FAILURE : result;
                     pendingFutureTarget = future;
@@ -355,6 +368,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 }
                 activeAction = new CompletableFuture<>();
                 bindToken(activeAction, token, ActionResult.CANCELLED, () -> this.cancelAction());
+                if (!token.isActive()) {
+                    return activeAction;
+                }
                 actionController.schedule(new BlockBreakerAction(target));
                 return activeAction;
             }
@@ -367,6 +383,9 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 }
                 activeAction = new CompletableFuture<>();
                 bindToken(activeAction, token, ActionResult.CANCELLED, () -> this.cancelAction());
+                if (!token.isActive()) {
+                    return activeAction;
+                }
                 actionController.schedule(new PlaceBlockAction(material, target));
                 return activeAction;
             }
@@ -393,8 +412,10 @@ public class BukkitPhysicalBody implements PhysicalBody {
                 }
                 activeAction = new CompletableFuture<>();
                 bindToken(activeAction, token, ActionResult.CANCELLED, () -> this.cancelAction());
-                actionController.schedule(
-                        new com.ionsignal.minecraft.ionnerrus.persona.action.impl.SwapItemAction(sourceSlot, destinationSlot));
+                if (!token.isActive()) {
+                    return activeAction;
+                }
+                actionController.schedule(new SwapItemAction(sourceSlot, destinationSlot));
                 return activeAction;
             }
 

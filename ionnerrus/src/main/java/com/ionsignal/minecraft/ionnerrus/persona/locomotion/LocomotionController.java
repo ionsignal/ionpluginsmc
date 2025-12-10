@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult;
 import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
 
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.entity.ai.control.MoveControl.Operation;
 
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
@@ -79,7 +80,9 @@ public class LocomotionController {
         } else {
             // Failsafe: No intent received this tick -> Stop moving
             // This handles the case where Navigator stops ticking or crashes
-            stop();
+            if (entity.getMoveControl().getOperation() != Operation.WAIT) {
+                stop();
+            }
         }
     }
 
@@ -98,7 +101,9 @@ public class LocomotionController {
             currentManeuver.stop(entity);
             currentManeuver = null;
         }
+        this.currentSpeed = 0.0f;
         this.lastResult = null;
+        this.currentIntent = null;
     }
 
     /**

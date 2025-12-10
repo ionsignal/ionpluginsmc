@@ -43,9 +43,13 @@ public class DropManeuver implements Maneuver {
     @Override
     public ManeuverResult stop(PersonaEntity entity) {
         if (state == DropState.LANDED) {
-            return new ManeuverResult(ManeuverResult.Status.SUCCESS, entity.getBukkitEntity().getLocation(), "Landed safely");
+            return new ManeuverResult(
+                    ManeuverResult.Status.SUCCESS,
+                    entity.getBukkitEntity().getLocation(), "Landed safely");
         }
-        return new ManeuverResult(ManeuverResult.Status.FAILED, entity.getBukkitEntity().getLocation(), "Drop failed or timed out");
+        return new ManeuverResult(
+                ManeuverResult.Status.FAILED,
+                entity.getBukkitEntity().getLocation(), "Drop failed or timed out");
     }
 
     @Override
