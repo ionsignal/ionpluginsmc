@@ -54,9 +54,13 @@ public class JumpManeuver implements Maneuver {
     public ManeuverResult stop(PersonaEntity entity) {
         entity.getJumpControl().stop();
         if (state == JumpState.LANDED) {
-            return new ManeuverResult(ManeuverResult.Status.SUCCESS, entity.getBukkitEntity().getLocation(), "Jump landed");
+            return new ManeuverResult(
+                    ManeuverResult.Status.SUCCESS,
+                    entity.getBukkitEntity().getLocation(), "Jump landed");
         }
-        return new ManeuverResult(ManeuverResult.Status.FAILED, entity.getBukkitEntity().getLocation(), "Jump failed");
+        return new ManeuverResult(
+                ManeuverResult.Status.FAILED,
+                entity.getBukkitEntity().getLocation(), "Jump failed");
     }
 
     @Override
