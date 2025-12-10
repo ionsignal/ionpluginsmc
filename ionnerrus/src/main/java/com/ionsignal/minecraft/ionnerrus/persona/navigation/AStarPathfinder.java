@@ -211,7 +211,7 @@ public class AStarPathfinder {
             if (NavigationHelper.hasCollision(snapshot, apexPos) ||
                     NavigationHelper.hasCollision(snapshot, apexPos.above())) {
                 // Tight Turn (Obstruction detected)
-                return 0.5;
+                return 0.25;
             }
             // Loose Turn (Open Air)
             return 1.5;
