@@ -277,9 +277,22 @@ public final class NavigationHelper {
                     else if (type == BlockClassification.FLUID && params.canSwim()) {
                         node = candidate;
                     }
+                    // Explicitly handle PHANTOM/OPEN blocks (e.g. Tall Grass)
+                    // We treat them as valid nodes ONLY if they are valid standing spots (have support below).
+                    else if (type == BlockClassification.PHANTOM || type == BlockClassification.OPEN) {
+                        if (isValidStandingSpot(level, candidate)) {
+                            node = candidate;
+                        }
+                    }
                     if (node != null) {
-                        // Verify the node is valid to stand AT
-                        if (isValidStandingSpot(level, node)) {
+                        // Bypass standing check for fluids
+                        boolean isValid;
+                        if (type == BlockClassification.FLUID) {
+                            isValid = true;
+                        } else {
+                            isValid = isValidStandingSpot(level, node);
+                        }
+                        if (isValid) {
                             double distSq = node.distToCenterSqr(x, y, z);
                             if (distSq < minDistSq) {
                                 minDistSq = distSq;
