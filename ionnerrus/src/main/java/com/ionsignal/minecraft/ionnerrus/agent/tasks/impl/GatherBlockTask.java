@@ -1,4 +1,3 @@
-// src/main/java/com/ionsignal/minecraft/ionnerrus/agent/tasks/impl/GatherBlockTask.java
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
@@ -14,6 +13,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EquipBestToolSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EngageLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.EngageEntitySkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindCollectableBlockSkill;
+import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.FindItemVantagePointSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.NavigateToLocationSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.BreakBlockResult;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.results.EquipBestToolResult;
@@ -22,6 +22,9 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocation
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
+// import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
+
+// import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -34,6 +37,7 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 
 import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -44,6 +48,7 @@ import java.util.logging.Logger;
  * A reactive, state-machine based task for gathering blocks that supports fast/slow collection.
  */
 public class GatherBlockTask implements Task {
+    // private static final boolean DEBUG_VISUALIZATION = true;
     private static final int MAX_REPOSITION_ATTEMPTS = 1;
     private static final int MAX_OBSTRUCTION_DEPTH = 1;
     private static final int MAX_NAVIGATION_RETRIES = 3;
@@ -68,6 +73,7 @@ public class GatherBlockTask implements Task {
     private Listener pickupListener;
 
     // Execution Context
+    private int waitTicks = 0;
     private int obstructionDepth = 0;
     private int repositionAttempts = 0;
 
@@ -86,6 +92,11 @@ public class GatherBlockTask implements Task {
         IDLE, SCANNING, APPROACHING, EQUIPPING, BREAKING, COLLECTING, FINISHED
     }
 
+    // Added: Internal record for handling vantage point results safely
+    // Changed: Now holds an Optional<Path> instead of List<Location>
+    private record VantagePointResult(Optional<Path> path) {
+    }
+
     public GatherBlockTask(Set<Material> targetBlocks, int searchRadius, Set<Location> attemptedLocations) {
         this.targetBlocks = targetBlocks;
         this.searchRadius = searchRadius;
@@ -102,6 +113,7 @@ public class GatherBlockTask implements Task {
             @EventHandler(ignoreCancelled = true)
             public void onPickup(EntityPickupItemEvent event) {
                 // Verify it's this agent picking up
+                logger.info("[GatherBlockTask] onPickup event has fired.");
                 if (event.getEntity().getUniqueId().equals(agent.getPersona().getUniqueId())) {
                     collectedItems.add(event.getItem().getUniqueId());
                 }
@@ -133,6 +145,18 @@ public class GatherBlockTask implements Task {
     }
 
     @Override
+    public void tick(NerrusAgent agent, ExecutionToken token) {
+        // Handle wait timer for item stability check
+        if (state == State.COLLECTING && waitTicks > 0) {
+            waitTicks--;
+            if (waitTicks == 0) {
+                // Timer expired, re-scan queue
+                processNextDrop(agent, token);
+            }
+        }
+    }
+
+    @Override
     public void onMessage(NerrusAgent agent, Object message, ExecutionToken token) {
         if (state == State.FINISHED || taskFuture.isDone()) {
             return;
@@ -150,6 +174,8 @@ public class GatherBlockTask implements Task {
             // Handle Collection
             case MovementResult result when state == State.COLLECTING -> handleCollectionEngageResult(agent, token, result);
             case NavigateToLocationResult result when state == State.COLLECTING -> handleCollectionPathingResult(agent, token, result);
+            // Added: Handle Vantage Point Recovery
+            case VantagePointResult result when state == State.COLLECTING -> handleVantagePointResult(agent, token, result);
             // Handle Error
             case SystemError error -> {
                 logger.severe("[GatherBlockTask] System Error received: " + error.error().getMessage());
@@ -204,7 +230,6 @@ public class GatherBlockTask implements Task {
                 // Extract destination from the original path to force a fresh pathfinding calculation
                 Path oldPath = mainTarget.pathToStandingLocation();
                 Location destination = oldPath.getPointAtDistance(oldPath.getLength());
-
                 agent.executeSkill(
                         new NavigateToLocationSkill(
                                 destination,
@@ -250,22 +275,29 @@ public class GatherBlockTask implements Task {
     private void handleBreakResult(NerrusAgent agent, ExecutionToken token, BreakBlockResult result) {
         switch (result.status()) {
             case SUCCESS, ALREADY_BROKEN -> {
+                // Handle Obstruction Logic
                 if (obstructionDepth > 0) {
                     obstructionDepth--;
                     logger.info("[GatherBlockTask] Obstruction cleared. Resuming main target.");
                     startBreakingSequence(agent, token, mainTarget.blockLocation());
-                } else {
-                    logger.info("[GatherBlockTask] Block broken. Processing drops...");
-                    // Populate queue with captured drops
-                    if (result.droppedItems() != null && !result.droppedItems().isEmpty()) {
-                        hadDrops = true; // Mark that we actually generated items
-                        pendingDrops.addAll(result.droppedItems());
-                        logger.info("[GatherBlockTask] " + result.droppedItems().size() + " items dropped.");
-                    }
-                    // Transition to Collection Loop
-                    this.state = State.COLLECTING;
-                    processNextDrop(agent, token);
+                    return; // Done for this tick
                 }
+                // Handle Failure Case
+                if (result.status() == BreakBlockResult.Status.ALREADY_BROKEN) {
+                    fail(agent, token, GatherResult.FAILED_TO_COLLECT, "Break failed: " + result.status());
+                    return; // Done for this tick
+                }
+                // Handle Success
+                logger.info("[GatherBlockTask] Block broken. Processing drops...");
+                // Populate queue with captured drops
+                if (result.droppedItems() != null && !result.droppedItems().isEmpty()) {
+                    hadDrops = true; // Mark that we actually generated items
+                    pendingDrops.addAll(result.droppedItems());
+                    logger.info("[GatherBlockTask] " + result.droppedItems().size() + " items dropped.");
+                }
+                // Transition to Collection Loop
+                this.state = State.COLLECTING;
+                processNextDrop(agent, token);
             }
             case OUT_OF_REACH -> {
                 if (repositionAttempts >= MAX_REPOSITION_ATTEMPTS) {
@@ -325,6 +357,7 @@ public class GatherBlockTask implements Task {
             processNextDrop(agent, token);
             return;
         }
+        logger.info("[GatherBlockTask] Item was not yet collected, thinking about collection method...");
         // Validate Item (Merge/Despawn Check)
         if (!currentDropTarget.isValid() || currentDropTarget.isDead()) {
             // Item merged or despawned. Skip.
@@ -338,6 +371,7 @@ public class GatherBlockTask implements Task {
         double distSq = agent.getPersona().getLocation().distanceSquared(currentDropTarget.getLocation());
         if (!forceSlowMode && distSq < FAST_MODE_DIST_SQUARED) {
             // Fast Mode: Direct Steering
+            logger.info("[GatherBlockTask] processNextDrop -> Fast Mode: Direct Steering.");
             agent.executeSkill(
                     new EngageEntitySkill(
                             currentDropTarget,
@@ -348,9 +382,21 @@ public class GatherBlockTask implements Task {
             if (forceSlowMode) {
                 logger.info("[GatherBlockTask] Forcing Slow Mode for item due to previous failure.");
             }
+            // If it's far and not on ground, it's unstable.
+            boolean isStable = currentDropTarget.isOnGround() || currentDropTarget.getLocation().getBlock().isLiquid();
+            if (!isStable) {
+                logger.info("[GatherBlockTask] Item unstable (falling). Deferring...");
+                pendingDrops.offer(currentDropTarget); // Put back in queue
+                currentDropTarget = null;
+                waitTicks = 6;
+                return;
+            }
+            logger.info("[GatherBlockTask] processNextDrop -> Slow Mode: Calculating Vantage Point.");
             agent.executeSkill(
-                    new NavigateToLocationSkill(currentDropTarget.getLocation()),
-                    token, res -> res);
+                    new FindItemVantagePointSkill(currentDropTarget),
+                    token,
+                    VantagePointResult::new // Map Optional<Path> to record
+            );
         }
     }
 
@@ -400,10 +446,9 @@ public class GatherBlockTask implements Task {
             } else {
                 logger.info("[GatherBlockTask] Fast mode failed. Promoting to Pathfinding.");
                 failedFastModeTargets.add(currentDropTarget.getEntityId());
-                agent.executeSkill(
-                        new NavigateToLocationSkill(
-                                currentDropTarget.getLocation()),
-                        token, res -> res);
+                pendingDrops.add(currentDropTarget);
+                // Re-process to trigger Slow Mode logic
+                processNextDrop(agent, token);
             }
         } else {
             // Cancelled or other failure
@@ -411,20 +456,44 @@ public class GatherBlockTask implements Task {
         }
     }
 
-    // Handle Slow Mode Result
+    // Handle the result of the vantage point search
+    private void handleVantagePointResult(NerrusAgent agent, ExecutionToken token, VantagePointResult result) {
+        if (result.path().isEmpty()) {
+            logger.warning("[GatherBlockTask] Smart Recovery failed: No valid path to any vantage point found.");
+            processNextDrop(agent, token);
+            return;
+        }
+        Path path = result.path().get();
+        // if (DEBUG_VISUALIZATION) {
+        // // Visualize the path end point
+        // Location endPoint = path.getPointAtDistance(path.getLength());
+        // DebugVisualizer.highlightBlock(endPoint, 30, NamedTextColor.AQUA);
+        // }
+        logger.info("[GatherBlockTask] Vantage point path found. Navigating...");
+        // Explicitly pass the item location as the look target
+        agent.executeSkill(
+                new NavigateToLocationSkill(
+                        path,
+                        currentDropTarget.getLocation()),
+                token, res -> res);
+    }
+
+    // Handle Slow Mode Result (Navigation to Vantage Point)
     private void handleCollectionPathingResult(NerrusAgent agent, ExecutionToken token, NavigateToLocationResult result) {
         if (result == NavigateToLocationResult.SUCCESS) {
-            // We navigated close to the item. Now trigger Fast Mode to finalize the pickup.
-            // Note: We do NOT add to failedFastModeTargets here because we are already close enough
-            // that Fast Mode should work (or fail immediately if inventory is full).
+            // We navigated to the Vantage Point.
+            // Now trigger Fast Mode (EngageEntitySkill) to "Lunge" at the item.
+            // Since we are close, Fast Mode logic will handle the final approach.
+            logger.warning("[GatherBlockTask] Vantage point reached via pathfinding. Trying to engage.");
             agent.executeSkill(
                     new EngageEntitySkill(
                             currentDropTarget,
                             0.25),
                     token, res -> res);
         } else {
-            // Pathfinding failed. Item unreachable. Skip.
-            logger.warning("[GatherBlockTask] Item unreachable via pathfinding. Skipping.");
+            // Pathfinding to the vantage point failed.
+            // Since we already calculated a valid spot, this means the area is truly unreachable.
+            logger.warning("[GatherBlockTask] Vantage point unreachable via pathfinding. Skipping item.");
             processNextDrop(agent, token);
         }
     }
