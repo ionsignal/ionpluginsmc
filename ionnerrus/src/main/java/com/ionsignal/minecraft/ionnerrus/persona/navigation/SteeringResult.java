@@ -33,13 +33,16 @@ public record SteeringResult(
             double dy = agentPos.getY() - targetPos.getY();
             switch (this) {
                 case JUMP:
-                    return dy >= -0.05 && dx <= 1.2 && dz <= 1.2;
+                    // Vertical tolerance is set to -0.15 to account for surface offset if the target is carpet
+                    // (Y+0.0625) and agent is at Y, dy is -0.0625.
+                    return dy >= -0.15 && dx <= 1.2 && dz <= 1.2;
                 case DROP:
                     return dx <= 0.94 && dz <= 0.94;
                 case SWIM:
                     return agentPos.distanceSquared(targetPos) < 1.5 * 1.5;
                 case WATER_EXIT:
-                    return dx <= 1.0 && dz <= 1.0 && dy >= -0.1;
+                    // Relaxed vertical tolerance to match JUMP for consistency with partial blocks.
+                    return dx <= 1.0 && dz <= 1.0 && dy >= -0.15;
                 case WALK:
                 default:
                     return false;

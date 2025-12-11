@@ -35,9 +35,11 @@ public record PathNode(
         double surfaceOffset) {
 
     /**
-     * Converts the block position to a centered Bukkit Location.
+     * Converts the block position to a centered Bukkit Location which includes surfaceOffset target the
+     * physical top of the block (e.g., Carpet/Slab) rather than the integer base. This improves
+     * trajectory accuracy for Jumps.
      */
     public Location toLocation(World world) {
-        return new Location(world, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
+        return new Location(world, pos.getX() + 0.5, pos.getY() + surfaceOffset, pos.getZ() + 0.5);
     }
 }

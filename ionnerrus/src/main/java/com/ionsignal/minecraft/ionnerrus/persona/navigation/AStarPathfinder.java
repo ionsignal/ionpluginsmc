@@ -24,7 +24,6 @@ import java.util.logging.Logger;
 
 public class AStarPathfinder {
     private static final double WARN_THRESHOLD_MS = 250.0;
-    private static final int MAX_ITERATIONS = 8000;
     private static final int MAX_BREATH_TICKS = 200;
     private static final int TARGET_VERTICAL_SEARCH_RANGE = 10;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
@@ -91,8 +90,8 @@ public class AStarPathfinder {
         allNodes.put(actualStartPos, startNode);
         long startTime = System.nanoTime();
         int iterations = 0;
-        // Run A*
-        while (!openSet.isEmpty() && iterations++ < MAX_ITERATIONS) {
+        int maxIterations = request.params().maxIterations();
+        while (!openSet.isEmpty() && iterations++ < maxIterations) {
             if (token != null && !token.isActive()) {
                 throw new CancellationException("Pathfinding cancelled via execution token");
             }
