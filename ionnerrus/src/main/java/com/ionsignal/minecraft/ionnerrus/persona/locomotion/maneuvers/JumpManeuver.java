@@ -105,8 +105,11 @@ public class JumpManeuver implements Maneuver {
                 }
             }
             case DESCENDING -> {
-                if (entity.onGround()) {
+                if (entity.getY() >= targetWaypoint.getY() - 0.5) {
                     state = JumpState.LANDED;
+                } else {
+                    // We fell back down
+                    state = JumpState.FAILED;
                 }
             }
             case LANDED, FAILED -> {
