@@ -22,9 +22,9 @@ import com.ionsignal.minecraft.ionnerrus.agent.skills.results.NavigateToLocation
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
-// import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
+import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
-// import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -48,7 +48,7 @@ import java.util.logging.Logger;
  * A reactive, state-machine based task for gathering blocks that supports fast/slow collection.
  */
 public class GatherBlockTask implements Task {
-    // private static final boolean DEBUG_VISUALIZATION = true;
+    private static final boolean DEBUG_VISUALIZATION = true;
     private static final int MAX_REPOSITION_ATTEMPTS = 1;
     private static final int MAX_OBSTRUCTION_DEPTH = 1;
     private static final int MAX_NAVIGATION_RETRIES = 3;
@@ -464,11 +464,11 @@ public class GatherBlockTask implements Task {
             return;
         }
         Path path = result.path().get();
-        // if (DEBUG_VISUALIZATION) {
-        // // Visualize the path end point
-        // Location endPoint = path.getPointAtDistance(path.getLength());
-        // DebugVisualizer.highlightBlock(endPoint, 30, NamedTextColor.AQUA);
-        // }
+        if (DEBUG_VISUALIZATION) {
+            // Visualize the path end point
+            Location endPoint = path.getPointAtDistance(path.getLength());
+            DebugVisualizer.highlightBlock(endPoint, 30, NamedTextColor.GREEN);
+        }
         logger.info("[GatherBlockTask] Vantage point path found. Navigating...");
         // Explicitly pass the item location as the look target
         agent.executeSkill(

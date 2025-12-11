@@ -1,12 +1,10 @@
 package com.ionsignal.minecraft.ionnerrus.util.search.strategy;
 
 import com.ionsignal.minecraft.ionnerrus.util.search.BlockSearch;
+import com.ionsignal.minecraft.ionnerrus.persona.navigation.NavigationHelper;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.level.EmptyBlockGetter;
-import net.minecraft.world.level.block.state.BlockState;
 
 import org.bukkit.World;
 
@@ -35,14 +33,17 @@ public class StandardMovement implements BlockSearch.INeighborStrategy {
                 // 1. Check for walk/step up/step down
                 for (int dy = -1; dy <= 1; dy++) {
                     BlockPos targetPos = adjacentPos.atY(currentPos.getY() + dy);
-                    if (isValidStandingSpot(targetPos, snapshot)) {
+                    // Use NavigationHelper for strict consistency with Pathfinder
+                    if (NavigationHelper.isValidStandingSpot(snapshot, targetPos)) {
                         addNeighbor(neighbors, currentNode, targetPos);
                         foundWalkable = true;
                         break; // Found a valid spot, no need to check for drops in this direction
                     }
                 }
                 // 2. If no walkable path, check for a drop
-                if (!foundWalkable && isPassable(adjacentPos, snapshot) && isPassable(adjacentPos.above(), snapshot)) {
+                // Use NavigationHelper.isClear to allow dropping through Air/Grass
+                if (!foundWalkable && NavigationHelper.isClear(snapshot, adjacentPos)
+                        && NavigationHelper.isClear(snapshot, adjacentPos.above())) {
                     BlockPos landingSpot = findLandingSpot(adjacentPos, snapshot);
                     if (landingSpot != null) {
                         addNeighbor(neighbors, currentNode, landingSpot);
@@ -63,28 +64,11 @@ public class StandardMovement implements BlockSearch.INeighborStrategy {
         BlockPos current = start;
         for (int i = 0; i < MAX_DROP_DISTANCE; i++) {
             current = current.below();
-            if (isValidStandingSpot(current, snapshot)) {
+            // Use NavigationHelper
+            if (NavigationHelper.isValidStandingSpot(snapshot, current)) {
                 return current;
             }
         }
         return null;
-    }
-
-    @SuppressWarnings("null")
-    private boolean isValidStandingSpot(BlockPos pos, WorldSnapshot snapshot) {
-        BlockState ground = snapshot.getBlockState(pos.below());
-        if (ground == null || !ground.isFaceSturdy(EmptyBlockGetter.INSTANCE, pos.below(), Direction.UP)) {
-            return false;
-        }
-        return isPassable(pos, snapshot) && isPassable(pos.above(), snapshot);
-    }
-
-    @SuppressWarnings("null")
-    private boolean isPassable(BlockPos pos, WorldSnapshot snapshot) {
-        BlockState state = snapshot.getBlockState(pos);
-        if (state == null || state.getBukkitMaterial().isOccluding()) {
-            return false;
-        }
-        return state.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).isEmpty();
     }
 }
