@@ -17,7 +17,8 @@ import java.util.logging.Logger;
 public final class ScanOffsets {
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
     private static final int MAX_RADIUS_CAP = 10;
-    private static final Map<Integer, List<BlockPos>> CACHE = new ConcurrentHashMap<>();
+    private static final Map<Integer, List<BlockPos>> HALF_SPHERE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Integer, List<BlockPos>> SPHERE_CACHE = new ConcurrentHashMap<>();
 
     private ScanOffsets() {
         // Prevent instantiation
@@ -33,7 +34,7 @@ public final class ScanOffsets {
     public static List<BlockPos> getHalfSphere(int radius) {
         // Clamp radius to prevent cubic scaling explosions or invalid inputs
         int r = Math.min(Math.max(1, radius), MAX_RADIUS_CAP);
-        return CACHE.computeIfAbsent(r, key -> {
+        return HALF_SPHERE_CACHE.computeIfAbsent(r, key -> {
             LOGGER.info("Computing spherical scan offsets for radius " + key + "...");
             List<BlockPos> offsets = new ArrayList<>();
             int rSquared = key * key;
@@ -41,6 +42,34 @@ public final class ScanOffsets {
                 for (int z = -key; z <= key; z++) {
                     // y starts at 0 for a half-sphere (feet upwards)
                     for (int y = 0; y <= key; y++) {
+                        if (x * x + y * y + z * z <= rSquared) {
+                            offsets.add(new BlockPos(x, y, z));
+                        }
+                    }
+                }
+            }
+            return Collections.unmodifiableList(offsets);
+        });
+    }
+
+    /**
+     * Retrieves (or computes) a list of offsets representing a full sphere of the given radius.
+     * Used for finding vantage points around an item (checking both above and below).
+     *
+     * @param radius
+     *            The radius of the sphere. Clamped between 1 and MAX_RADIUS_CAP (10).
+     * @return An unmodifiable list of BlockPos offsets.
+     */
+    public static List<BlockPos> getSphere(int radius) {
+        int r = Math.min(Math.max(1, radius), MAX_RADIUS_CAP);
+        return SPHERE_CACHE.computeIfAbsent(r, key -> {
+            LOGGER.info("Computing full sphere scan offsets for radius " + key + "...");
+            List<BlockPos> offsets = new ArrayList<>();
+            int rSquared = key * key;
+            for (int x = -key; x <= key; x++) {
+                for (int z = -key; z <= key; z++) {
+                    // y goes from -key to key for full sphere
+                    for (int y = -key; y <= key; y++) {
                         if (x * x + y * y + z * z <= rSquared) {
                             offsets.add(new BlockPos(x, y, z));
                         }
