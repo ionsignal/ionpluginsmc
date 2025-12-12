@@ -44,6 +44,7 @@ tasks {
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")
+        exclude("META-INF/versions/**")
     }
     
     // For MOJANG_PRODUCTION, shadowJar is the final artifact
