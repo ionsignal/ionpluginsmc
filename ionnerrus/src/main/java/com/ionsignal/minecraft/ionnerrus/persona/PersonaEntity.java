@@ -8,7 +8,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.network.EmptyConnection;
 import com.ionsignal.minecraft.ionnerrus.persona.network.EmptyPacketListener;
 import com.ionsignal.minecraft.ionnerrus.persona.util.EmptyPlayerAdvancements;
 import com.ionsignal.minecraft.ionnerrus.persona.util.EmptyServerStatsCounter;
-import com.mojang.authlib.GameProfile;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.PacketFlow;
@@ -29,12 +28,18 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+
+import com.mojang.authlib.GameProfile;
+
+import com.google.common.base.Preconditions;
+
 import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuProvider {
@@ -61,7 +66,6 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
                         false,
                         false,
                         ParticleStatus.ALL));
-
         this.persona = persona;
         this.stats = new EmptyServerStatsCounter();
         this.advancements = new EmptyPlayerAdvancements(server.getFixerUpper(), server.getPlayerList(), this);
@@ -70,14 +74,29 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
                 new EmptyConnection(PacketFlow.SERVERBOUND),
                 this,
                 CommonListenerCookie.createInitial(gameProfile, false));
-
         // Initialize AI controls
         this.moveControl = new PersonaMoveControl(this);
         this.jumpControl = new PersonaJumpControl(this);
         this.lookControl = new PersonaLookControl(this);
-
         // Make this entity a passive puppet
         this.setInvulnerable(true);
+    }
+
+    /**
+     * Safely hot-swaps the GameProfile for this entity.
+     * This allows changing skins without recreating the entity.
+     *
+     * @param profile
+     *            The new GameProfile (must have same UUID).
+     */
+    @SuppressWarnings("null")
+    public void setGameProfile(@NotNull GameProfile profile) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Cannot set GameProfile asynchronously");
+        Preconditions.checkNotNull(profile, "GameProfile cannot be null");
+        Preconditions.checkArgument(profile.id().equals(this.getUUID()),
+                "UUID mismatch: Profile UUID %s != Entity UUID %s", profile.id(), this.getUUID());
+        // Direct assignment to the NMS field
+        this.gameProfile = profile;
     }
 
     @Override

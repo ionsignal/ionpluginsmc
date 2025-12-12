@@ -71,7 +71,9 @@ public class SwapItemAction implements Action {
         ServerLevel level = entity.level();
         var trackedEntity = level.getChunkSource().chunkMap.entityMap.get(entity.getId());
         if (trackedEntity != null) {
-            trackedEntity.broadcast(packet);
+            for (var connection : trackedEntity.seenBy) {
+                connection.send(packet);
+            }
         }
     }
 }
