@@ -9,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.network.messages.AgentState;
 import com.ionsignal.minecraft.ionnerrus.network.messages.DespawnAgentRequest;
 import com.ionsignal.minecraft.ionnerrus.network.messages.SpawnAgentRequest;
+import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -33,12 +34,7 @@ public class NetworkBootstrap {
         registrar.register("SPAWN_AGENT", this::handleSpawn);
         registrar.register("DESPAWN_AGENT", this::handleDespawn);
         registrar.register("COMMAND_SYNC_STATE", this::handleSync);
-
         plugin.getLogger().info("IonCore Network Integration Enabled: Handlers registered.");
-
-        // --- FIX: Force immediate sync on startup ---
-        // This ensures that if the websocket is already open (IonCore loads first),
-        // we don't wait for a SYNC command that might have already been missed.
         performSync();
     }
 
@@ -46,7 +42,6 @@ public class NetworkBootstrap {
         Bukkit.getScheduler().runTask(plugin, () -> {
             int syncedCount = 0;
             for (NerrusAgent agent : agentService.getAgents()) {
-                // Only sync spawned agents to avoid confusion
                 if (agent.getPersona().isSpawned()) {
                     AgentState dto = AgentState.from(agent);
                     IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", dto);
@@ -58,8 +53,6 @@ public class NetworkBootstrap {
             }
         });
     }
-
-    // --- Command Handlers ---
 
     private CompletableFuture<Object> handleSync(String jsonStr) {
         performSync();
@@ -73,9 +66,7 @@ public class NetworkBootstrap {
         } catch (JsonSyntaxException e) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid spawn payload: " + e.getMessage()));
         }
-
         CompletableFuture<Object> result = new CompletableFuture<>();
-
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 // Idempotency: If agent exists/spawned, just resync UI
@@ -88,21 +79,24 @@ public class NetworkBootstrap {
                         return;
                     }
                 }
-
                 Location spawnLoc = resolveLocation(dto.location());
                 if (spawnLoc == null) {
                     throw new IllegalArgumentException("Could not resolve valid spawn location.");
                 }
-
-                String skinArg = (dto.skinTexture() != null && !dto.skinTexture().isEmpty())
-                        ? dto.skinTexture()
-                        : dto.name();
-
-                agentService.spawnAgent(dto.name(), spawnLoc, skinArg);
-
+                // Priority 1: Direct Base64 Texture from Dashboard
+                if (dto.skinTexture() != null && !dto.skinTexture().isEmpty()) {
+                    SkinData directSkin = new SkinData(dto.skinTexture(), dto.skinSignature());
+                    // Call the new overload that accepts SkinData directly
+                    agentService.spawnAgent(dto.name(), spawnLoc, directSkin);
+                }
+                // Priority 2: Fetch by Username (Fallback)
+                else {
+                    String skinName = (dto.skin() != null && !dto.skin().isEmpty()) ? dto.skin() : dto.name();
+                    // Call the old overload that fetches from API
+                    agentService.spawnAgent(dto.name(), spawnLoc, skinName);
+                }
                 plugin.getLogger().info("[Network] Spawned agent: " + dto.name());
                 result.complete("Agent " + dto.name() + " spawned successfully.");
-
             } catch (Exception e) {
                 result.completeExceptionally(e);
             }
@@ -118,9 +112,7 @@ public class NetworkBootstrap {
         } catch (JsonSyntaxException e) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid despawn payload"));
         }
-
         CompletableFuture<Object> result = new CompletableFuture<>();
-
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 boolean removed = agentService.removeAgent(dto.name());
@@ -137,12 +129,10 @@ public class NetworkBootstrap {
         return result;
     }
 
-    // --- Helpers ---
-
     private Location resolveLocation(SpawnAgentRequest.SpawnLocationData data) {
-        if (data == null)
+        if (data == null) {
             return getDefaultSpawn();
-
+        }
         if ("PLAYER".equalsIgnoreCase(data.type()) && data.playerName() != null) {
             Player target = Bukkit.getPlayer(data.playerName());
             if (target != null && target.isOnline()) {
