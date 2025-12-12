@@ -14,13 +14,18 @@ simple-openai = "3.22.2"
 okhttp = "5.3.0"
 classgraph = "4.8.184"
 
+# IonCore (New additions)
+gson = "2.10.1"
+java-websocket = "1.5.4"
+adventure = "4.17.0"     # Standard Adventure API version for 1.21
+
 [plugins]
 standardConvention = { id = "standard-conventions" }
 paperweightConvention = { id = "paperweight-conventions" }
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 
 [libraries]
-# Paper API (for reference)
+# Paper API
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "minecraft" }
 paperweight = { module = "io.papermc.paperweight.userdev:io.papermc.paperweight.userdev.gradle.plugin", version.ref = "paperweight" }
 
@@ -33,7 +38,12 @@ tectonic-yaml = { group = "com.dfsek.tectonic", name = "yaml", version.ref = "te
 # BlueNBT
 bluenbt = { group = "de.bluecolored", name = "bluenbt", version.ref = "bluenbt" }
 
-# IonNerrus
+# IonNerrus & IonCore Shared
 simple-openai = { group = "io.github.sashirestela", name = "simple-openai", version.ref = "simple-openai" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 classgraph = { group = "io.github.classgraph", name = "classgraph", version.ref = "classgraph" }
+
+# IonCore Specific
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+java-websocket = { group = "org.java-websocket", name = "Java-WebSocket", version.ref = "java-websocket" }
+adventure-api = { group = "net.kyori", name = "adventure-api", version.ref = "adventure" }

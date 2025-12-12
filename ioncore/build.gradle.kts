@@ -10,16 +10,29 @@ paperweight.reobfArtifactConfiguration.set(
     io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 )
 
+// Configuration to expose the Mojang-mapped JAR to other subprojects (like ionnerrus)
+// This prevents "NoSuchMethodError" during development by avoiding the reobfuscated jar.
 val devJar by configurations.creating {
     isCanBeConsumed = true
     isCanBeResolved = false
+    attributes {
+        attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class, Usage.JAVA_API))
+        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, objects.named(LibraryElements::class, LibraryElements.JAR))
+        attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling::class, Bundling.EXTERNAL))
+    }
 }
 
-// Expose the development JAR as a consumable artifact for other subprojects (IDE support).
 dependencies {
-    implementation("org.java-websocket:Java-WebSocket:1.5.4")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.code.gson:gson:2.10.1")
+    // Core Dependencies (Shadowed)
+    implementation(libs.java.websocket)
+    implementation(libs.okhttp)
+    implementation(libs.gson)
+    
+    // Optional: Service Discovery (Shadowed)
+    implementation(libs.classgraph)
+
+    // API Dependencies (Exposed)
+    compileOnly(libs.adventure.api)
 }
 
 tasks {
@@ -34,15 +47,18 @@ tasks {
         archiveClassifier.set("") 
         
         // Relocate dependencies to avoid conflicts
+        // These match the libraries defined in libs.versions.toml
         relocate("org.java_websocket", "com.ionsignal.minecraft.ioncore.lib.websocket")
         relocate("okhttp3", "com.ionsignal.minecraft.ioncore.lib.okhttp3")
         relocate("okio", "com.ionsignal.minecraft.ioncore.lib.okio")
         relocate("com.google.gson", "com.ionsignal.minecraft.ioncore.lib.gson")
+        relocate("io.github.classgraph", "com.ionsignal.minecraft.ioncore.lib.classgraph")
         
         // Exclude junk files
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")
+        exclude("META-INF/versions/**")
     }
 
     processResources {
@@ -59,6 +75,7 @@ tasks {
     }
 }
 
+// Expose the Mojang-mapped JAR as the primary artifact for the 'devJar' configuration
 artifacts {
     add(devJar.name, tasks.jar)
 }
