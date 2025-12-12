@@ -8,6 +8,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
+import com.mojang.authlib.properties.PropertyMap;
 
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
@@ -24,6 +25,9 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
+
+import com.google.common.collect.Multimap;
+import com.google.common.collect.LinkedHashMultimap;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -221,25 +225,38 @@ public class Persona {
         return entityType;
     }
 
+    /**
+     * Creates a GameProfile with properties populated upfront.
+     * Required because GameProfile and PropertyMap are immutable in 1.21+.
+     */
     private GameProfile createGameProfile(UUID uuid, String name, SkinData skin) {
-        GameProfile profile = new GameProfile(uuid, name);
         if (skin != null) {
-            profile.getProperties().put("textures", new Property("textures", skin.texture(), skin.signature()));
+            // Build mutable map first
+            Multimap<String, Property> properties = LinkedHashMultimap.create();
+            properties.put("textures", new Property("textures", skin.texture(), skin.signature()));
+            // Create immutable PropertyMap
+            PropertyMap propertyMap = new PropertyMap(properties);
+            // Construct profile
+            return new GameProfile(uuid, name, propertyMap);
+        } else {
+            // Default constructor uses PropertyMap.EMPTY
+            return new GameProfile(uuid, name);
         }
-        return profile;
     }
 
     @SuppressWarnings("null")
     private void refreshPlayerProfile() {
-        GameProfile profile = personaEntity.getGameProfile();
-        if (skinData != null) {
-            profile.getProperties().removeAll("textures");
-            profile.getProperties().put("textures", new Property("textures", skinData.texture(), skinData.signature()));
-        }
+        // Create the new profile with the updated skin
+        GameProfile newProfile = createGameProfile(uuid, name, skinData);
+        // Update the entity directly via our new setter
+        // This replaces the old reflection-based approach
+        personaEntity.setGameProfile(newProfile);
+        // Resend player info packets to clients to update the skin
         var trackedEntity = personaEntity.level().getChunkSource().chunkMap.entityMap.get(personaEntity.getId());
         if (trackedEntity != null) {
             ClientboundPlayerInfoRemovePacket removePacket = new ClientboundPlayerInfoRemovePacket(
                     java.util.List.of(personaEntity.getUUID()));
+            // The update packet will read the NEW profile from the entity
             ClientboundPlayerInfoUpdatePacket addPacket = ClientboundPlayerInfoUpdatePacket
                     .createPlayerInitializing(java.util.List.of(personaEntity));
             for (var connection : trackedEntity.seenBy) {

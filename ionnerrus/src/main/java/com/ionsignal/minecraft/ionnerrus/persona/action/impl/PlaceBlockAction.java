@@ -126,7 +126,9 @@ public class PlaceBlockAction implements Action {
         ServerLevel level = personaEntity.level();
         var trackedEntity = level.getChunkSource().chunkMap.entityMap.get(personaEntity.getId());
         if (trackedEntity != null) {
-            trackedEntity.broadcast(packet);
+            for (var connection : trackedEntity.seenBy) {
+                connection.send(packet);
+            }
         }
     }
 }

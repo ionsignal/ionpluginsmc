@@ -53,7 +53,7 @@ public class CraftingUtil {
         ResourceLocation recipeLocation = CraftNamespacedKey.toMinecraft(recipe.getKey());
         // Then, create the proper ResourceKey by combining the location with its registry.
         ResourceKey<Recipe<?>> recipeKey = ResourceKey.create(Registries.RECIPE, recipeLocation);
-        Optional<RecipeHolder<?>> nmsRecipeOpt = personaEntity.getServer().getRecipeManager().byKey(recipeKey);
+        Optional<RecipeHolder<?>> nmsRecipeOpt = personaEntity.level().getServer().getRecipeManager().byKey(recipeKey);
         if (nmsRecipeOpt.isEmpty()) {
             LOGGER.warning("[CraftingUtil] Could not find NMS recipe for key: " + recipe.getKey());
             return false;

@@ -126,7 +126,12 @@ public class BlockBreakerAction implements Action {
         ServerLevel level = personaEntity.level();
         var trackedEntity = level.getChunkSource().chunkMap.entityMap.get(personaEntity.getId());
         if (trackedEntity != null) {
-            trackedEntity.broadcast(packet);
+            // 1.21.10 Fix: TrackedEntity.broadcast() has been removed.
+            // We must manually iterate the 'seenBy' collection, which contains
+            // the connections of all players currently tracking this entity.
+            for (var connection : trackedEntity.seenBy) {
+                connection.send(packet);
+            }
         }
     }
 

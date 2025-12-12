@@ -125,12 +125,12 @@ tasks {
                 }
         )
         
-        downloadPlugins {
-            modrinth("terra", "6.6.6-BETA-bukkit")
-        }
+        // downloadPlugins {
+        //     modrinth("terra", "6.6.6-BETA-bukkit")
+        // }
 
         // Ensure Terra addon is copied before server starts
-        dependsOn(copyTerraAddon)
+        // dependsOn(copyTerraAddon)
         dependsOn(ionnerrus.tasks.named("shadowJar"))
     }
 }
