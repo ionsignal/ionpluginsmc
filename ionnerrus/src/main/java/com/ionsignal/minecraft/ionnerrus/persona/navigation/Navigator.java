@@ -6,7 +6,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.LocomotionController;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.ManeuverResult;
-import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
 import org.bukkit.Bukkit;
@@ -69,7 +68,7 @@ public class Navigator {
 
     // Engaging State
     private Entity engageTarget;
-    private double engageProximitySquared;
+    private double engageStopDistanceSquared;
     private Location stuckCheckLocation;
     private int ticksSinceStuckCheck;
     private int totalTicksStuck;
@@ -89,7 +88,6 @@ public class Navigator {
         return navigateTo(target, NavigationParameters.DEFAULT, token);
     }
 
-    // The new primary navigation method
     public CompletableFuture<MovementResult> navigateTo(Location target, NavigationParameters params, ExecutionToken token) {
         Preconditions.checkState(Bukkit.isPrimaryThread(), "Async navigation access detected!");
         if (isBusy()) {
@@ -128,7 +126,7 @@ public class Navigator {
                     if (pathOptional.isPresent() && !pathOptional.get().isEmpty()) {
                         currentPath = pathOptional.get();
                         if (DEBUG_VISUALIZATION) {
-                            DebugVisualizer.displayPath(currentPath, 30);
+                            DebugVisualizer.displayPath(currentPath, 10);
                         }
                         pathFollower = new PathFollower(currentPath);
                     } else {
@@ -149,6 +147,9 @@ public class Navigator {
         // Directly use the provided path, skipping the pathfinding step.
         if (path != null && !path.isEmpty()) {
             currentPath = path;
+            if (DEBUG_VISUALIZATION) {
+                DebugVisualizer.displayPath(currentPath, 10);
+            }
             pathFollower = new PathFollower(currentPath);
         } else {
             // Complete immediately if path is invalid
@@ -157,7 +158,7 @@ public class Navigator {
         return activeFuture;
     }
 
-    public CompletableFuture<MovementResult> engageOn(Entity target, double proximityDistanceSquared, ExecutionToken token) {
+    public CompletableFuture<MovementResult> engageOn(Entity target, double stopDistance, ExecutionToken token) {
         Preconditions.checkState(Bukkit.isPrimaryThread(), "Async navigation access detected!");
         if (isBusy()) {
             cancelCurrentOperation(MovementResult.CANCELLED);
@@ -165,7 +166,7 @@ public class Navigator {
         resetStuckDetection();
         state = State.ENGAGING;
         engageTarget = target;
-        engageProximitySquared = proximityDistanceSquared;
+        engageStopDistanceSquared = stopDistance;
         activeFuture = new CompletableFuture<>();
         return activeFuture;
     }
@@ -253,7 +254,6 @@ public class Navigator {
                 }
             } else {
                 // Maneuver failed (timeout or physics issue)
-                log();
                 persona.getManager().getPlugin().getLogger().warning("Maneuver failed: " + result.message());
                 finishPathing(MovementResult.STUCK);
                 return;
@@ -263,16 +263,8 @@ public class Navigator {
         if (locomotion.isManeuvering()) {
             return;
         }
-        // Check for geometric deviation (Tether Snap)
-        if (state == State.PATH_FOLLOWING && pathFollower != null && pathFollower.isOffPath()) {
-            log();
-            persona.getManager().getPlugin().getLogger().warning("Persona " + persona.getName() + " deviated from path (Tether Snap).");
-            finishPathing(MovementResult.STUCK);
-            return;
-        }
         // Standard Stuck detection (Temporal)
         if (isBusy() && !isPathfinding && checkIfStuck()) {
-            log();
             persona.getManager().getPlugin().getLogger()
                     .warning("Persona " + persona.getName() + " is stuck (Temporal). Failing current task.");
             finishPathing(MovementResult.STUCK);
@@ -284,6 +276,8 @@ public class Navigator {
             case PATH_FOLLOWING -> tickPathFollowing();
             case ENGAGING -> tickEngaging();
             case FOLLOWING -> tickFollowing();
+            default -> {
+            }
         }
     }
 
@@ -301,7 +295,7 @@ public class Navigator {
             return;
         }
         // Delegate steering calculation to PathFollower and execution to LocomotionController
-        SteeringResult result = pathFollower.calculateSteering(currentLocation);
+        SteeringResult result = pathFollower.getAndVisualizeSteering(currentLocation);
         // Update cached intent for stuck detection
         this.lastMovementType = result.movementType();
         float currentSpeed = getSpeed();
@@ -333,7 +327,7 @@ public class Navigator {
         Location agentLocation = persona.getLocation();
         Location targetLocation = engageTarget.getLocation();
         double distSq = agentLocation.distanceSquared(targetLocation);
-        if (distSq < engageProximitySquared) {
+        if (distSq < engageStopDistanceSquared) {
             finishPathing(MovementResult.SUCCESS);
             return;
         }
@@ -514,20 +508,6 @@ public class Navigator {
 
     public Path getCurrentPath() {
         return currentPath;
-    }
-
-    private void log() {
-        Location currentPos = persona.getLocation();
-        StringBuilder sb = new StringBuilder();
-        sb.append("Persona ").append(persona.getName()).append(" is stuck! Failing current task.\n");
-        sb.append(String.format("  - Current Location: (%s, %.2f, %.2f, %.2f)\n",
-                currentPos.getWorld().getName(), currentPos.getX(), currentPos.getY(), currentPos.getZ()));
-        if (state == State.PATH_FOLLOWING && currentPath != null && pathFollower != null && !currentPath.isEmpty()) {
-            sb.append("  - Following Path (").append(currentPath.size()).append(" points total)\n");
-        }
-        persona.getManager().getPlugin().getLogger().warning(sb.toString());
-        // Log a 5-block radius area scan to the console for visual debugging.
-        DebugPath.logAreaAround(currentPos, 5);
     }
 
     /**

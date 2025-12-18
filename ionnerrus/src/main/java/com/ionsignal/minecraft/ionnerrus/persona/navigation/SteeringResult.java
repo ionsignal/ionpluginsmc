@@ -1,4 +1,3 @@
-// src/main/java/com/ionsignal/minecraft/ionnerrus/persona/navigation/SteeringResult.java
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import org.bukkit.Location;
@@ -14,40 +13,11 @@ public record SteeringResult(
         MovementType movementType,
         Optional<Vector> exitHeading) {
     public enum MovementType {
-        WALK, JUMP, DROP, SWIM, WATER_EXIT;
-
-        /**
-         * Checks if the agent is within the "Completion Zone" of the target destination.
-         * This determines if a maneuver (like a Jump) is effectively finished, even if
-         * the path follower is still technically on the previous segment.
-         *
-         * @param agentPos
-         *            The current location of the agent (feet).
-         * @param targetPos
-         *            The location of the destination node.
-         * @return true if the agent has satisfied the geometric requirements of the maneuver.
-         */
-        public boolean isInsideCompletionBounds(Location agentPos, Location targetPos) {
-            double dx = Math.abs(agentPos.getX() - targetPos.getX());
-            double dz = Math.abs(agentPos.getZ() - targetPos.getZ());
-            double dy = agentPos.getY() - targetPos.getY();
-            switch (this) {
-                case JUMP:
-                    // Vertical tolerance is set to -0.15 to account for surface offset if the target is carpet
-                    // (Y+0.0625) and agent is at Y, dy is -0.0625.
-                    return dy >= -0.15 && dx <= 1.2 && dz <= 1.2;
-                case DROP:
-                    return dx <= 0.94 && dz <= 0.94;
-                case SWIM:
-                    return agentPos.distanceSquared(targetPos) < 1.5 * 1.5;
-                case WATER_EXIT:
-                    // Relaxed vertical tolerance to match JUMP for consistency with partial blocks.
-                    return dx <= 1.0 && dz <= 1.0 && dy >= -0.15;
-                case WALK:
-                default:
-                    return false;
-            }
-        }
+        WALK, // Continuous
+        JUMP, DROP, // Regular maneuvers
+        SWIM, // General submerged movement
+        WADE, // Feet in water, head in air/shallow (Walking physics)
+        WATER_EXIT; // Transition from water to land
     }
 
     public SteeringResult(Location target, MovementType movementType) {

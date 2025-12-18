@@ -1,228 +1,159 @@
-// src/main/java/com/ionsignal/minecraft/ionnerrus/persona/navigation/PathFollower.java
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
 import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
 
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 
 import org.bukkit.Location;
-import org.bukkit.util.Vector;
-
-import java.util.Optional;
+import org.bukkit.craftbukkit.CraftWorld;
 
 /**
- * Variable Rabbit Path Follower implementation that projects the agent's position onto the path
- * spline to find `currentDist`. We check deviation (Tether Snap) using the node's `clearanceRadius`
- * and `apex`, then calculate a dynamic lookahead point based on traversability.
+ * Simplified Path Follower.
+ * Decouples Spline Projection (Localization) from Steering Logic (Decision).
+ * Implements "Proximity Clamping" to handle maneuvers.
  */
 public class PathFollower {
     // Tuning Constants
-    private static final boolean SHOW_RABBIT = true;
-    private static final double BASE_LOOKAHEAD = 1.2; // Base lookahead in meters
-    private static final double MAX_VERTICAL_DROP = 1.5; // Prevents snaps when lagging behind on stairs (Path Y=65, Agent Y=64 -> dy=-1.0)
-    private static final double MAX_VERTICAL_RISE = 2.5; // Accommodate Jump Boost II + Slabs (0.5 + 1.25 + 0.5 = 2.25)
-    private static final double MAX_LOOKAHEAD = 5.0; // Max lookahead for open areas
-    private static final double TETHER_SLACK = 1.2; // Extra forgiveness before snapping tether
-    private static final double PROJECTION_STEP_SIZE = 0.5; // Size of our projection steps
-    private static final double PROJECTION_SEARCH_WINDOW = 5.0; // How far forward to search
-    private static final double REACQUISITION_WINDOW = 1.0; // Lookback window (knock-back)
-    private static final double COMPLETION_THRESHOLD = 0.36; // Proximity to be considered done
-    private static final double COMPLETION_THRESHOLD_SQUARED = COMPLETION_THRESHOLD * COMPLETION_THRESHOLD;
+    private static final double LOOKAHEAD_DISTANCE = 1.0;
+    private static final double PROJECTION_STEP_SIZE = 0.5;
+    private static final double PROJECTION_SEARCH_WINDOW = 3.0;
+    private static final double REACQUISITION_WINDOW = 1.0;
+    private static final double MANEUVER_THRESHOLD = 0.5;
+    private static final double COMPLETION_THRESHOLD = 0.36;
 
     private final Path path;
 
     // State
     private double currentDist;
-    private double minSearchDist;
-    private boolean isOffPath;
     private boolean isFinished;
+
     private DebugVisualizer.Rabbit debugRabbit;
     private NamedTextColor debugRabbitColor = NamedTextColor.RED;
 
     public PathFollower(Path path) {
         this.path = path;
         this.currentDist = 0.0;
-        this.minSearchDist = 0.0;
-        this.isOffPath = false;
         this.isFinished = false;
     }
 
     /**
-     * Updates the internal state of the follower (Projection, Completion, Tether) based on the agent's
-     * current position. This separates "Where am I?" from "Where should I go?".
-     *
-     * @param currentPos
-     *            The agent's current location.
+     * Updates the internal state (Projection & Completion) based on agent position.
+     * Does NOT perform failure/deviation checks.
      */
     public void updateState(Location currentPos) {
         if (path.isEmpty()) {
             isFinished = true;
             return;
         }
-        // Update our spline projection
+        // Update Projection
         updateProjection(currentPos);
         // Check Completion
         Location finalPoint = path.getPointAtDistance(path.getLength());
-        // Compensate for partial block vertical offset
-        double adjustedThresholdSq = COMPLETION_THRESHOLD_SQUARED;
+        // Compensate for partial block vertical offset using precise metadata
+        double completionRadius = COMPLETION_THRESHOLD;
         PathNode finalNode = path.getNodeAtDistance(path.getLength());
         if (finalNode != null && finalNode.type() == MovementType.WALK) {
-            // Allow extra margin for partial blocks (0.5 block Y offset → 0.25 extra)
-            adjustedThresholdSq = (COMPLETION_THRESHOLD + 0.3) * (COMPLETION_THRESHOLD + 0.3);
+            completionRadius += finalNode.surfaceOffset();
         }
+        double adjustedThresholdSq = completionRadius * completionRadius;
         if (currentPos.distanceSquared(finalPoint) < adjustedThresholdSq) {
             isFinished = true;
         }
-        // Tether Check with asymmetric vertical tolerance
-        PathNode currentNode = path.getNodeAtDistance(currentDist);
-        if (currentNode != null) {
-            double allowedHorizontalDeviation = currentNode.clearanceRadius() + TETHER_SLACK;
-            Location projectedPoint = path.getPointAtDistance(currentDist);
-            double dx = currentPos.getX() - projectedPoint.getX();
-            double dz = currentPos.getZ() - projectedPoint.getZ();
-            double dy = currentPos.getY() - projectedPoint.getY();
-            double horizontalDistSq = dx * dx + dz * dz;
-            double limitSq = allowedHorizontalDeviation * allowedHorizontalDeviation;
-            boolean horizontalFail = horizontalDistSq > limitSq;
-            boolean verticalFail = dy < -MAX_VERTICAL_DROP || dy > MAX_VERTICAL_RISE;
-            this.isOffPath = horizontalFail || verticalFail;
-        }
     }
 
     /**
-     * Calculates the steering intent based on the current internal state.
-     * Requires updateState() to be called first (or use calculateSteering wrapper).
-     *
-     * @param currentPos
-     *            The agent's current location (used for maneuver bounds checks).
-     * @return The calculated steering result.
+     * Calculates the steering intent.
+     * Implements the Approach vs. Action state machine.
      */
+    public SteeringResult getAndVisualizeSteering(Location currentPos) {
+        SteeringResult result;
+        result = getSteering(currentPos);
+        if (debugRabbit == null) {
+            debugRabbit = new DebugVisualizer.Rabbit(result.target(), debugRabbitColor);
+        }
+        debugRabbit.move(result.target());
+        return result;
+    }
+
+    // Completely rewritten to prioritize Physical Node Lookup over Spline Projection
     public SteeringResult getSteering(Location currentPos) {
-        if (path.isEmpty()) {
+        if (path.isEmpty() || isFinished) {
             return new SteeringResult(currentPos, MovementType.WALK);
         }
-        if (isFinished) {
-            Location finalPoint = path.getPointAtDistance(path.getLength());
-            return new SteeringResult(finalPoint, MovementType.WALK);
+        // Get physical node to check for maneuver
+        PathNode physicalNode = getPhysicalNode(currentPos);
+        // If we are physically standing on a maneuver block we execute it
+        if (physicalNode != null && isManeuver(physicalNode.type())) {
+            PathNode destNode = path.getNextNode(physicalNode);
+            return new SteeringResult(destNode.toLocation(path.getWorld()), physicalNode.type());
         }
-        if (isOffPath) {
-            // Return a result targeting the projection, but Navigator should catch the isOffPath flag
-            Location projectedPoint = path.getPointAtDistance(currentDist);
-            return new SteeringResult(projectedPoint, MovementType.WALK);
-        }
-        // Retrieve Metadata for current segment
-        PathNode currentNode = path.getNodeAtDistance(currentDist);
-        if (currentNode == null) {
-            return new SteeringResult(currentPos, MovementType.WALK);
-        }
-        // 1. Calculate Ideal Lookahead (Speed based on Clearance)
-        double idealLookahead = BASE_LOOKAHEAD * (currentNode.clearanceRadius() / 0.6);
-        idealLookahead = Math.min(idealLookahead, MAX_LOOKAHEAD);
-        idealLookahead = Math.max(idealLookahead, 0.5); // Minimum lookahead
-        // 2. Calculate Geometric Constraints (Braking based on Apex)
-        // Constraint A: The immediate upcoming node (End of current segment)
+        // If we are walking/swimming, or off-path, we look ahead using the spline
+        double scanEnd = Math.min(currentDist + LOOKAHEAD_DISTANCE, path.getLength());
+        // Check if a maneuver is coming up in the lookahead window
         double nextNodeDist = path.getNextNodeDistance(currentDist);
-        PathNode nextNode = path.getNodeAtDistance(nextNodeDist);
-        double constraint1 = nextNodeDist + (nextNode != null ? nextNode.apexRadius() : 100.0);
-        // Constraint B: The node after that (Lookahead for short segments)
-        double constraint2 = Double.MAX_VALUE;
-        // Only check further if we are reasonably close to the first turn
-        if (nextNodeDist - currentDist < 2.0) {
-            double nextNextDist = path.getNextNodeDistance(nextNodeDist + 0.01);
-            if (nextNextDist > nextNodeDist) {
-                PathNode nextNextNode = path.getNodeAtDistance(nextNextDist);
-                constraint2 = nextNextDist + (nextNextNode != null ? nextNextNode.apexRadius() : 100.0);
+        if (nextNodeDist <= scanEnd) {
+            // We use getNodeAtDistance here to peek at the upcoming node on the spline
+            PathNode nextNode = path.getNodeAtDistance(nextNodeDist);
+            if (nextNode != null && isManeuver(nextNode.type())) {
+                Location maneuverLoc = nextNode.toLocation(path.getWorld());
+                double distToManeuver = currentPos.distance(maneuverLoc);
+                // Proximity Check (Mitigates "Corner Cutting" Risk)
+                if (distToManeuver < MANEUVER_THRESHOLD) {
+                    // Close enough to trigger, even if not physically on the block
+                    PathNode destNode = path.getNextNode(nextNode);
+                    return new SteeringResult(destNode.toLocation(path.getWorld()), nextNode.type());
+                } else {
+                    // Walk to the maneuver start point
+                    MovementType approachType = isWater(currentPos) ? MovementType.SWIM : MovementType.WALK;
+                    return new SteeringResult(maneuverLoc, approachType);
+                }
             }
         }
-        // The absolute furthest distance along the path we are allowed to look
-        double maxPathDist = Math.min(constraint1, constraint2);
-        double maxSafeLookahead = Math.max(0, maxPathDist - currentDist);
-        // Effective lookahead is the minimum of Ideal (Speed) and Safe (Geometry)
-        double effectiveLookahead = Math.min(idealLookahead, maxSafeLookahead);
-        // Apply smoothness floor ONLY up to the geometric limit
-        // Prevents stuttering in open areas while respecting tight constraints
-        effectiveLookahead = Math.max(effectiveLookahead, Math.min(0.5, maxSafeLookahead));
-        // Determine Target & Movement Type
-        MovementType type = MovementType.WALK;
-        double targetDist = Math.min(currentDist + effectiveLookahead, path.getLength());
-        Location targetLoc = path.getPointAtDistance(targetDist);
-        PathNode immediateNext = path.getNodeAtDistance(currentDist + 0.1);
-        if (immediateNext != null && immediateNext.type() != MovementType.WALK) {
-            // Calculate the destination of this maneuver segment
-            Location maneuverDest = path.getSegmentDestination(currentDist + 0.1);
-            // Ask the MovementType if we are already inside the completion zone
-            if (maneuverDest != null && immediateNext.type().isInsideCompletionBounds(currentPos, maneuverDest)) {
-                // We are physically at the destination of the jump/drop.
-                // Therefore, the command to Jump/Drop is obsolete.
-                // Push the target PAST the maneuver node to the destination.
-                // This prevents the agent from getting "stuck" with a backward/stationary target.
-                double segmentEnd = path.getNextNodeDistance(currentDist + 0.1);
-                // Add small epsilon to ensure we're clearly past the node
-                targetDist = segmentEnd + 0.1;
-                // Update targetLoc since we're not entering the JUMP/DROP projection block below
-                targetLoc = path.getPointAtDistance(targetDist);
-            } else {
-                type = immediateNext.type();
-                // Target the maneuver node so downstream projection logic can work
-                targetLoc = maneuverDest;
-            }
-        }
-        // Calculate Exit Heading (Lookahead)
-        // Find the node AFTER the target to determine where we go next.
-        Optional<Vector> exitHeading = Optional.empty();
-        if (targetLoc != null) {
-            // Look 2 meters past the target to get the general trend of the path
-            double lookPastDist = Math.min(targetDist + 2.0, path.getLength());
-            if (lookPastDist > targetDist + 0.1) {
-                Location nextLoc = path.getPointAtDistance(lookPastDist);
-                exitHeading = Optional.of(nextLoc.toVector().subtract(targetLoc.toVector()).normalize());
-            }
-        }
-        // Inject Visualization Logic right before returning
-        if (SHOW_RABBIT) {
-            if (debugRabbit == null) {
-                // Lazy initialization on first tick
-                debugRabbit = new DebugVisualizer.Rabbit(targetLoc, debugRabbitColor);
-            }
-            // Move the rabbit to the calculated target
-            debugRabbit.move(targetLoc);
-        }
-        return new SteeringResult(targetLoc, type, exitHeading);
+        // Cruise Mode (Standard Path Following)
+        Location target = path.getPointAtDistance(scanEnd);
+        MovementType type = isWater(currentPos) ? MovementType.SWIM : MovementType.WALK;
+        return new SteeringResult(target, type);
     }
 
-    /**
-     * Legacy wrapper to maintain compatibility with Navigator until Phase 3.
-     * Combines state update and steering calculation.
-     */
-    public SteeringResult calculateSteering(Location currentPos) {
-        updateState(currentPos);
-        return getSteering(currentPos);
+    // Helper to check if a movement type is a complex maneuver
+    private boolean isManeuver(MovementType type) {
+        return type != MovementType.WALK && type != MovementType.SWIM && type != MovementType.WADE;
+    }
+
+    // Fuzzy Vertical Lookup to handle Slabs, Carpets, and Jumping
+    private PathNode getPhysicalNode(Location loc) {
+        BlockPos pos = new BlockPos(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+        PathNode node = path.getNodeAt(pos);
+        // If not found, and we are standing in something passable (Air/Grass), check below.
+        // This handles jumping, hovering, or slight vertical desyncs.
+        if (node == null) {
+            ServerLevel level = ((CraftWorld) loc.getWorld()).getHandle();
+            if (NavigationHelper.isPassable(level, pos)) {
+                node = path.getNodeAt(pos.below());
+            }
+        }
+        return node;
     }
 
     /**
      * Forces the internal path cursor to a specific distance.
-     * Used by the Navigator to sync state when a Maneuver completes successfully.
-     *
-     * @param distance
-     *            The distance along the path to snap to.
+     * Used by Navigator to sync state after a maneuver completes.
      */
     public void snapToSegment(double distance) {
         this.currentDist = Math.min(Math.max(0, distance), path.getLength());
-        // Update the ratchet but allow searching slightly backwards to handle knockback.
-        this.minSearchDist = Math.max(0, this.currentDist - REACQUISITION_WINDOW);
-        // Clear off-path status since we are forcibly snapping to a valid point
-        this.isOffPath = false;
     }
 
     /**
-     * Projects the agent's position onto the path spline to find the closest point `t`.
-     * Uses a sliding window search around `currentDist` for efficiency.
+     * Projects the agent's position onto the path spline using a sliding window.
      */
     private void updateProjection(Location agentPos) {
         double bestDist = currentDist;
         double minDeviation = Double.MAX_VALUE;
-        double startSearch = Math.max(minSearchDist, currentDist - REACQUISITION_WINDOW);
+        // Windowed Search
+        double startSearch = Math.max(0, currentDist - REACQUISITION_WINDOW);
         double endSearch = Math.min(path.getLength(), currentDist + PROJECTION_SEARCH_WINDOW);
         for (double d = startSearch; d <= endSearch; d += PROJECTION_STEP_SIZE) {
             Location point = path.getPointAtDistance(d);
@@ -232,36 +163,24 @@ public class PathFollower {
                 bestDist = d;
             }
         }
-        // The loop above steps by 0.5. If path length is 10.25, it checks 10.0 and stops.
-        // We explicitly check the exact end of the path to fix quantization errors.
+        // Check exact end of path to fix quantization errors
         Location endPoint = path.getPointAtDistance(path.getLength());
         double endDeviation = endPoint.distanceSquared(agentPos);
         if (endDeviation < minDeviation) {
             minDeviation = endDeviation;
             bestDist = path.getLength();
         }
-        // Teleport/Knockback detection
-        // If the best match is at the very edge of our search window AND deviation is high (> 4 blocks),
-        // we likely lost the track due to external movement. Perform a full scan.
+        // Teleport/Knockback detection (Coarse Scan fallback)
         boolean atEdge = (bestDist >= endSearch - PROJECTION_STEP_SIZE) || (bestDist <= startSearch + PROJECTION_STEP_SIZE);
         if (atEdge && minDeviation > 16.0) {
             bestDist = fullScan(agentPos);
         }
-        // If we moved forward, update.
-        // We generally don't want to move `currentDist` backwards unless the agent was knocked back
-        // significantly.
-        // But the search window handles local knockback.
         this.currentDist = bestDist;
     }
 
-    /**
-     * Performs a coarse O(N) scan over the entire path to re-acquire the agent's position.
-     * Used when the sliding window loses track of the agent.
-     */
     private double fullScan(Location agentPos) {
-        double bestDist = minSearchDist;
+        double bestDist = 0.0;
         double minDeviation = Double.MAX_VALUE;
-        // Coarse scan over entire path (1m resolution)
         for (double d = 0; d <= path.getLength(); d += 1.0) {
             Location point = path.getPointAtDistance(d);
             double deviation = point.distanceSquared(agentPos);
@@ -273,12 +192,22 @@ public class PathFollower {
         return bestDist;
     }
 
+    /**
+     * Checks if the agent is currently in a fluid using the centralized BlockClassification logic.
+     * This correctly handles waterlogged blocks, bubble columns, and flowing water.
+     */
+    private boolean isWater(Location loc) {
+        ServerLevel level = ((CraftWorld) loc.getWorld()).getHandle();
+        BlockPos pos = new BlockPos(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+        return BlockClassification.classify(level, pos) == BlockClassification.FLUID;
+    }
+
     public boolean isFinished(Location currentPos) {
         return isFinished;
     }
 
     public boolean isOffPath() {
-        return isOffPath;
+        return false;
     }
 
     public double getCurrentDist() {
@@ -293,6 +222,5 @@ public class PathFollower {
             debugRabbit.remove();
             debugRabbit = null;
         }
-        this.minSearchDist = 0.0;
     }
 }

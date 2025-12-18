@@ -172,7 +172,6 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
         }
         agent.assignGoal(null, null); // This stops the current goal and task
         sender.sendMessage(Component.text("Stopped current goal for agent " + name, NamedTextColor.YELLOW));
-        DebugPath.logAreaAround(agent.getPersona().getLocation(), 5);
         return true;
     }
 
