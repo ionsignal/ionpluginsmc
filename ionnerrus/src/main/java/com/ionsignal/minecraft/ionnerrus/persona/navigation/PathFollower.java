@@ -17,7 +17,7 @@ import org.bukkit.craftbukkit.CraftWorld;
  */
 public class PathFollower {
     // Tuning Constants
-    private static final double LOOKAHEAD_DISTANCE = 1.0;
+    private static final double LOOKAHEAD_DISTANCE = 1.5;
     private static final double PROJECTION_STEP_SIZE = 0.5;
     private static final double PROJECTION_SEARCH_WINDOW = 3.0;
     private static final double REACQUISITION_WINDOW = 1.0;
