@@ -347,14 +347,14 @@ public class AStarPathfinder {
                     if (x == 0 && z == 0)
                         continue;
                     BlockPos neighbor = currentPos.offset(x, 0, z);
-                    // 1. Continue Wading
+                    // Continue Wading
                     if (NavigationHelper.isWadable(snapshot, neighbor)) {
                         if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighbor))
                             continue;
                         addNeighbor(neighbors, node, neighbor, 0, targetPos);
                         continue;
                     }
-                    // 2. Transition to Deep Swim
+                    // Transition to Deep Swim
                     if (NavigationHelper.isPassableForSwim(snapshot, neighbor)) {
                         if (snapshot.getBlockState(neighbor).isAir())
                             continue; // Avoid air (Porpoising)
@@ -364,10 +364,20 @@ public class AStarPathfinder {
                             addNeighbor(neighbors, node, neighbor, nextUnderwaterTicks, targetPos);
                         }
                     }
-                    // 3. Exit to Land (Wading Step Up)
+                    // Exit to Land (Wading Step Up)
                     if (!isWater(neighbor) && NavigationHelper.isValidStandingSpot(snapshot, neighbor)) {
                         if (canExitWaterTo(currentPos, neighbor)) {
                             addNeighbor(neighbors, node, neighbor, 0, targetPos);
+                        }
+                    }
+                    // Cardinal Escape (Jump Exit Y+1)
+                    // Solves the "Riverbank Trap" where land is 1 block higher than water bed.
+                    if (x == 0 || z == 0) { // Strict Cardinal Locking to prevent diagonal clipping
+                        BlockPos jumpExit = neighbor.above(); // The block at Y+1
+                        if (!isWater(jumpExit) && NavigationHelper.isValidStandingSpot(snapshot, jumpExit)) {
+                            if (canExitWaterTo(currentPos, jumpExit)) {
+                                addNeighbor(neighbors, node, jumpExit, 0, targetPos);
+                            }
                         }
                     }
                 }
