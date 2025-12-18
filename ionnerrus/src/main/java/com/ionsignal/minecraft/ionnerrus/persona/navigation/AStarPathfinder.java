@@ -23,9 +23,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class AStarPathfinder {
-    private static final double WARN_THRESHOLD_MS = 250.0;
-    private static final int MAX_BREATH_TICKS = 200;
+    private static final int MAX_BREATH_TICKS = 250;
     private static final int TARGET_VERTICAL_SEARCH_RANGE = 10;
+    private static final double WARN_THRESHOLD_MS = 250.0;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final PathfindingRequest request;
@@ -61,9 +61,8 @@ public class AStarPathfinder {
     }
 
     /**
-     * Public Entry Point (Immediate).
-     * Executes pathfinding synchronously on the calling thread using an EXISTING snapshot.
-     * Use this when running inside a Skill that has already captured world state.
+     * Executes pathfinding synchronously on the calling thread using an existing snapshot.
+     * Use this when running inside a `skill` that has already captured world state.
      */
     public static Optional<Path> computeImmediate(PathfindingRequest request, WorldSnapshot snapshot, ExecutionToken token) {
         return new AStarPathfinder(request, snapshot, token).calculatePath();
@@ -310,7 +309,6 @@ public class AStarPathfinder {
         return requested;
     }
 
-    @SuppressWarnings("null")
     private List<Node> getNeighbors(Node node, BlockPos targetPos) {
         List<Node> neighbors = new ArrayList<>();
         BlockPos currentPos = node.pos;
@@ -326,149 +324,160 @@ public class AStarPathfinder {
         if (nextUnderwaterTicks > MAX_BREATH_TICKS) {
             return neighbors; // Prune
         }
-        // Add swimming neighbors
+        // Branch logic based on medium (Refactor for 6-Direction Pruning)
         if (request.params().canSwim() && isCurrentWater) {
-            // Iterate 3D neighbors (including diagonals and vertical)
-            for (int x = -1; x <= 1; x++) {
-                for (int y = -1; y <= 1; y++) {
-                    for (int z = -1; z <= 1; z++) {
-                        if (x == 0 && y == 0 && z == 0) {
-                            continue;
-                        }
-                        BlockPos neighborPos = currentPos.offset(x, y, z);
-                        // 1. Check for Wading (Shallow/Shore)
-                        // Wading is treated like walking: needs floor, head clear.
-                        if (NavigationHelper.isWadable(snapshot, neighborPos)) {
-                            // Check diagonal clearance if applicable
-                            if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighborPos)) {
-                                continue;
-                            }
-                            // Wading resets breath
-                            addNeighbor(neighbors, node, neighborPos, 0, targetPos);
-                            continue;
-                        }
-                        // 2. Check for Swimming/Diving (Deep)
-                        // Must be passable fluid/air and have headroom (water or air)
-                        if (NavigationHelper.isPassableForSwim(snapshot, neighborPos)) {
-                            // Prevent "Swimming" into Air blocks (Porpoising).
-                            // We only swim in Fluid or Phantom (Kelp/Gates).
-                            // Transitions to Air must be handled by SURFACE or WADE logic.
-                            if (snapshot.getBlockState(neighborPos).isAir()) {
-                                continue;
-                            }
-                            // To swim/dive, the block ABOVE must also be passable (headroom)
-                            // This prevents swimming into 1-high gaps where head would suffocate in solid block
-                            if (NavigationHelper.isPassableForSwim(snapshot, neighborPos.above())) {
-                                // Check diagonal clearance
-                                if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighborPos)) {
-                                    continue;
-                                }
-                                // If diving (y < 0) or staying deep, accumulate breath.
-                                // If moving to surface (y > 0 or neighbor is surface), logic handled in next loop iteration or
-                                // breath reset.
-                                addNeighbor(neighbors, node, neighborPos, nextUnderwaterTicks, targetPos);
-                            }
-                        }
-                        // 3. Check for Land Exit (SURFACE)
-                        // Only check horizontal or step-up exits
-                        if (y >= 0 && !isWater(neighborPos) && NavigationHelper.isValidStandingSpot(snapshot, neighborPos)) {
-                            if (canExitWaterTo(currentPos, neighborPos)) {
-                                addNeighbor(neighbors, node, neighborPos, 0, targetPos);
-                            }
-                        }
-                    }
-                }
-            }
+            getWaterNeighbors(node, currentPos, targetPos, neighbors, nextUnderwaterTicks);
+        } else {
+            getLandNeighbors(node, currentPos, targetPos, neighbors);
         }
-        // Handle water-land transitions
-        if (request.params().canSwim() && isWater(currentPos)) {
+        return neighbors;
+    }
+
+    /**
+     * Handles water movement logic.
+     * Implements Mitigation M-1 (10-Neighbor Rule) and M-2 (Hybrid Wading).
+     */
+    @SuppressWarnings("null")
+    private void getWaterNeighbors(Node node, BlockPos currentPos, BlockPos targetPos, List<Node> neighbors, int nextUnderwaterTicks) {
+        // M-2: Hybrid Wading (8-Direction Horizontal + Vertical)
+        // If wadable, we treat it like land walking but inside fluid to handle organic shores.
+        if (NavigationHelper.isWadable(snapshot, currentPos)) {
             for (int x = -1; x <= 1; x++) {
                 for (int z = -1; z <= 1; z++) {
                     if (x == 0 && z == 0)
                         continue;
-                    // Check for water exit points
-                    BlockPos exitPos = currentPos.offset(x, 0, z);
-                    if (!isWater(exitPos) && NavigationHelper.isValidStandingSpot(snapshot, exitPos)) {
-                        if (canExitWaterTo(currentPos, exitPos))
-                            addNeighbor(neighbors, node, exitPos, 0, targetPos);
+                    BlockPos neighbor = currentPos.offset(x, 0, z);
+                    // 1. Continue Wading
+                    if (NavigationHelper.isWadable(snapshot, neighbor)) {
+                        if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighbor))
+                            continue;
+                        addNeighbor(neighbors, node, neighbor, 0, targetPos);
+                        continue;
                     }
-                    BlockPos jumpExitPos = currentPos.offset(x, 1, z);
-                    if (!isWater(jumpExitPos) && NavigationHelper.isValidStandingSpot(snapshot, jumpExitPos)) {
-                        if (canExitWaterTo(currentPos, jumpExitPos))
-                            addNeighbor(neighbors, node, jumpExitPos, 0, targetPos);
+                    // 2. Transition to Deep Swim
+                    if (NavigationHelper.isPassableForSwim(snapshot, neighbor)) {
+                        if (snapshot.getBlockState(neighbor).isAir())
+                            continue; // Avoid air (Porpoising)
+                        if (NavigationHelper.isPassableForSwim(snapshot, neighbor.above())) {
+                            if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighbor))
+                                continue;
+                            addNeighbor(neighbors, node, neighbor, nextUnderwaterTicks, targetPos);
+                        }
+                    }
+                    // 3. Exit to Land (Wading Step Up)
+                    if (!isWater(neighbor) && NavigationHelper.isValidStandingSpot(snapshot, neighbor)) {
+                        if (canExitWaterTo(currentPos, neighbor)) {
+                            addNeighbor(neighbors, node, neighbor, 0, targetPos);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        // M-1: Deep Swim (10-Neighbor Rule: 6 Cardinals + 4 Jump Exits)
+        for (Direction dir : Direction.values()) {
+            BlockPos neighbor = currentPos.relative(dir);
+            // 1. Swim (Cardinal)
+            if (NavigationHelper.isPassableForSwim(snapshot, neighbor)) {
+                // Prevent swimming into Air (Porpoising) unless it's a surface transition
+                if (!snapshot.getBlockState(neighbor).isAir()) {
+                    // Check headroom
+                    if (NavigationHelper.isPassableForSwim(snapshot, neighbor.above())) {
+                        addNeighbor(neighbors, node, neighbor, nextUnderwaterTicks, targetPos);
+                    }
+                }
+            }
+            // 2. Exit to Land (Horizontal Cardinals only)
+            if (dir.getAxis().isHorizontal()) {
+                // Direct Step Out
+                if (!isWater(neighbor) && NavigationHelper.isValidStandingSpot(snapshot, neighbor)) {
+                    if (canExitWaterTo(currentPos, neighbor)) {
+                        addNeighbor(neighbors, node, neighbor, 0, targetPos);
+                    }
+                }
+                // Jump Exit (Forward + Up) - Solves R-1 Shoreline Wall Trap
+                BlockPos jumpExit = neighbor.above();
+                if (!isWater(jumpExit) && NavigationHelper.isValidStandingSpot(snapshot, jumpExit)) {
+                    if (canExitWaterTo(currentPos, jumpExit)) {
+                        addNeighbor(neighbors, node, jumpExit, 0, targetPos);
                     }
                 }
             }
         }
-        if (!isCurrentWater) {
-            // Walk & Climb
-            for (int x = -1; x <= 1; x++) {
-                for (int z = -1; z <= 1; z++) {
-                    if (x == 0 && z == 0) {
-                        continue;
-                    }
-                    boolean isDiagonal = x != 0 && z != 0;
-                    // Walk
-                    BlockPos walkPos = currentPos.offset(x, 0, z);
-                    if (NavigationHelper.isValidStandingSpot(snapshot, walkPos)) {
-                        if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
-                            if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                                addNeighbor(neighbors, node, walkPos, 0, targetPos);
-                            }
+    }
+
+    /**
+     * Handles land movement logic (Walk, Climb, Drop).
+     * Extracted from original getNeighbors for encapsulation.
+     */
+    @SuppressWarnings("null")
+    private void getLandNeighbors(Node node, BlockPos currentPos, BlockPos targetPos, List<Node> neighbors) {
+        // Walk & Climb
+        for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                if (x == 0 && z == 0) {
+                    continue;
+                }
+                boolean isDiagonal = x != 0 && z != 0;
+                // Walk
+                BlockPos walkPos = currentPos.offset(x, 0, z);
+                if (NavigationHelper.isValidStandingSpot(snapshot, walkPos)) {
+                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                        if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
+                            addNeighbor(neighbors, node, walkPos, 0, targetPos);
                         }
-                    } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
-                        if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
-                            if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                                addNeighbor(neighbors, node, walkPos, 0, targetPos);
-                            }
-                        }
                     }
-                    // Climb
-                    BlockPos climbPos = currentPos.offset(x, 1, z);
-                    if (request.params().climbHeight() >= 1 && NavigationHelper.isValidStandingSpot(snapshot, climbPos)
-                            && hasHeadroomForJump(currentPos)) {
-                        if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
-                            addNeighbor(neighbors, node, climbPos, 0, targetPos);
+                } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
+                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                        if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
+                            addNeighbor(neighbors, node, walkPos, 0, targetPos);
                         }
                     }
                 }
-            }
-            // Add drop down neighbors
-            for (int x = -1; x <= 1; x++) {
-                for (int z = -1; z <= 1; z++) {
-                    if (x == 0 && z == 0) {
-                        continue;
-                    }
-                    boolean isDiagonal = x != 0 && z != 0;
-                    BlockPos dropPos = currentPos.offset(x, 0, z);
-                    // Use isTraversable/isClear
-                    if ((NavigationHelper.isTraversable(snapshot, dropPos) || NavigationHelper.isClear(snapshot, dropPos)) &&
-                            NavigationHelper.isClear(snapshot, dropPos.above())) {
-                        if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
-                            BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
-                            if (fallDestination != null && !fallDestination.equals(currentPos)) {
-                                if (isFallPathClear(dropPos, fallDestination)) {
-                                    addNeighbor(neighbors, node, fallDestination, 0, targetPos);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Drop Straight Down
-            BlockState groundState = snapshot.getBlockState(currentPos.below());
-            // Check if ground is NOT traversable (i.e. it's air or fluid)
-            if (!NavigationHelper.isTraversable(snapshot, currentPos.below())
-                    && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
-                BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
-                if (fallDestination != null && !fallDestination.equals(currentPos)) {
-                    if (isFallPathClear(currentPos, fallDestination)) {
-                        addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+                // Climb
+                BlockPos climbPos = currentPos.offset(x, 1, z);
+                if (request.params().climbHeight() >= 1 && NavigationHelper.isValidStandingSpot(snapshot, climbPos)
+                        && hasHeadroomForJump(currentPos)) {
+                    if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
+                        addNeighbor(neighbors, node, climbPos, 0, targetPos);
                     }
                 }
             }
         }
-        return neighbors;
+        // Add drop down neighbors
+        for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                if (x == 0 && z == 0) {
+                    continue;
+                }
+                boolean isDiagonal = x != 0 && z != 0;
+                BlockPos dropPos = currentPos.offset(x, 0, z);
+                // Use isTraversable/isClear
+                if ((NavigationHelper.isTraversable(snapshot, dropPos) || NavigationHelper.isClear(snapshot, dropPos)) &&
+                        NavigationHelper.isClear(snapshot, dropPos.above())) {
+                    if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
+                        BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
+                        if (fallDestination != null && !fallDestination.equals(currentPos)) {
+                            if (isFallPathClear(dropPos, fallDestination)) {
+                                addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Drop Straight Down
+        BlockState groundState = snapshot.getBlockState(currentPos.below());
+        // Check if ground is NOT traversable (i.e. it's air or fluid)
+        if (!NavigationHelper.isTraversable(snapshot, currentPos.below())
+                && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
+            BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
+            if (fallDestination != null && !fallDestination.equals(currentPos)) {
+                if (isFallPathClear(currentPos, fallDestination)) {
+                    addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+                }
+            }
+        }
     }
 
     private void addNeighbor(List<Node> neighbors, Node parent, BlockPos pos, int underwaterTicks, BlockPos targetPos) {
