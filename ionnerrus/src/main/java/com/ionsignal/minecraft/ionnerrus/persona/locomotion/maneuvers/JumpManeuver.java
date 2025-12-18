@@ -5,6 +5,9 @@ import com.ionsignal.minecraft.ionnerrus.persona.locomotion.Maneuver;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.ManeuverResult;
 import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl.BodyMode;
 import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
+import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
+
+import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
@@ -16,31 +19,37 @@ import java.util.Optional;
  * physics and "Snap-on-Land" visuals.
  */
 public class JumpManeuver implements Maneuver {
+    private static final boolean DEBUG_VISUALIZATION = true;
+    private static final double JUMP_RUN_UP_TICKS = 2;
     private static final double JUMP_BOOST_SPEED = 1.3;
     private static final int HARD_TIMEOUT = 60;
 
     private final Location targetWaypoint;
-    private final double startY;
 
-    private Location lookTarget;
-    private JumpState state;
     private int ticks;
+    private double startY;
+    private JumpState state;
+    private Location lookTarget;
     private Optional<Vector> exitHeading = Optional.empty();
 
     private enum JumpState {
         PREPARING, JUMPING, ASCENDING, DESCENDING, LANDED, FAILED
     }
 
-    public JumpManeuver(Location targetWaypoint, double startY) {
+    public JumpManeuver(Location targetWaypoint) {
         this.targetWaypoint = targetWaypoint;
-        this.startY = startY;
         this.state = JumpState.PREPARING;
     }
 
     @Override
     public void start(PersonaEntity entity, Optional<Vector> exitHeading) {
         this.ticks = 0;
+        this.startY = entity.getY();
         this.exitHeading = exitHeading;
+        if (DEBUG_VISUALIZATION) {
+            Location visual = targetWaypoint.clone();
+            DebugVisualizer.highlightBlock(visual.subtract(0.5, 0, 0.5), 40, NamedTextColor.DARK_GRAY);
+        }
         Vector direction = targetWaypoint.toVector()
                 .subtract(entity.getBukkitEntity().getLocation().toVector());
         direction.setY(0).normalize();
@@ -80,7 +89,7 @@ public class JumpManeuver implements Maneuver {
         }
         switch (state) {
             case PREPARING -> {
-                if (entity.onGround()) {
+                if (ticks > JUMP_RUN_UP_TICKS && entity.onGround()) {
                     entity.getJumpControl().jump();
                     state = JumpState.JUMPING;
                     ticks = 0;
