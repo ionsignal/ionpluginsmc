@@ -5,6 +5,9 @@ import com.ionsignal.minecraft.ionnerrus.persona.locomotion.Maneuver;
 import com.ionsignal.minecraft.ionnerrus.persona.locomotion.ManeuverResult;
 import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl.BodyMode;
 import com.ionsignal.minecraft.ionnerrus.persona.orientation.OrientationIntent;
+import com.ionsignal.minecraft.ionnerrus.util.DebugVisualizer;
+
+import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
@@ -15,6 +18,7 @@ import java.util.Optional;
  * Handles the state machine for a controlled drop implementing a "Look-while-falling" effect.
  */
 public class DropManeuver implements Maneuver {
+    private static final boolean DEBUG_VISUALIZATION = true;
     private static final double DROP_APPROACH_SPEED = 0.8;
     private static final int HARD_TIMEOUT = 60;
 
@@ -22,7 +26,7 @@ public class DropManeuver implements Maneuver {
 
     private DropState state;
     private int ticks;
-    // private Optional<Vector> exitHeading = Optional.empty();
+    private Optional<Vector> exitHeading = Optional.empty();
 
     private enum DropState {
         APPROACHING_EDGE, FALLING, LANDED, FAILED
@@ -36,8 +40,12 @@ public class DropManeuver implements Maneuver {
     @Override
     public void start(PersonaEntity entity, Optional<Vector> exitHeading) {
         this.ticks = 0;
-        // this.exitHeading = exitHeading;
+        this.exitHeading = exitHeading;
         entity.setShiftKeyDown(false);
+        if (DEBUG_VISUALIZATION) {
+            Location visual = targetWaypoint.clone();
+            DebugVisualizer.highlightBlock(visual.subtract(0.5, 0, 0.5), 40, NamedTextColor.DARK_GRAY);
+        }
     }
 
     @Override
@@ -91,7 +99,6 @@ public class DropManeuver implements Maneuver {
                 }
             }
             case FALLING -> {
-                // Physics: Coast (Gravity only). Do NOT set wanted position.
                 // Rotation is handled via getOrientation() returning AlignToHeading.
                 if (entity.onGround()) {
                     state = DropState.LANDED;
@@ -110,9 +117,17 @@ public class DropManeuver implements Maneuver {
 
     @Override
     public OrientationIntent getOrientation() {
+        // Approach Phase: Look at where we are stepping to ensure we clear the ledge
         if (state == DropState.APPROACHING_EDGE) {
-            // While approaching, look at the drop point naturally.
             return new OrientationIntent.FocusOnLocation(targetWaypoint, BodyMode.FREE);
+        }
+        // Fall & Land Phase: Pre-align to the exit vector
+        if (exitHeading.isPresent()) {
+            // If we have landed, SNAP to the heading to ensure 100% accuracy for the next tick
+            boolean snap = (state == DropState.LANDED);
+            // While falling, BodyMode.LOCKED ensures the body rotates with the head
+            // creating a "turning in mid-air" effect.
+            return new OrientationIntent.AlignToHeading(exitHeading.get(), snap, BodyMode.LOCKED);
         }
         return new OrientationIntent.Idle();
     }

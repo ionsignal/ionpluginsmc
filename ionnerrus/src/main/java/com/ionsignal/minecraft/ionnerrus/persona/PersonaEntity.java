@@ -169,6 +169,26 @@ public class PersonaEntity extends ServerPlayer implements PersonaHolder, MenuPr
     }
 
     @Override
+    public void updateSwimming() {
+        // Check Physical Medium
+        boolean inWater = this.isInWater();
+        // Check Cognitive Intent (Sprinting = Deep Swim Request)
+        boolean intentToSwim = this.isSprinting();
+        if (this.isSwimming()) {
+            // Vanilla maintenance logic is fine (keep swimming if moving)
+            this.setSwimming(intentToSwim && inWater && !this.isPassenger());
+        } else {
+            // Allow entry if touching water + intent, ignoring eye height.
+            // This allows "Diving" from the surface or "Crouch-walking" into a swim.
+            if (intentToSwim && inWater && !this.isPassenger()) {
+                this.setSwimming(true);
+            } else {
+                this.setSwimming(false);
+            }
+        }
+    }
+
+    @Override
     public void die(@SuppressWarnings("null") @NotNull DamageSource damageSource) {
         if (isRemoved())
             return;
