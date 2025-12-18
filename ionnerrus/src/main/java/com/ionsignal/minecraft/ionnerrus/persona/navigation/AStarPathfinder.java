@@ -72,15 +72,16 @@ public class AStarPathfinder {
     private Optional<Path> calculatePath() {
         // Resolve the exact starting node using physics-aware logic (Sweep -> Gravity -> Fallback)
         BlockPos actualStartPos = resolveStartNode();
-        // Resolve the end node. If the target is mid-air (falling item), find the ground below it.
-        BlockPos actualEndPos = resolveEndNode();
         if (actualStartPos == null) {
             LOGGER.info("Could not find valid ground for start position.");
             return Optional.empty();
         }
+        // Resolve the end node. If the target is mid-air (falling item), find the ground below it.
+        BlockPos actualEndPos = resolveEndNode();
         // If resolution failed (e.g. over void), fallback to requested.
         if (actualEndPos == null) {
-            actualEndPos = request.endBlock();
+            LOGGER.info("Could not find valid ground for end position.");
+            return Optional.empty();
         }
         // Setup A*
         PriorityQueue<Node> openSet = new PriorityQueue<>();
@@ -146,13 +147,41 @@ public class AStarPathfinder {
     }
 
     private MovementType determineMovementType(BlockPos current, BlockPos next) {
-        if (next == null)
-            return MovementType.WALK;
         boolean currentWater = isWater(current);
+        // Handle Final Node (Destination)
+        if (next == null) {
+            if (currentWater) {
+                if (NavigationHelper.isWadable(snapshot, current)) {
+                    return MovementType.WADE;
+                }
+                return MovementType.SWIM;
+            }
+            return MovementType.WALK;
+        }
         boolean nextWater = isWater(next);
-        if (currentWater && !nextWater && next.getY() >= current.getY()) {
-            return MovementType.WATER_EXIT;
-        } else if (currentWater || nextWater) {
+        boolean nextWadable = NavigationHelper.isWadable(snapshot, next);
+        // Water -> Land (Exit)
+        if (currentWater && !nextWater && !nextWadable) {
+            // If climbing out (same Y or higher)
+            if (next.getY() >= current.getY()) {
+                return MovementType.WATER_EXIT;
+            }
+        }
+        // Water/Wade -> Water/Wade
+        if (currentWater || nextWater) {
+            // If starting on Land and ending in Water, use gravity/walking physics.
+            if (!currentWater && nextWater) {
+                int yDiff = next.getY() - current.getY();
+                // If falling more than 1 block, it's a DROP.
+                // If stepping down 1 block or level, it's a WALK (into water).
+                if (yDiff < -1)
+                    return MovementType.DROP;
+                return MovementType.WALK;
+            }
+            // If destination is specifically wadable (shallow with floor), prefer WADE
+            if (nextWadable) {
+                return MovementType.WADE;
+            }
             return MovementType.SWIM;
         }
         int yDiff = next.getY() - current.getY();
@@ -266,7 +295,7 @@ public class AStarPathfinder {
         }
         // Is it a fluid? (Swimming target)
         if (request.params().canSwim() && isWater(requested)) {
-            return requested;
+            return requested; // eventually we'll allow water end-points (not yet)
         }
         // Is it Air/Phantom? (Falling item, flying player)
         // If so, scan downwards to find the ground.
@@ -287,27 +316,65 @@ public class AStarPathfinder {
         BlockPos currentPos = node.pos;
         // Breath cost in water and not at the surface, accumulate breath cost.
         int nextUnderwaterTicks = node.underwaterTicks;
-        if (isWater(currentPos) && !isSurface(currentPos)) {
-            nextUnderwaterTicks += 20; // Approx 1 second per block traversal
+        boolean isCurrentWater = isWater(currentPos);
+        boolean isCurrentSurface = isSurface(currentPos);
+        if (isCurrentWater && !isCurrentSurface) {
+            nextUnderwaterTicks += 20;
         } else {
-            nextUnderwaterTicks = 0; // Reset breath at surface or on land
+            nextUnderwaterTicks = 0;
         }
         if (nextUnderwaterTicks > MAX_BREATH_TICKS) {
-            return neighbors; // Prune path: Agent would drown
+            return neighbors; // Prune
         }
         // Add swimming neighbors
-        if (request.params().canSwim() && isWater(currentPos)) {
+        if (request.params().canSwim() && isCurrentWater) {
+            // Iterate 3D neighbors (including diagonals and vertical)
             for (int x = -1; x <= 1; x++) {
                 for (int y = -1; y <= 1; y++) {
                     for (int z = -1; z <= 1; z++) {
-                        if (x == 0 && y == 0 && z == 0)
+                        if (x == 0 && y == 0 && z == 0) {
                             continue;
-                        // A valid swim destination is a water or air block with space for the head.
-                        BlockPos swimPos = currentPos.offset(x, y, z);
-                        if (isPassableForSwimming(swimPos) && NavigationHelper.isClear(snapshot, swimPos.above())) {
-                            if (NavigationHelper.isValidStandingSpot(snapshot, swimPos))
+                        }
+                        BlockPos neighborPos = currentPos.offset(x, y, z);
+                        // 1. Check for Wading (Shallow/Shore)
+                        // Wading is treated like walking: needs floor, head clear.
+                        if (NavigationHelper.isWadable(snapshot, neighborPos)) {
+                            // Check diagonal clearance if applicable
+                            if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighborPos)) {
                                 continue;
-                            addNeighbor(neighbors, node, swimPos, nextUnderwaterTicks, targetPos);
+                            }
+                            // Wading resets breath
+                            addNeighbor(neighbors, node, neighborPos, 0, targetPos);
+                            continue;
+                        }
+                        // 2. Check for Swimming/Diving (Deep)
+                        // Must be passable fluid/air and have headroom (water or air)
+                        if (NavigationHelper.isPassableForSwim(snapshot, neighborPos)) {
+                            // Prevent "Swimming" into Air blocks (Porpoising).
+                            // We only swim in Fluid or Phantom (Kelp/Gates).
+                            // Transitions to Air must be handled by SURFACE or WADE logic.
+                            if (snapshot.getBlockState(neighborPos).isAir()) {
+                                continue;
+                            }
+                            // To swim/dive, the block ABOVE must also be passable (headroom)
+                            // This prevents swimming into 1-high gaps where head would suffocate in solid block
+                            if (NavigationHelper.isPassableForSwim(snapshot, neighborPos.above())) {
+                                // Check diagonal clearance
+                                if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighborPos)) {
+                                    continue;
+                                }
+                                // If diving (y < 0) or staying deep, accumulate breath.
+                                // If moving to surface (y > 0 or neighbor is surface), logic handled in next loop iteration or
+                                // breath reset.
+                                addNeighbor(neighbors, node, neighborPos, nextUnderwaterTicks, targetPos);
+                            }
+                        }
+                        // 3. Check for Land Exit (SURFACE)
+                        // Only check horizontal or step-up exits
+                        if (y >= 0 && !isWater(neighborPos) && NavigationHelper.isValidStandingSpot(snapshot, neighborPos)) {
+                            if (canExitWaterTo(currentPos, neighborPos)) {
+                                addNeighbor(neighbors, node, neighborPos, 0, targetPos);
+                            }
                         }
                     }
                 }
@@ -333,69 +400,71 @@ public class AStarPathfinder {
                 }
             }
         }
-        // Walk & Climb
-        for (int x = -1; x <= 1; x++) {
-            for (int z = -1; z <= 1; z++) {
-                if (x == 0 && z == 0) {
-                    continue;
-                }
-                boolean isDiagonal = x != 0 && z != 0;
-                // Walk
-                BlockPos walkPos = currentPos.offset(x, 0, z);
-                if (NavigationHelper.isValidStandingSpot(snapshot, walkPos)) {
-                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
-                        if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                            addNeighbor(neighbors, node, walkPos, 0, targetPos);
+        if (!isCurrentWater) {
+            // Walk & Climb
+            for (int x = -1; x <= 1; x++) {
+                for (int z = -1; z <= 1; z++) {
+                    if (x == 0 && z == 0) {
+                        continue;
+                    }
+                    boolean isDiagonal = x != 0 && z != 0;
+                    // Walk
+                    BlockPos walkPos = currentPos.offset(x, 0, z);
+                    if (NavigationHelper.isValidStandingSpot(snapshot, walkPos)) {
+                        if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                            if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
+                                addNeighbor(neighbors, node, walkPos, 0, targetPos);
+                            }
+                        }
+                    } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
+                        if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                            if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
+                                addNeighbor(neighbors, node, walkPos, 0, targetPos);
+                            }
                         }
                     }
-                } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
-                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
-                        if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
-                            addNeighbor(neighbors, node, walkPos, 0, targetPos);
+                    // Climb
+                    BlockPos climbPos = currentPos.offset(x, 1, z);
+                    if (request.params().climbHeight() >= 1 && NavigationHelper.isValidStandingSpot(snapshot, climbPos)
+                            && hasHeadroomForJump(currentPos)) {
+                        if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
+                            addNeighbor(neighbors, node, climbPos, 0, targetPos);
                         }
-                    }
-                }
-                // Climb
-                BlockPos climbPos = currentPos.offset(x, 1, z);
-                if (request.params().climbHeight() >= 1 && NavigationHelper.isValidStandingSpot(snapshot, climbPos)
-                        && hasHeadroomForJump(currentPos)) {
-                    if (!isDiagonal || isDiagonalMoveClear(currentPos, climbPos)) {
-                        addNeighbor(neighbors, node, climbPos, 0, targetPos);
                     }
                 }
             }
-        }
-        // Add drop down neighbors
-        for (int x = -1; x <= 1; x++) {
-            for (int z = -1; z <= 1; z++) {
-                if (x == 0 && z == 0) {
-                    continue;
-                }
-                boolean isDiagonal = x != 0 && z != 0;
-                BlockPos dropPos = currentPos.offset(x, 0, z);
-                // Use isTraversable/isClear
-                if ((NavigationHelper.isTraversable(snapshot, dropPos) || NavigationHelper.isClear(snapshot, dropPos)) &&
-                        NavigationHelper.isClear(snapshot, dropPos.above())) {
-                    if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
-                        BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
-                        if (fallDestination != null && !fallDestination.equals(currentPos)) {
-                            if (isFallPathClear(dropPos, fallDestination)) {
-                                addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+            // Add drop down neighbors
+            for (int x = -1; x <= 1; x++) {
+                for (int z = -1; z <= 1; z++) {
+                    if (x == 0 && z == 0) {
+                        continue;
+                    }
+                    boolean isDiagonal = x != 0 && z != 0;
+                    BlockPos dropPos = currentPos.offset(x, 0, z);
+                    // Use isTraversable/isClear
+                    if ((NavigationHelper.isTraversable(snapshot, dropPos) || NavigationHelper.isClear(snapshot, dropPos)) &&
+                            NavigationHelper.isClear(snapshot, dropPos.above())) {
+                        if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
+                            BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
+                            if (fallDestination != null && !fallDestination.equals(currentPos)) {
+                                if (isFallPathClear(dropPos, fallDestination)) {
+                                    addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        // Drop Straight Down
-        BlockState groundState = snapshot.getBlockState(currentPos.below());
-        // Check if ground is NOT traversable (i.e. it's air or fluid)
-        if (!NavigationHelper.isTraversable(snapshot, currentPos.below())
-                && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
-            BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
-            if (fallDestination != null && !fallDestination.equals(currentPos)) {
-                if (isFallPathClear(currentPos, fallDestination)) {
-                    addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+            // Drop Straight Down
+            BlockState groundState = snapshot.getBlockState(currentPos.below());
+            // Check if ground is NOT traversable (i.e. it's air or fluid)
+            if (!NavigationHelper.isTraversable(snapshot, currentPos.below())
+                    && !groundState.isFaceSturdy(EmptyBlockGetter.INSTANCE, currentPos.below(), Direction.UP)) {
+                BlockPos fallDestination = findLandingSpot(currentPos.below(), request.params().maxFallDistance());
+                if (fallDestination != null && !fallDestination.equals(currentPos)) {
+                    if (isFallPathClear(currentPos, fallDestination)) {
+                        addNeighbor(neighbors, node, fallDestination, 0, targetPos);
+                    }
                 }
             }
         }
@@ -469,13 +538,6 @@ public class AStarPathfinder {
         return NavigationHelper.isClear(snapshot, pos.above());
     }
 
-    private boolean isPassableForSwimming(BlockPos pos) {
-        BlockClassification type = BlockClassification.classify(snapshot, pos);
-        return type == BlockClassification.FLUID ||
-                type == BlockClassification.OPEN ||
-                type == BlockClassification.PHANTOM;
-    }
-
     private BlockPos findLandingSpot(BlockPos start, int searchRange) {
         BlockPos current = start;
         for (int i = 0; i < searchRange; i++) {
@@ -495,13 +557,23 @@ public class AStarPathfinder {
         double verticalCost = dy * 1.5;
         double horizontalCost = (dx >= 1 && dz >= 1) ? 1.414 : (dx + dz);
         double totalCost = horizontalCost + verticalCost;
-        // Additional cost modifiers
-        if (isWater(to)) {
-            totalCost *= 4.0; // Water is expensive
+        boolean toWater = isWater(to);
+        boolean fromWater = isWater(from);
+        boolean toWadable = NavigationHelper.isWadable(snapshot, to);
+        if (toWater) {
+            if (toWadable) {
+                totalCost *= 1.2; // Wading is slightly harder than walking
+            } else {
+                totalCost *= 4.0; // Swimming is expensive (drag)
+            }
+            // Penalize Diving (moving down in water) to prefer surface
+            if (dy < 0 && fromWater) {
+                totalCost += 2.0;
+            }
         }
-        // Increase cost for water-land transitions
-        if (isWater(from) && !isWater(to)) {
-            totalCost *= 1.5; // Exiting water has extra cost
+        // Water-Land Transitions
+        if (fromWater && !toWater) {
+            totalCost *= 1.5; // Exiting effort
         }
         // Add small penalty for Partial Blocks to prefer Air/Flat ground
         if (NavigationHelper.isTraversable(snapshot, to) && !NavigationHelper.isClear(snapshot, to)) {

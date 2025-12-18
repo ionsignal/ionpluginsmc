@@ -219,6 +219,56 @@ public final class NavigationHelper {
     }
 
     /**
+     * Checks if a block allows swimming (Water, Air, or Phantom).
+     * Used for 3D water pathfinding.
+     */
+    public static boolean isPassableForSwim(BlockGetter level, BlockPos pos) {
+        BlockClassification type = BlockClassification.classify(level, pos);
+        return type == BlockClassification.FLUID ||
+                type == BlockClassification.OPEN ||
+                type == BlockClassification.PHANTOM;
+    }
+
+    /**
+     * Checks if a block is valid for Wading (Walking physics in water).
+     * Requires: Feet in Fluid, Head Clear, Ground Solid/Supporting.
+     */
+    public static boolean isWadable(BlockGetter level, BlockPos pos) {
+        // Feet must be in fluid
+        if (BlockClassification.classify(level, pos) != BlockClassification.FLUID) {
+            return false;
+        }
+        // Head must be clear (Air/Phantom)
+        if (!isClear(level, pos.above())) {
+            return false;
+        }
+        // Ground must be solid/supporting (standard walking support)
+        BlockPos below = pos.below();
+        BlockClassification groundType = BlockClassification.classify(level, below);
+        return groundType == BlockClassification.SOLID ||
+                groundType == BlockClassification.SUPPORTING ||
+                groundType == BlockClassification.TRAVERSABLE;
+    }
+
+    /**
+     * Checks diagonal clearance for swimming to prevent corner clipping.
+     * Simplified 2D check at the target Y level is usually sufficient for hull collision.
+     */
+    public static boolean isDiagonalSwimClear(BlockGetter level, BlockPos from, BlockPos to) {
+        int dx = to.getX() - from.getX();
+        int dz = to.getZ() - from.getZ();
+        // Cardinal moves are always clear if endpoints are clear
+        if (dx == 0 || dz == 0) {
+            return true;
+        }
+        // Check horizontal flanks
+        BlockPos c1 = from.offset(dx, 0, 0);
+        BlockPos c2 = from.offset(0, 0, dz);
+        // Both flanks must be passable to avoid clipping
+        return isPassableForSwim(level, c1) && isPassableForSwim(level, c2);
+    }
+
+    /**
      * Performs a robust "Tiered Resolution" to find the valid start node.
      * Solves "Center-Point Bias" by sweeping the entity's AABB.
      *
