@@ -12,7 +12,6 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.ai.control.MoveControl.Operation;
 
 import org.bukkit.Location;
-import org.bukkit.util.Vector;
 
 import java.util.Optional;
 
@@ -28,7 +27,6 @@ public class LocomotionController {
     private Maneuver currentManeuver;
     private ManeuverResult lastResult;
     private SteeringResult currentIntent;
-    private boolean isDeepSwimming = false;
 
     public LocomotionController(PersonaEntity entity) {
         this.entity = entity;
@@ -107,7 +105,6 @@ public class LocomotionController {
         this.currentSpeed = 0.0f;
         this.lastResult = null;
         this.currentIntent = null;
-        this.isDeepSwimming = false;
     }
 
     /**
@@ -149,33 +146,14 @@ public class LocomotionController {
     @SuppressWarnings("null")
     private void handleSwim(SteeringResult intent, float speed) {
         Location target = intent.target();
-        double verticalDiff = target.getY() - entity.getY();
-        // Check if head is submerged (Deep vs Surface check)
-        boolean headInWater = entity.isEyeInFluid(FluidTags.WATER);
-        // Check if we are physically at the surface layer (Block above is NOT water)
-        // This prevents "Porpoising" where bobbing triggers Deep Swim -> Sprint -> Breach
-        boolean isAtSurface = !entity.level().getFluidState(entity.blockPosition().above()).is(FluidTags.WATER);
-        // Deep Swim if: Head is fully submerged OR we are trying to dive down significantly
-        if ((headInWater && !isAtSurface) || verticalDiff < -0.5) {
-            this.isDeepSwimming = true;
-            // Deep Swim Physics: "Dolphin Style"
-            // Sprinting activates the swimming pose and speed boost
-            entity.setSprinting(true);
-            entity.setSwimming(true); // Explicit hitbox reduction
-            entity.getJumpControl().stop(); // Disable bobbing
-            // Note: PersonaMoveControl handles the 3D Pitch/Velocity vector
+        // Sprinting activates the swimming pose and speed boost
+        entity.setSprinting(true);
+        entity.setSwimming(true); // Explicit hitbox reduction
+        // If grounded, force a jump to detach from the floor and enter 3D swim mode.
+        if (entity.onGround() && entity.level().getFluidState(entity.blockPosition().above(2)).is(FluidTags.WATER)) {
+            entity.getJumpControl().jump();
         } else {
-            this.isDeepSwimming = false;
-            // Surface Swim Physics: "Boat Style"
-            // Disable sprinting to prevent "Porpoising" (breaching surface uncontrollably)
-            entity.setSprinting(false);
-            entity.setSwimming(false); // Ensure upright hitbox for surface/wading
-            // Buoyancy Management: Jump if sinking too low relative to target
-            if (verticalDiff > 0.1) {
-                entity.getJumpControl().jump();
-            } else {
-                entity.getJumpControl().stop();
-            }
+            entity.getJumpControl().stop(); // Disable bobbing
         }
         // Apply Throttle (MoveControl handles the 3D vector if in water)
         entity.getMoveControl().setWantedPosition(
@@ -201,18 +179,13 @@ public class LocomotionController {
         if (currentManeuver != null) {
             return Optional.of(currentManeuver.getOrientation());
         }
-        // Check if we are in a Deep Swim state which requires physics-locked orientation
-        if (currentIntent != null && currentIntent.movementType() == SteeringResult.MovementType.SWIM) {
-            if (isDeepSwimming) {
-                // Deep Swim: Lock body/head to velocity vector for proper 3D movement
-                Vector dir = currentIntent.target().toVector()
-                        .subtract(entity.getBukkitEntity().getLocation().toVector())
-                        .normalize();
-                return Optional.of(new OrientationIntent.AlignToHeading(dir, false, BodyMode.LOCKED));
-            } else {
-                // Surface Swim: Allow free looking (Social/Idle behaviors take over)
-                return Optional.empty();
-            }
+        // Deep Swimming (Sprinting + Water) is a physics-driven state where
+        // PersonaMoveControl takes full control of rotation (Torpedo mode).
+        if (entity.isInWater() && entity.isSprinting()) {
+            return Optional.of(new OrientationIntent.AlignToHeading(
+                    entity.getBukkitEntity().getLocation().getDirection(), // Vector is ignored by MoveControl
+                    true,
+                    BodyMode.EXTERNAL));
         }
         return Optional.empty();
     }

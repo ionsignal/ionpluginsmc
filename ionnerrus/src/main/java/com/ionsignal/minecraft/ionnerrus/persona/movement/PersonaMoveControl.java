@@ -52,24 +52,24 @@ public class PersonaMoveControl extends MoveControl {
         double dx = this.wantedX - this.personaEntity.getX();
         double dy = this.wantedY - this.personaEntity.getY();
         double dz = this.wantedZ - this.personaEntity.getZ();
-        // Use 3D distance check if in water to account for vertical arrival
+        // Stop if we are practically there to prevent jittering
         double distSq = dx * dx + dy * dy + dz * dz;
-        if (distSq < 2.500000277905201E-7D) {
+        if (distSq < 0.01) {
             this.personaEntity.zza = 0.0f;
             return;
         }
-        // Underwater movement is generally more agile
-        float maxTurnSpeed = MAX_TURN_SPEED_FAST;
-        // 1. Calculate Yaw (YRot)
-        float targetYaw = (float) (Mth.atan2(dz, dx) * 180.0F / (float) Math.PI) - 90.0F;
-        this.personaEntity.setYRot(this.rotlerp(this.personaEntity.getYRot(), targetYaw, maxTurnSpeed));
-        // 2. Lock Body to Head (Dolphin Style)
-        this.personaEntity.setYBodyRot(this.personaEntity.getYRot());
-        // 3. Calculate Pitch (XRot) based on 3D vector
+        // atan2(z, x) gives radians. Convert to degrees. Subtract 90 to align with Minecraft's South=0
+        // system.
+        float targetYaw = (float) (Mth.atan2(dz, dx) * (180.0D / Math.PI)) - 90.0F;
+        // atan2(y, dist) gives radians. Convert to degrees. Negate because Minecraft Up is -90.
         double horizontalDist = Math.sqrt(dx * dx + dz * dz);
-        float targetPitch = (float) -(Mth.atan2(dy, horizontalDist) * (180.0F / Math.PI));
-        this.personaEntity.setXRot(this.rotlerp(this.personaEntity.getXRot(), targetPitch, maxTurnSpeed));
-        // 4. Apply Throttle along the look vector
+        float targetPitch = (float) -(Mth.atan2(dy, horizontalDist) * (180.0D / Math.PI));
+        // We force Head, Body, and Facing to match the vector perfectly.
+        this.personaEntity.setYRot(targetYaw);
+        this.personaEntity.setYHeadRot(targetYaw);
+        this.personaEntity.setYBodyRot(targetYaw);
+        this.personaEntity.setXRot(targetPitch);
+        // Set the movement speed attribute and apply forward input (zza)
         float attributeSpeed = (float) this.personaEntity.getAttributeValue(Attributes.MOVEMENT_SPEED);
         this.personaEntity.setSpeed(attributeSpeed);
         this.personaEntity.zza = (float) this.speedModifier;
