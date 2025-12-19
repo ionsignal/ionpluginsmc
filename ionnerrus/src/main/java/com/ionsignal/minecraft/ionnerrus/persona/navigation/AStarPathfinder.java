@@ -23,7 +23,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class AStarPathfinder {
-    private static final int MAX_BREATH_TICKS = 250;
     private static final int TARGET_VERTICAL_SEARCH_RANGE = 10;
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
@@ -43,6 +42,7 @@ public class AStarPathfinder {
      * Calculates bounds, creates the snapshot asynchronously, then executes the pathfinder.
      */
     public static CompletableFuture<Optional<Path>> findPath(PathfindingRequest request, ExecutionToken token) {
+        long startTime = System.nanoTime();
         BlockPos startPos = request.startBlock();
         BlockPos endPos = request.endBlock();
         int padding = 16;
@@ -55,9 +55,14 @@ public class AStarPathfinder {
                 Math.max(startPos.getY(), endPos.getY()) + padding,
                 Math.max(startPos.getZ(), endPos.getZ()) + padding);
         return WorldSnapshot.create(request.start().getWorld(), min, max)
-                .thenCompose(snapshot -> CompletableFuture.supplyAsync(
-                        () -> new AStarPathfinder(request, snapshot, token).calculatePath(),
-                        IonNerrus.getInstance().getOffloadThreadExecutor()));
+                .thenCompose(snapshot -> {
+                    long endTime = System.nanoTime();
+                    double durationMillis = (endTime - startTime) / 1_000_000.0;
+                    LOGGER.info(String.format("Snapshot took %.3f ms to generate", durationMillis));
+                    return CompletableFuture.supplyAsync(
+                            () -> new AStarPathfinder(request, snapshot, token).calculatePath(),
+                            IonNerrus.getInstance().getOffloadThreadExecutor());
+                });
     }
 
     /**
@@ -103,6 +108,8 @@ public class AStarPathfinder {
                 double durationMillis = (endTime - startTime) / 1_000_000.0;
                 if (durationMillis > WARN_THRESHOLD_MS) {
                     LOGGER.warning(String.format("Path found in %.3f ms %d iterations.", durationMillis, iterations));
+                } else {
+                    LOGGER.info(String.format("Path found in %.3f ms %d iterations.", durationMillis, iterations));
                 }
                 return Optional.of(path);
             }
@@ -170,12 +177,16 @@ public class AStarPathfinder {
         if (currentWater || nextWater) {
             // If starting on Land and ending in Water, use gravity/walking physics.
             if (!currentWater && nextWater) {
+                // Mitigation B: Check Wading first
+                if (NavigationHelper.isWadable(snapshot, next)) {
+                    return MovementType.WADE;
+                }
                 int yDiff = next.getY() - current.getY();
                 // If falling more than 1 block, it's a DROP.
-                // If stepping down 1 block or level, it's a WALK (into water).
                 if (yDiff < -1)
                     return MovementType.DROP;
-                return MovementType.WALK;
+                // Return SWIM for deep water entry to trigger proper physics
+                return MovementType.SWIM;
             }
             // If destination is specifically wadable (shallow with floor), prefer WADE
             if (nextWadable) {
@@ -299,9 +310,16 @@ public class AStarPathfinder {
         // Is it Air/Phantom? (Falling item, flying player)
         // If so, scan downwards to find the ground.
         if (!NavigationHelper.isTraversable(snapshot, requested)) {
-            BlockPos ground = NavigationHelper.resolveGround(snapshot, requested, TARGET_VERTICAL_SEARCH_RANGE);
-            if (ground != null && NavigationHelper.isValidStandingSpot(snapshot, ground)) {
-                return ground;
+            // Fix: Pass params to resolveGround to allow water snapping
+            BlockPos ground = NavigationHelper.resolveGround(snapshot, requested, TARGET_VERTICAL_SEARCH_RANGE, request.params());
+            // Fix: Check for swimming spot validity if standing spot fails
+            if (ground != null) {
+                if (NavigationHelper.isValidStandingSpot(snapshot, ground)) {
+                    return ground;
+                }
+                if (request.params().canSwim() && NavigationHelper.isValidSwimmingSpot(snapshot, ground)) {
+                    return ground;
+                }
             }
         }
         // Fallback: Return requested.
@@ -313,17 +331,8 @@ public class AStarPathfinder {
         List<Node> neighbors = new ArrayList<>();
         BlockPos currentPos = node.pos;
         // Breath cost in water and not at the surface, accumulate breath cost.
-        int nextUnderwaterTicks = node.underwaterTicks;
+        int nextUnderwaterTicks = node.underwaterTicks; // underwater ticks disabled for now
         boolean isCurrentWater = isWater(currentPos);
-        boolean isCurrentSurface = isSurface(currentPos);
-        if (isCurrentWater && !isCurrentSurface) {
-            nextUnderwaterTicks += 20;
-        } else {
-            nextUnderwaterTicks = 0;
-        }
-        if (nextUnderwaterTicks > MAX_BREATH_TICKS) {
-            return neighbors; // Prune
-        }
         // Branch logic based on medium (Refactor for 6-Direction Pruning)
         if (request.params().canSwim() && isCurrentWater) {
             getWaterNeighbors(node, currentPos, targetPos, neighbors, nextUnderwaterTicks);
@@ -356,8 +365,6 @@ public class AStarPathfinder {
                     }
                     // Transition to Deep Swim
                     if (NavigationHelper.isPassableForSwim(snapshot, neighbor)) {
-                        if (snapshot.getBlockState(neighbor).isAir())
-                            continue; // Avoid air (Porpoising)
                         if (NavigationHelper.isPassableForSwim(snapshot, neighbor.above())) {
                             if (x != 0 && z != 0 && !NavigationHelper.isDiagonalSwimClear(snapshot, currentPos, neighbor))
                                 continue;
@@ -437,8 +444,10 @@ public class AStarPathfinder {
                             addNeighbor(neighbors, node, walkPos, 0, targetPos);
                         }
                     }
-                } else if (isWater(walkPos) && NavigationHelper.isClear(snapshot, walkPos.above())) {
-                    if (request.params().canSwim() || snapshot.getFluidState(walkPos).isEmpty()) {
+                }
+                // Use isValidSwimmingSpot for robustness
+                else if (NavigationHelper.isValidSwimmingSpot(snapshot, walkPos)) {
+                    if (request.params().canSwim()) { // isWater check implies this usually but explicit is good
                         if (!isDiagonal || isDiagonalMoveClear(currentPos, walkPos)) {
                             addNeighbor(neighbors, node, walkPos, 0, targetPos);
                         }
@@ -462,9 +471,11 @@ public class AStarPathfinder {
                 }
                 boolean isDiagonal = x != 0 && z != 0;
                 BlockPos dropPos = currentPos.offset(x, 0, z);
-                // Use isTraversable/isClear
-                if ((NavigationHelper.isTraversable(snapshot, dropPos) || NavigationHelper.isClear(snapshot, dropPos)) &&
-                        NavigationHelper.isClear(snapshot, dropPos.above())) {
+                // Allow dropping through Water if we can swim
+                boolean isDropStartPassable = NavigationHelper.isTraversable(snapshot, dropPos) ||
+                        NavigationHelper.isClear(snapshot, dropPos) ||
+                        isWater(dropPos);
+                if (isDropStartPassable && NavigationHelper.isClear(snapshot, dropPos.above())) {
                     if (!isDiagonal || isDiagonalMoveClear(currentPos, dropPos)) {
                         BlockPos fallDestination = findLandingSpot(dropPos.below(), request.params().maxFallDistance());
                         if (fallDestination != null && !fallDestination.equals(currentPos)) {
@@ -532,8 +543,14 @@ public class AStarPathfinder {
         BlockPos.MutableBlockPos fallColumnPos = new BlockPos.MutableBlockPos(landingPos.getX(), 0, landingPos.getZ());
         for (int y = takeoffPos.getY(); y >= landingPos.getY(); y--) {
             fallColumnPos.setY(y);
-            // Use isTraversable/isClear
-            if (!NavigationHelper.isTraversable(snapshot, fallColumnPos) && !NavigationHelper.isClear(snapshot, fallColumnPos)) {
+            // Context-Aware Fall Check.
+            // 1. Traversable (Carpet/Slab) -> OK
+            // 2. Clear (Air/Grass) -> OK
+            // 3. Water (if canSwim) -> OK
+            boolean isPassable = NavigationHelper.isTraversable(snapshot, fallColumnPos) ||
+                    NavigationHelper.isClear(snapshot, fallColumnPos) ||
+                    isWater(fallColumnPos);
+            if (!isPassable) {
                 return false;
             }
             if (!NavigationHelper.isClear(snapshot, fallColumnPos.above())) {
@@ -578,16 +595,17 @@ public class AStarPathfinder {
         double totalCost = horizontalCost + verticalCost;
         boolean toWater = isWater(to);
         boolean fromWater = isWater(from);
-        boolean toWadable = NavigationHelper.isWadable(snapshot, to);
         if (toWater) {
-            if (toWadable) {
+            if (NavigationHelper.isWadable(snapshot, to)) {
                 totalCost *= 1.2; // Wading is slightly harder than walking
             } else {
-                totalCost *= 4.0; // Swimming is expensive (drag)
-            }
-            // Penalize Diving (moving down in water) to prefer surface
-            if (dy < 0 && fromWater) {
-                totalCost += 2.0;
+                // Tiered Water Costs:
+                // Surface (1.5) vs Deep (2.5) creates natural pressure to surface.
+                if (isSurface(to)) {
+                    totalCost *= 1.5; // Surface Swim (The Highway)
+                } else {
+                    totalCost *= 2.5; // Deep Swim (The Pressure)
+                }
             }
         }
         // Water-Land Transitions
@@ -609,8 +627,9 @@ public class AStarPathfinder {
     }
 
     private double getHeuristic(BlockPos a, BlockPos b) {
-        // Manhattan distance is a good, fast heuristic for grid-based worlds
-        return Math.abs(a.getX() - b.getX()) + Math.abs(a.getY() - b.getY()) + Math.abs(a.getZ() - b.getZ());
+        // Weighted A* (1.6) to bias exploration towards the target ("The Shove")
+        // This helps punch through the resistance of water costs.
+        return (Math.abs(a.getX() - b.getX()) + Math.abs(a.getY() - b.getY()) + Math.abs(a.getZ() - b.getZ())) * 1.6;
     }
 
     private static class Node implements Comparable<Node> {
