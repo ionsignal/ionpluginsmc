@@ -78,7 +78,7 @@ public final class NavigationHelper {
      */
     public static boolean isClear(BlockGetter level, BlockPos pos) {
         BlockClassification type = BlockClassification.classify(level, pos);
-        return type == BlockClassification.OPEN || type == BlockClassification.PHANTOM;
+        return type == BlockClassification.OPEN || type == BlockClassification.PHANTOM || type == BlockClassification.FLUID;
     }
 
     /**
@@ -124,6 +124,18 @@ public final class NavigationHelper {
             }
         }
         return true;
+    }
+
+    /**
+     * Checks if a given block is a valid spot for a Persona to swim in.
+     * Requires: Feet in Fluid, Head in Fluid/Air/Phantom.
+     */
+    public static boolean isValidSwimmingSpot(BlockGetter level, BlockPos pos) {
+        if (BlockClassification.classify(level, pos) != BlockClassification.FLUID) {
+            return false;
+        }
+        // Head must be passable for swimming (Fluid, Air, or Phantom)
+        return isPassableForSwim(level, pos.above());
     }
 
     /**
@@ -357,9 +369,16 @@ public final class NavigationHelper {
             return bestNode;
         // Tier 3: Gravity Scan (Deep Scan)
         // Fallback to the original resolveGround logic which scans straight down from feet
-        BlockPos gravityNode = resolveGround(level, feetPos, params.maxFallDistance());
-        if (gravityNode != null && isValidStandingSpot(level, gravityNode)) {
-            return gravityNode;
+        // Updated to pass params for fluid support
+        BlockPos gravityNode = resolveGround(level, feetPos, params.maxFallDistance(), params);
+        if (gravityNode != null) {
+            // Check standing OR swimming
+            if (isValidStandingSpot(level, gravityNode)) {
+                return gravityNode;
+            }
+            if (params.canSwim() && isValidSwimmingSpot(level, gravityNode)) {
+                return gravityNode;
+            }
         }
         // Tier 4: Fallback
         // If physics fails, trust the integer grid if it looks vaguely valid
@@ -379,9 +398,11 @@ public final class NavigationHelper {
      *            The starting block position (usually entity feet).
      * @param maxDrop
      *            Maximum blocks to scan downwards.
+     * @param params
+     *            Navigation parameters (to check for swimming ability).
      * @return The resolved BlockPos of the node, or null if no valid ground found.
      */
-    public static BlockPos resolveGround(BlockGetter level, BlockPos nominalStart, int maxDrop) {
+    public static BlockPos resolveGround(BlockGetter level, BlockPos nominalStart, int maxDrop, NavigationParameters params) {
         // Start scanning from the Head (y+1) to handle being inside Double-Tall Grass
         BlockPos.MutableBlockPos cursor = nominalStart.mutable().move(Direction.UP);
         for (int i = 0; i < maxDrop + 2; i++) { // +2 covers Head and Feet
@@ -396,8 +417,12 @@ public final class NavigationHelper {
                     // We hit a Carpet/Slab. This IS the node.
                     return cursor.immutable();
                 case FLUID:
-                    // We hit water/lava. Not valid ground for walking.
-                    return null;
+                    // We hit water/lava.
+                    // Fix: If we hit fluid and can swim, that IS the "ground" (surface).
+                    if (params.canSwim()) {
+                        return cursor.immutable();
+                    }
+                    return null; // Not valid ground for walking.
                 case OPEN:
                 case PHANTOM:
                     // Air or Grass. Continue falling.

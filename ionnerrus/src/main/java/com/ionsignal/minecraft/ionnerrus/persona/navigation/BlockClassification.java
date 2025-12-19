@@ -29,22 +29,26 @@ public enum BlockClassification {
         if (state.isAir()) {
             return OPEN;
         }
-        // Check Fluid (Visual check not sufficient, must check state)
-        if (!state.getFluidState().isEmpty()) {
-            return FLUID;
-        }
+        // Check Phantom/Collision BEFORE Fluid.
+        // A Waterlogged Fence has collision, so it is SUPPORTING/SOLID, not FLUID.
+        // A Waterlogged Slab (Bottom) has collision, so it is TRAVERSABLE, not FLUID.
+        // A Waterlogged Sign has NO collision, so it remains FLUID.
         // Check Phantom (Empty Collision)
-        // Critical for Open Fence Gates and Vegetation
+        // Critical for Open Fence Gates, Vegetation, and Waterlogged non-colliding blocks (Kelp, Signs)
         if (NavigationHelper.getMaxCollisionHeight(level, pos) <= 0.0) {
+            // If it has fluid, it's FLUID (swimmable). If not, it's PHANTOM (walkable/passable).
+            if (!state.getFluidState().isEmpty()) {
+                return FLUID;
+            }
             return PHANTOM;
         }
         // Check Traversable (Step Height)
-        // Handles Carpets, Snow Layers, Bottom Slabs
+        // Handles Carpets, Snow Layers, Bottom Slabs (Waterlogged or not)
         if (NavigationHelper.getMaxCollisionHeight(level, pos) <= NavigationHelper.MAX_STEP_HEIGHT) {
             return TRAVERSABLE;
         }
         // Check Supporting (Tags)
-        // Handles Fences, Walls, Closed Gates (High collision but not solid full block)
+        // Handles Fences, Walls, Closed Gates
         if (state.is(BlockTags.FENCES) || state.is(BlockTags.WALLS) || state.is(BlockTags.FENCE_GATES)) {
             return SUPPORTING;
         }
