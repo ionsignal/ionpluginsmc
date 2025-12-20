@@ -23,13 +23,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 public class AStarPathfinder {
-    private static final int TARGET_VERTICAL_SEARCH_RANGE = 10;
+    private static final int TARGET_VERTICAL_SEARCH_RANGE = 25;
     private static final double WARN_THRESHOLD_MS = 250.0;
     private static final Logger LOGGER = IonNerrus.getInstance().getLogger();
 
     private final PathfindingRequest request;
     private final WorldSnapshot snapshot;
     private final ExecutionToken token;
+
+    private double heuristicWeight = 1.6;
 
     private AStarPathfinder(PathfindingRequest request, WorldSnapshot snapshot, ExecutionToken token) {
         this.request = request;
@@ -87,12 +89,19 @@ public class AStarPathfinder {
             LOGGER.info("Could not find valid ground for end position.");
             return Optional.empty();
         }
+        // If we are starting in water AND ending in water increase heuristic to reduce iterations.
+        if (isWater(actualStartPos) && isWater(actualEndPos)) {
+            heuristicWeight = 2.5;
+        } else {
+            heuristicWeight = 1.6;
+        }
         // Setup A*
         PriorityQueue<Node> openSet = new PriorityQueue<>();
         Map<BlockPos, Node> allNodes = new HashMap<>();
         Node startNode = new Node(actualStartPos, null, 0, getHeuristic(actualStartPos, actualEndPos), 0);
         openSet.add(startNode);
         allNodes.put(actualStartPos, startNode);
+        double verticalOffset = request.end().getY() - actualEndPos.getY();
         long startTime = System.nanoTime();
         int iterations = 0;
         int maxIterations = request.params().maxIterations();
@@ -102,7 +111,7 @@ public class AStarPathfinder {
             }
             Node currentNode = openSet.poll();
             if (currentNode.pos.equals(actualEndPos)) {
-                Path path = reconstructAndEnrichPath(currentNode);
+                Path path = reconstructAndEnrichPath(currentNode, verticalOffset);
                 // Performance Logging
                 long endTime = System.nanoTime();
                 double durationMillis = (endTime - startTime) / 1_000_000.0;
@@ -128,7 +137,7 @@ public class AStarPathfinder {
     /**
      * Calculates metadata clearance, movement type, apex radius for each node.
      */
-    private Path reconstructAndEnrichPath(Node endNode) {
+    private Path reconstructAndEnrichPath(Node endNode, double verticalOffset) {
         LinkedList<BlockPos> rawPositions = new LinkedList<>();
         Node currentNode = endNode;
         while (currentNode != null) {
@@ -149,7 +158,7 @@ public class AStarPathfinder {
             enrichedNodes.add(new PathNode(current, type, clearance, apexRadius, surfaceHeight));
         }
         // Safe Splice: Pass the exact start location from the request
-        return new Path(request.start(), enrichedNodes, request.start().getWorld());
+        return new Path(request.start(), enrichedNodes, request.start().getWorld(), verticalOffset);
     }
 
     private MovementType determineMovementType(BlockPos current, BlockPos next) {
@@ -348,7 +357,7 @@ public class AStarPathfinder {
      */
     @SuppressWarnings("null")
     private void getWaterNeighbors(Node node, BlockPos currentPos, BlockPos targetPos, List<Node> neighbors, int nextUnderwaterTicks) {
-        // M-2: Hybrid Wading (8-Direction Horizontal + Vertical)
+        // Hybrid Wading (8-Direction Horizontal + Vertical)
         // If wadable, we treat it like land walking but inside fluid to handle organic shores.
         if (NavigationHelper.isWadable(snapshot, currentPos)) {
             for (int x = -1; x <= 1; x++) {
@@ -391,10 +400,10 @@ public class AStarPathfinder {
             }
             return;
         }
-        // M-1: Deep Swim (10-Neighbor Rule: 6 Cardinals + 4 Jump Exits)
+        // Deep Swim (10-Neighbor Rule: 6 Cardinals + 4 Jump Exits)
         for (Direction dir : Direction.values()) {
             BlockPos neighbor = currentPos.relative(dir);
-            // 1. Swim (Cardinal)
+            // Swim (Cardinal)
             if (NavigationHelper.isPassableForSwim(snapshot, neighbor)) {
                 // Prevent swimming into Air (Porpoising) unless it's a surface transition
                 if (!snapshot.getBlockState(neighbor).isAir()) {
@@ -404,7 +413,7 @@ public class AStarPathfinder {
                     }
                 }
             }
-            // 2. Exit to Land (Horizontal Cardinals only)
+            // Exit to Land (Horizontal Cardinals only)
             if (dir.getAxis().isHorizontal()) {
                 // Direct Step Out
                 if (!isWater(neighbor) && NavigationHelper.isValidStandingSpot(snapshot, neighbor)) {
@@ -629,7 +638,7 @@ public class AStarPathfinder {
     private double getHeuristic(BlockPos a, BlockPos b) {
         // Weighted A* (1.6) to bias exploration towards the target ("The Shove")
         // This helps punch through the resistance of water costs.
-        return (Math.abs(a.getX() - b.getX()) + Math.abs(a.getY() - b.getY()) + Math.abs(a.getZ() - b.getZ())) * 1.6;
+        return (Math.abs(a.getX() - b.getX()) + Math.abs(a.getY() - b.getY()) + Math.abs(a.getZ() - b.getZ())) * heuristicWeight;
     }
 
     private static class Node implements Comparable<Node> {

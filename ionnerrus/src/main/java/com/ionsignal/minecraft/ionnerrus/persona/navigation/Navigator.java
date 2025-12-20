@@ -37,7 +37,8 @@ public class Navigator {
     private static final double DECELERATION_DISTANCE_SQUARED = DECELERATION_DISTANCE * DECELERATION_DISTANCE;
 
     // Repath constants
-    private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = 144.0;
+    private static final double FOLLOW_DISTANCE_THRESHOLD = 5;
+    private static final double FOLLOW_DISTANCE_THRESHOLD_SQUARED = FOLLOW_DISTANCE_THRESHOLD * FOLLOW_DISTANCE_THRESHOLD;
 
     // Tactical Steering constants
     private static final int TACTICAL_STEERING_THROTTLE_TICKS = 5;
@@ -398,14 +399,24 @@ public class Navigator {
                 this.pathFollower = null;
             }
         } else {
-            // Target moved from path end
-            boolean needsRepath = currentFollowPath == null ||
-                    pathFollower == null || pathFollower.isFinished(agentLocation) ||
-                    currentFollowPath
-                            .getPointAtDistance(currentFollowPath.getLength())
-                            .distanceSquared(targetLocation) > FOLLOW_DISTANCE_THRESHOLD_SQUARED;
-            if (needsRepath) {
+            if (currentFollowPath == null || pathFollower == null || pathFollower.isFinished(agentLocation)) {
                 finishPathing(MovementResult.REPATH_NEEDED);
+                return;
+            }
+            // Target moved from path end
+            Location pathEnd = currentFollowPath.getPointAtDistance(currentFollowPath.getLength());
+            double dx = pathEnd.getX() - targetLocation.getX();
+            double dz = pathEnd.getZ() - targetLocation.getZ();
+            // Raw vertical difference and adjusted vertical difference
+            double rawDy = targetLocation.getY() - pathEnd.getY();
+            double adjustedDy = rawDy - currentFollowPath.getVerticalOffset();
+            double adjustedDistSq = (dx * dx) + (dz * dz) + (adjustedDy * adjustedDy);
+            if (adjustedDistSq > FOLLOW_DISTANCE_THRESHOLD_SQUARED) {
+                finishPathing(MovementResult.REPATH_NEEDED);
+                return;
+            }
+            if (pathFollower.isFinished(agentLocation)) {
+                locomotion.stop();
                 return;
             }
             if (pathFollower != null && currentFollowPath != null) {
