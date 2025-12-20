@@ -22,6 +22,7 @@ public class Path {
     private final List<PathNode> nodes;
 
     // Cached data for spline interpolation
+    private final double verticalOffset;
     private final double totalLength;
     private final double[] cumulativeDistances;
 
@@ -35,9 +36,10 @@ public class Path {
     /**
      * Constructs a new Path from enriched PathNodes with a "Safe Splice" from the exact start.
      */
-    public Path(Location actualStart, List<PathNode> nodes, World world) {
+    public Path(Location actualStart, List<PathNode> nodes, World world, double verticalOffset) {
         this.world = world;
         this.startLocation = actualStart;
+        this.verticalOffset = verticalOffset;
         this.nodes = Collections.unmodifiableList(nodes);
         // Initialize Lookup Maps
         this.nodeMap = new HashMap<>(nodes.size());
@@ -185,6 +187,10 @@ public class Path {
 
     public World getWorld() {
         return world;
+    }
+
+    public double getVerticalOffset() {
+        return verticalOffset;
     }
 
     public List<Location> waypoints() {
