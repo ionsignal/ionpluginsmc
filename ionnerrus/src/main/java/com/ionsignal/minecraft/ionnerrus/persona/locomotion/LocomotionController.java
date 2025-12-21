@@ -71,7 +71,7 @@ public class LocomotionController {
             switch (currentIntent.movementType()) {
                 case SWIM -> handleSwim(currentIntent, currentSpeed);
                 case WALK -> handleStandardMovement(currentIntent, currentSpeed);
-                case WADE -> handleStandardMovement(currentIntent, currentSpeed); // Wading uses walking physics
+                case WADE -> handleStandardMovement(currentIntent, currentSpeed);
                 case JUMP -> startManeuver(new JumpManeuver(currentIntent.target()));
                 case DROP -> startManeuver(new DropManeuver(currentIntent.target()));
                 case WATER_EXIT -> startManeuver(new WaterExitManeuver(currentIntent.target()));
@@ -131,7 +131,9 @@ public class LocomotionController {
         // This prevents "driving into the floor" friction.
         Location target = intent.target();
         double wantedY = target.getY();
-        if (!entity.onClimbable() && !entity.isInWater()) {
+        // This ensures we stick to the seabed instead of bobbing or swimming down.
+        boolean isWading = (intent.movementType() == SteeringResult.MovementType.WADE);
+        if (!entity.onClimbable() && (!entity.isInWater() || isWading)) {
             if (wantedY < entity.getY()) {
                 wantedY = entity.getY();
             }
