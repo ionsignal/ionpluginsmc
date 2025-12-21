@@ -19,6 +19,7 @@ import com.ionsignal.minecraft.ionnerrus.util.search.strategy.StandardMovement;
 
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
@@ -300,7 +301,7 @@ public class FindCollectableBlockSkill implements Skill<FindCollectableBlockResu
         }
 
         private boolean checkOcclusion(WorldSnapshot snapshot, Vector start, Vector end, BlockPos targetPos) {
-            BlockHitResult hit = snapshot.rayTrace(start, end);
+            BlockHitResult hit = snapshot.rayTrace(start, end, ClipContext.Block.COLLIDER);
             if (hit.getType() == HitResult.Type.MISS) {
                 return false; // Clear view
             }

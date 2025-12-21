@@ -17,6 +17,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
@@ -70,7 +71,7 @@ public class BreakBlockSkill implements Skill<BreakBlockResult> {
             Level nmsLevel = ((CraftWorld) blockLocation.getWorld()).getHandle();
             Vec3 startVec = new Vec3(eyeLoc.getX(), eyeLoc.getY(), eyeLoc.getZ());
             Vec3 endVec = new Vec3(targetCenter.getX(), targetCenter.getY(), targetCenter.getZ());
-            BlockHitResult hitResult = NavigationHelper.rayTrace(nmsLevel, startVec, endVec);
+            BlockHitResult hitResult = NavigationHelper.rayTrace(nmsLevel, startVec, endVec, ClipContext.Block.OUTLINE);
             if (hitResult.getType() != HitResult.Type.MISS) {
                 BlockPos hitPos = hitResult.getBlockPos();
                 // If we hit a block that is NOT our target block, we are obstructed.

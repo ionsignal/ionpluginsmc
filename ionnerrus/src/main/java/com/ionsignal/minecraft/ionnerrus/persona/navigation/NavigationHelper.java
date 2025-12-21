@@ -37,14 +37,14 @@ public final class NavigationHelper {
      *            The starting vector.
      * @param end
      *            The ending vector.
+     * @param type
+     *            The clip context collision type (collider/outline).
      * @return The hit result. If type is MISS, the path is clear.
      */
     @SuppressWarnings("null")
-    public static BlockHitResult rayTrace(BlockGetter level, Vec3 start, Vec3 end) {
+    public static BlockHitResult rayTrace(BlockGetter level, Vec3 start, Vec3 end, ClipContext.Block type) {
         return level.clip(new ClipContext(
-                start,
-                end,
-                ClipContext.Block.COLLIDER,
+                start, end, type,
                 ClipContext.Fluid.NONE,
                 CollisionContext.empty()));
     }
@@ -78,7 +78,9 @@ public final class NavigationHelper {
      */
     public static boolean isClear(BlockGetter level, BlockPos pos) {
         BlockClassification type = BlockClassification.classify(level, pos);
-        return type == BlockClassification.OPEN || type == BlockClassification.PHANTOM || type == BlockClassification.FLUID;
+        return type == BlockClassification.OPEN ||
+                type == BlockClassification.PHANTOM ||
+                type == BlockClassification.FLUID;
     }
 
     /**
