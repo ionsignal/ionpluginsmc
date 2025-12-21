@@ -185,16 +185,19 @@ public class AStarPathfinder {
         // Water/Wade -> Water/Wade
         if (currentWater || nextWater) {
             // If starting on Land and ending in Water, use gravity/walking physics.
+            int yDiff = next.getY() - current.getY();
             if (!currentWater && nextWater) {
                 // Mitigation B: Check Wading first
                 if (NavigationHelper.isWadable(snapshot, next)) {
                     return MovementType.WADE;
                 }
-                int yDiff = next.getY() - current.getY();
                 // If falling more than 1 block, it's a DROP.
                 if (yDiff < -1)
                     return MovementType.DROP;
                 // Return SWIM for deep water entry to trigger proper physics
+                return MovementType.SWIM;
+            }
+            if (yDiff > 0) {
                 return MovementType.SWIM;
             }
             // If destination is specifically wadable (shallow with floor), prefer WADE
