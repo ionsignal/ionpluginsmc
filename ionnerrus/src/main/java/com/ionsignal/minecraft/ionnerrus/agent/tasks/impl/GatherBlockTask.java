@@ -50,7 +50,7 @@ import java.util.logging.Logger;
 public class GatherBlockTask implements Task {
     private static final boolean DEBUG_VISUALIZATION = true;
     private static final int MAX_REPOSITION_ATTEMPTS = 1;
-    private static final int MAX_OBSTRUCTION_DEPTH = 1;
+    private static final int MAX_OBSTRUCTION_DEPTH = 3;
     private static final int MAX_NAVIGATION_RETRIES = 3;
     private static final int MAX_COLLECTION_RETRIES = 2;
     private static final double FAST_MODE_DIST = 3.0;
