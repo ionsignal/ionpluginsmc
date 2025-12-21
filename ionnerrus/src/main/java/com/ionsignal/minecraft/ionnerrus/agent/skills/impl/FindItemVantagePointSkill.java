@@ -13,6 +13,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.navigation.WorldSnapshot;
 import com.ionsignal.minecraft.ionnerrus.util.search.ScanOffsets;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
@@ -155,7 +156,7 @@ public class FindItemVantagePointSkill implements Skill<Optional<Path>> { // Cha
     }
 
     private boolean hasLineOfSight(WorldSnapshot snapshot, Vector start, Vector end, BlockPos originBlock) {
-        BlockHitResult hit = snapshot.rayTrace(start, end);
+        BlockHitResult hit = snapshot.rayTrace(start, end, ClipContext.Block.COLLIDER);
         if (hit.getType() == HitResult.Type.MISS) {
             return true;
         }

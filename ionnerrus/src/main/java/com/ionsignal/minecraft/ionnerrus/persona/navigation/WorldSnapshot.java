@@ -1,3 +1,4 @@
+// src/main/java/com/ionsignal/minecraft/ionnerrus/persona/navigation/WorldSnapshot.java
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
@@ -134,17 +135,17 @@ public class WorldSnapshot implements BlockGetter {
      *            The starting vector (e.g., Eye Location).
      * @param end
      *            The ending vector (e.g., Target Block Center).
+     * @param type
+     *            The collision type to check (COLLIDER/OUTLINE).
      * 
      * @return The NMS BlockHitResult containing the position and face of block hit, or a Miss result.
      */
     @SuppressWarnings("null")
-    public BlockHitResult rayTrace(Vector start, Vector end) {
+    public BlockHitResult rayTrace(Vector start, Vector end, ClipContext.Block type) {
         Vec3 startVec = new Vec3(start.getX(), start.getY(), start.getZ());
         Vec3 endVec = new Vec3(end.getX(), end.getY(), end.getZ());
         return this.clip(new ClipContext(
-                startVec,
-                endVec,
-                ClipContext.Block.COLLIDER,
+                startVec, endVec, type,
                 ClipContext.Fluid.NONE,
                 CollisionContext.empty()));
     }
@@ -221,8 +222,9 @@ public class WorldSnapshot implements BlockGetter {
     }
 
     /**
-     * Raycasts downwards through the snapshot to find a solid landing surface.
-     * This method is thread-safe and operates on the frozen snapshot data.
+     * Raycasts downwards through the snapshot to find a solid landing surface using thread-safe
+     * operations on the frozen snapshot data. Cross-reference with BlockClassification to correctly
+     * handle non-solid blocks like Tall Grass, Ferns, and Carpets.
      *
      * @param startLocation
      *            The starting location (e.g., item entity position).
@@ -237,16 +239,32 @@ public class WorldSnapshot implements BlockGetter {
                 startLocation.getBlockY(),
                 startLocation.getBlockZ());
         for (int i = 0; i < maxDepth; i++) {
-            BlockState state = this.getBlockState(pos);
-            if (!state.isAir()) {
-                if (!state.getFluidState().isEmpty()) {
+            // Use robust classification instead of naive !isAir()
+            BlockClassification type = BlockClassification.classify(this, pos);
+            switch (type) {
+                case SOLID:
+                case SUPPORTING:
+                    // Found solid ground. The standing spot is the block ABOVE.
+                    return Optional.of(new Location(
+                            startLocation.getWorld(),
+                            pos.getX() + 0.5,
+                            pos.getY() + 1.0,
+                            pos.getZ() + 0.5));
+                case TRAVERSABLE:
+                    // Found a carpet/slab. The standing spot is THIS block.
+                    // Returning +0.0 ensures we don't float above the carpet.
+                    return Optional.of(new Location(
+                            startLocation.getWorld(),
+                            pos.getX() + 0.5,
+                            pos.getY() + 0.0,
+                            pos.getZ() + 0.5));
+                case FLUID:
+                    // Cannot stand on fluid (unless we add swimming logic here later)
                     return Optional.empty();
-                }
-                return Optional.of(new Location(
-                        startLocation.getWorld(),
-                        pos.getX() + 0.5,
-                        pos.getY() + 1.0,
-                        pos.getZ() + 0.5));
+                case OPEN:
+                case PHANTOM:
+                    // Air, Grass, Flowers, etc. Keep falling.
+                    break;
             }
             pos.move(Direction.DOWN);
         }
