@@ -2,7 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
-//import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -50,7 +50,7 @@ public class NerrusAgent {
     private final GoalFactory goalFactory;
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
-    // private final AutonomyEngine autonomyEngine;
+    private final AutonomyEngine autonomyEngine;
     private final NetworkBroadcaster broadcaster;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
@@ -94,7 +94,7 @@ public class NerrusAgent {
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.broadcaster = broadcaster;
-        // this.autonomyEngine = new AutonomyEngine(this);
+        this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
 
@@ -177,6 +177,7 @@ public class NerrusAgent {
             this.currentContext.controller().cancel();
             this.currentContext.goal().stop(this);
             this.currentContext.controller().close();
+            this.currentTask = null;
         }
         if (!goalStack.isEmpty()) {
             plugin.getLogger().info(String.format("[%s] Cancelling goal stack (size: %d)", getName(), goalStack.size()));
@@ -256,6 +257,10 @@ public class NerrusAgent {
     }
 
     private void handleTaskCompleted(Task finishedTask, Optional<Throwable> error) {
+        // Guard against cross-talk if task was cleared by interrupt
+        if (this.currentTask == null) {
+            return;
+        }
         if (this.currentTask != finishedTask) {
             plugin.getLogger().info(String.format("[%s] Ignoring completion of stale task: %s (Current: %s)",
                     getName(),
@@ -334,21 +339,19 @@ public class NerrusAgent {
     }
 
     private void processNextStep() {
-        // If the agent has no active goal and no stack, consult the AutonomyEngine.
-        // TODO: INVESTIGATE AND RE-ENABLE AT A LATER DATE
-        // THIS IS NOT CURRENTLY COMPATIBLE OR PROPERLY IMPLEMENTED
-        // if (currentContext == null && goalStack.isEmpty()) {
-        // if (autonomyEngine != null) {
-        // Goal ambientGoal = autonomyEngine.suggestGoal(sensorySystem.getWorkingMemory()).orElse(null);
-        // if (ambientGoal != null) {
-        // plugin.getLogger().info(String.format("[%s] Autonomy engine suggested goal: %s", getName(),
-        // ambientGoal.getClass().getSimpleName()));
-        // // Assign the goal via the message loop to ensure consistent state transitions.
-        // assignGoal(ambientGoal, null);
-        // return;
-        // }
-        // }
-        // }
+        // Autonomy Engine Integration
+        if (currentContext == null && goalStack.isEmpty()) {
+            if (autonomyEngine != null) {
+                Goal ambientGoal = autonomyEngine.suggestGoal(sensorySystem.getWorkingMemory()).orElse(null);
+                if (ambientGoal != null) {
+                    plugin.getLogger().info(String.format("[%s] Autonomy engine suggested goal: %s", getName(),
+                            ambientGoal.getClass().getSimpleName()));
+                    // Assign the goal via the message loop to ensure consistent state transitions.
+                    assignGoal(ambientGoal, null);
+                    return;
+                }
+            }
+        }
         if (currentContext == null) {
             return;
         }
@@ -373,7 +376,6 @@ public class NerrusAgent {
             String status = (result instanceof GoalResult.Success) ? "COMPLETED" : "FAILED";
             String message = result.message();
             broadcaster.broadcastGoalEvent(this, status, completedGoalName, message);
-
             // Also trigger inventory update as goals often change inventory
             broadcaster.broadcastInventory(this);
         }
@@ -457,7 +459,16 @@ public class NerrusAgent {
         // Tick the active task if one exists
         if (currentTask != null && currentContext != null) {
             // Ensure we pass the correct token for the active context
-            currentTask.tick(this, currentContext.token());
+            try {
+                currentTask.tick(this, currentContext.token());
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.SEVERE,
+                        String.format("[%s] Task %s threw an exception during tick. Failing task.",
+                                getName(), currentTask.getClass().getSimpleName()),
+                        e);
+                // Force-fail the task so the agent can recover
+                messages.offer(new TaskCompleted(currentTask, Optional.of(e)));
+            }
         }
     }
 
