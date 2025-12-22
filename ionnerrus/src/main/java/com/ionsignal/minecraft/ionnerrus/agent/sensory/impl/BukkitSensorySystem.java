@@ -9,12 +9,14 @@ import com.ionsignal.minecraft.ionnerrus.agent.sensory.WorkingMemory;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -32,8 +34,12 @@ public class BukkitSensorySystem implements SensorySystem {
     // Concurrency Control
     private long lastScanStartTime = 0;
 
-    // Internal record to pass data from Main Thread Gather -> Async Thread Process
-    private record ScanInput(Location agentEyeLocation, Vector agentDirection, List<Entity> rawEntities, long gameTime) {
+    // Snapshot record for thread safety
+    private record SensorySnapshot(UUID uuid, EntityType type, Location location, Vector velocity, boolean isLiving) {
+    }
+
+    // Use SensorySnapshot instead of Entity
+    private record ScanInput(Location agentEyeLocation, Vector agentDirection, List<SensorySnapshot> snapshots, long gameTime) {
     }
 
     public BukkitSensorySystem(NerrusAgent agent) {
@@ -87,7 +93,7 @@ public class BukkitSensorySystem implements SensorySystem {
     }
 
     /**
-     * STEP 1: Quickly collect raw Bukkit entities and agent state on main thread.
+     * Quickly collect raw Bukkit entities and agent state on main thread.
      */
     private ScanInput gatherRawData() {
         Entity bukkitEntity = agent.getPersona().getEntity();
@@ -102,7 +108,17 @@ public class BukkitSensorySystem implements SensorySystem {
                 config.viewDistanceBlocks(),
                 config.viewDistanceBlocks(),
                 config.viewDistanceBlocks());
-        return new ScanInput(eyeLoc, direction, nearby, time);
+        // Convert to snapshots to detach from live NMS entities
+        List<SensorySnapshot> snapshots = new ArrayList<>(nearby.size());
+        for (Entity e : nearby) {
+            snapshots.add(new SensorySnapshot(
+                    e.getUniqueId(),
+                    e.getType(),
+                    e.getLocation().clone(),
+                    e.getVelocity().clone(),
+                    e instanceof LivingEntity));
+        }
+        return new ScanInput(eyeLoc, direction, snapshots, time);
     }
 
     /**
@@ -116,11 +132,12 @@ public class BukkitSensorySystem implements SensorySystem {
         SensoryEntity bestTarget = null;
         double closestDistSq = Double.MAX_VALUE;
         double fovCos = Math.cos(Math.toRadians(config.fieldOfViewDegrees() / 2.0));
-        for (Entity raw : input.rawEntities) {
+        // Iterate snapshots instead of raw entities
+        for (SensorySnapshot snapshot : input.snapshots) {
             // Filter out self (just in case)
-            if (raw.getUniqueId().equals(agent.getPersona().getUniqueId()))
+            if (snapshot.uuid().equals(agent.getPersona().getUniqueId()))
                 continue;
-            Location targetLoc = raw.getLocation();
+            Location targetLoc = snapshot.location(); // Safe clone
             Vector toTarget = targetLoc.toVector().subtract(input.agentEyeLocation.toVector());
             double distSq = toTarget.lengthSquared();
             // Normalize for dot product
@@ -130,15 +147,15 @@ public class BukkitSensorySystem implements SensorySystem {
             boolean isVisible = dot >= fovCos;
             // Create immutable snapshot
             SensoryEntity sensoryEntity = new SensoryEntity(
-                    raw.getUniqueId(),
-                    raw.getType(),
-                    targetLoc, // Location is cloneable/safe if created fresh or cloned
-                    raw.getVelocity(),
+                    snapshot.uuid(),
+                    snapshot.type(),
+                    targetLoc,
+                    snapshot.velocity(),
                     isVisible);
             if (isVisible) {
                 visibleEntities.add(sensoryEntity);
                 // Simple attention logic: Closest visible LivingEntity
-                if (raw instanceof LivingEntity && distSq < closestDistSq) {
+                if (snapshot.isLiving() && distSq < closestDistSq) {
                     closestDistSq = distSq;
                     bestTarget = sensoryEntity;
                 }

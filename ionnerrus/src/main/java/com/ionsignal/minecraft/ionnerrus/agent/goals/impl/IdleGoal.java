@@ -35,6 +35,10 @@ public class IdleGoal implements Goal {
             agent.setCurrentTask(new PerformIdleTask(IDLE_CYCLE_TICKS));
             hasRunTask = true;
         } else {
+            // Defensive check. If the task is still running, we are not finished.
+            if (agent.getCurrentTask() != null) {
+                return;
+            }
             // If we are back in process() and hasRunTask is true, it means the task
             // has completed successfully (via NerrusAgent.handleTaskCompleted).
             // We can now mark this goal as finished to allow Autonomy to run again.
