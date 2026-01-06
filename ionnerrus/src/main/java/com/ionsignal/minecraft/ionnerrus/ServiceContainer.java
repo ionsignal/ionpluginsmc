@@ -8,7 +8,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap;
-import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkEventListener;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
@@ -151,9 +150,10 @@ public class ServiceContainer {
             NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService);
             netBootstrap.registerAll();
             // Listener (Events to Web)
-            plugin.getServer().getPluginManager().registerEvents(
-                    new NetworkEventListener(),
-                    plugin);
+            // PHASE 0: Disabled to prevent errors until DB layer is ready
+            // plugin.getServer().getPluginManager().registerEvents(new NetworkEventListener(), plugin);
+            plugin.getLogger().info("Network Integration: Listeners paused for Phase 0 migration.");
+            
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
             e.printStackTrace();

@@ -8,7 +8,7 @@ import com.ionsignal.minecraft.ionnerrus.network.messages.InventoryUpdate;
 
 /**
  * Handles the broadcasting of DISCRETE EVENTS to the IonCore network layer.
- * Continuous telemetry (position, health) is now handled by AgentTelemetrySource.
+ * Continuous telemetry (position, health) is handled by the AgentService loop.
  */
 public class NetworkBroadcaster {
     @SuppressWarnings("unused")
@@ -22,7 +22,8 @@ public class NetworkBroadcaster {
         if (!agent.getPersona().isSpawned())
             return;
         InventoryUpdate record = InventoryUpdate.from(agent);
-        IonCore.getInstance().getServiceContainer().broadcast("AGENT_INVENTORY", record);
+        // UPDATED: Use getEventBus().broadcast()
+        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_INVENTORY", record);
     }
 
     public void broadcastGoalEvent(NerrusAgent agent, String eventType, String goalName, String message) {
@@ -34,6 +35,7 @@ public class NetworkBroadcaster {
                 goalName,
                 message,
                 System.currentTimeMillis());
-        IonCore.getInstance().getServiceContainer().broadcast("AGENT_GOAL_EVENT", event);
+        // UPDATED: Use getEventBus().broadcast()
+        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_GOAL_EVENT", event);
     }
 }
