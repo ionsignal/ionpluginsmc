@@ -24,8 +24,8 @@ val devJar by configurations.creating {
 
 dependencies {
     // Core Dependencies (Shadowed)
-    implementation(libs.java.websocket)
-    implementation(libs.okhttp)
+    implementation("org.postgresql:postgresql:42.7.2")
+    implementation("com.zaxxer:HikariCP:5.1.0")
     implementation(libs.gson)
     
     // Optional: Service Discovery (Shadowed)
@@ -45,11 +45,12 @@ tasks {
     shadowJar {
         // Use empty classifier for the final server-ready jar
         archiveClassifier.set("") 
+        mergeServiceFiles()
         
         // Relocate dependencies to avoid conflicts
         // These match the libraries defined in libs.versions.toml
-        relocate("org.java_websocket", "com.ionsignal.minecraft.ioncore.lib.websocket")
-        relocate("okhttp3", "com.ionsignal.minecraft.ioncore.lib.okhttp3")
+        relocate("com.zaxxer.hikari", "com.ionsignal.minecraft.ioncore.lib.hikari")
+        relocate("org.postgresql", "com.ionsignal.minecraft.ioncore.lib.postgresql")
         relocate("okio", "com.ionsignal.minecraft.ioncore.lib.okio")
         relocate("com.google.gson", "com.ionsignal.minecraft.ioncore.lib.gson")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ioncore.lib.classgraph")
