@@ -16,8 +16,8 @@ public class NetworkEventListener implements Listener {
         AgentState dto = AgentState.from(event.getAgent());
 
         // Broadcast "AGENT_SPAWNED"
-        // The Core container handles the safety check (is connected?)
-        IonCore.getInstance().getServiceContainer().broadcast("AGENT_SPAWNED", dto);
+        // UPDATED: Use getEventBus().broadcast()
+        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_SPAWNED", dto);
     }
 
     @EventHandler
@@ -25,6 +25,7 @@ public class NetworkEventListener implements Listener {
         AgentState dto = AgentState.from(event.getAgent());
 
         // Broadcast "AGENT_REMOVED"
-        IonCore.getInstance().getServiceContainer().broadcast("AGENT_REMOVED", dto);
+        // UPDATED: Use getEventBus().broadcast()
+        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_REMOVED", dto);
     }
 }

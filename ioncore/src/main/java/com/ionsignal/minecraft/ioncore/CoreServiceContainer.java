@@ -1,155 +1,111 @@
 package com.ionsignal.minecraft.ioncore;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
+import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
-import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
-import com.ionsignal.minecraft.ioncore.network.IonCoreWebSocketClient;
-import com.ionsignal.minecraft.ioncore.network.IonCoreWebSocketServer;
-import com.ionsignal.minecraft.ioncore.network.NetworkCommandRegistrar;
+import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 import com.ionsignal.minecraft.ioncore.telemetry.TelemetryManager;
-
-import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.NotNull;
 
 /**
- * Service Container for IonCore.
- * Acts as the Composition Root, managing the lifecycle of all subsystems (Debug, Networking,
- * Telemetry) in a strict dependency order.
+ * Dependency Injection Root for IonCore.
+ * <p>
+ * MIGRATION STATUS: Phase 5 (PostgreSQL Bus)
+ * - Removed: WebSocketServer, WebSocketClient
+ * - Added: DatabaseManager, PostgresEventBus
+ * - Retained: DebugSessionRegistry, VisualizationProviderRegistry
  */
-public class CoreServiceContainer {
-    private final IonCore plugin;
-    private final Gson gson;
+public final class CoreServiceContainer {
 
-    // Subsystems
-    private final NetworkCommandRegistrar commandRegistrar;
-    private DebugSessionRegistry debugRegistry;
-    private VisualizationProviderRegistry visualizationRegistry;
+    private final IonCore plugin;
+    
+    // Network & Data Services
+    private DatabaseManager databaseManager;
+    private PostgresEventBus eventBus;
     private TelemetryManager telemetryManager;
 
-    // Networking State
-    private IonCoreWebSocketClient webSocket;
-    private IonCoreWebSocketServer webSocketServer;
+    // Debug & Visualization Services
+    private DebugSessionRegistry debugRegistry;
+    private VisualizationProviderRegistry visualizationRegistry;
 
     public CoreServiceContainer(IonCore plugin) {
         this.plugin = plugin;
-        this.gson = new Gson();
-        // Registrar is initialized early as it has no external dependencies
-        this.commandRegistrar = new NetworkCommandRegistrar(plugin.getLogger());
     }
 
-    /**
-     * Initializes all services in strict dependency order.
-     * 
-     * @throws ServiceInitializationException
-     *             if a critical component fails.
-     */
     public void initialize() {
+        plugin.getLogger().info("Initializing Core Services...");
+
         try {
-            // Initialize Debug Subsystem (Base Layer)
+            // 1. Database Infrastructure (The Hardware)
+            this.databaseManager = new DatabaseManager(plugin);
+            this.databaseManager.initialize();
+
+            // 2. Event Bus (The Network)
+            this.eventBus = new PostgresEventBus(plugin, databaseManager);
+            this.eventBus.initialize();
+
+            // 3. Telemetry (The Application Layer)
+            this.telemetryManager = new TelemetryManager(plugin);
+            this.telemetryManager.setEventBus(eventBus);
+
+            // 4. Debug & Visualization (Restored)
             this.debugRegistry = new DebugSessionRegistry();
             this.visualizationRegistry = new VisualizationProviderRegistry();
-            // Start Visualization Task (Depends on Registries)
-            new DebugVisualizationTask(debugRegistry, visualizationRegistry)
-                    .runTaskTimer(plugin, 0L, 1L);
-            // Initialize Networking (Middle Layer)
-            initializeNetworking();
-            // Initialize Telemetry (Top Layer - Depends on Networking)
-            this.telemetryManager = new TelemetryManager(plugin);
-            this.telemetryManager.start();
-            plugin.getLogger().info("Core services initialized successfully.");
-        } catch (Exception e) {
-            throw new ServiceInitializationException("Failed to initialize Core services", e);
-        }
-    }
 
-    private void initializeNetworking() {
-        String mode = plugin.getConfig().getString("mode", "disabled");
-        if ("server".equalsIgnoreCase(mode)) {
-            int port = plugin.getConfig().getInt("server.port", 8088);
-            try {
-                this.webSocketServer = new IonCoreWebSocketServer(port, commandRegistrar);
-                this.webSocketServer.start();
-                plugin.getLogger().info("[IonCore] Running in SERVER mode on port " + port);
-            } catch (Exception e) {
-                plugin.getLogger().severe("[IonCore] Failed to start WebSocket Server: " + e.getMessage());
-            }
-        } else if ("client".equalsIgnoreCase(mode)) {
-            String url = plugin.getConfig().getString("client.broker-url");
-            String key = plugin.getConfig().getString("api-key");
-            try {
-                this.webSocket = new IonCoreWebSocketClient(url, key, plugin, commandRegistrar);
-                this.webSocket.connect();
-            } catch (Exception e) {
-                plugin.getLogger().severe("[IonCore] Failed to connect Client: " + e.getMessage());
-            }
-        } else {
-            plugin.getLogger().info("[IonCore] Networking disabled via config.");
-        }
-    }
+            plugin.getLogger().info("Core Services initialized successfully.");
 
-    /**
-     * Shuts down services in reverse dependency order.
-     */
-    public void shutdown() {
-        // Stop Telemetry (Stop producing data)
-        if (telemetryManager != null) {
-            telemetryManager.stop();
-        }
-        // Shutdown Networking (Stop transmitting data)
-        try {
-            if (webSocket != null)
-                webSocket.close();
-            if (webSocketServer != null)
-                webSocketServer.stop();
         } catch (Exception e) {
+            plugin.getLogger().severe("CRITICAL: Failed to initialize Core Services.");
             e.printStackTrace();
+            // We do not disable the plugin here to allow for debugging, 
+            // but functionality will be severely limited.
         }
-        commandRegistrar.clear();
-        // Cleanup Debug Subsystem (Clear state)
+    }
+
+    public void shutdown() {
+        plugin.getLogger().info("Shutting down Core Services...");
+
+        if (eventBus != null) {
+            eventBus.shutdown();
+        }
+
+        if (databaseManager != null) {
+            databaseManager.shutdown();
+        }
+        
+        // Clear debug sessions if necessary
         if (debugRegistry != null) {
-            int count = debugRegistry.size();
             debugRegistry.clear();
-            if (count > 0)
-                plugin.getLogger().info("Cleaned up " + count + " debug sessions.");
-        }
-        if (visualizationRegistry != null) {
-            visualizationRegistry.clear();
         }
     }
 
-    public NetworkCommandRegistrar getCommandRegistrar() {
-        return commandRegistrar;
+    // --- Accessors ---
+
+    public @NotNull DatabaseManager getDatabaseManager() {
+        if (databaseManager == null) throw new IllegalStateException("DatabaseManager not initialized");
+        return databaseManager;
     }
 
-    public DebugSessionRegistry getDebugRegistry() {
-        return debugRegistry;
+    public @NotNull PostgresEventBus getEventBus() {
+        if (eventBus == null) throw new IllegalStateException("EventBus not initialized");
+        return eventBus;
     }
 
-    public VisualizationProviderRegistry getVisualizationRegistry() {
-        return visualizationRegistry;
-    }
-
-    public TelemetryManager getTelemetryManager() {
+    public @NotNull TelemetryManager getTelemetryManager() {
+        if (telemetryManager == null) throw new IllegalStateException("TelemetryManager not initialized");
         return telemetryManager;
     }
 
-    public void broadcast(String type, Object payload) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                JsonObject envelope = new JsonObject();
-                envelope.addProperty("type", type);
-                envelope.addProperty("timestamp", System.currentTimeMillis());
-                envelope.add("payload", gson.toJsonTree(payload));
-                String jsonStr = gson.toJson(envelope);
-                if (webSocket != null && webSocket.isOpen()) {
-                    webSocket.send(jsonStr);
-                } else if (webSocketServer != null) {
-                    webSocketServer.broadcast(jsonStr);
-                }
-            } catch (Exception e) {
-                // Fail silently in async broadcast
-            }
-        });
+    // --- Restored Accessors ---
+
+    public @NotNull DebugSessionRegistry getDebugRegistry() {
+        // These might be accessed early, so we ensure they exist if init failed partially
+        if (debugRegistry == null) debugRegistry = new DebugSessionRegistry();
+        return debugRegistry;
+    }
+
+    public @NotNull VisualizationProviderRegistry getVisualizationRegistry() {
+        if (visualizationRegistry == null) visualizationRegistry = new VisualizationProviderRegistry();
+        return visualizationRegistry;
     }
 }

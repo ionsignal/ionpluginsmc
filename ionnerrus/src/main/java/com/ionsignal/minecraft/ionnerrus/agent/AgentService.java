@@ -7,8 +7,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
-import com.ionsignal.minecraft.ionnerrus.network.AgentTelemetrySource;
 import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
+import com.ionsignal.minecraft.ionnerrus.network.messages.AgentTelemetry;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -17,6 +17,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
+import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -37,6 +38,8 @@ public class AgentService {
     private final LLMService llmService;
     private final NetworkBroadcaster broadcaster;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
+    
+    private BukkitTask telemetryTask;
 
     public AgentService(IonNerrus plugin, NerrusManager nerrusManager, GoalRegistry goalRegistry, GoalFactory goalFactory,
             LLMService llmService, NetworkBroadcaster broadcaster) {
@@ -46,6 +49,30 @@ public class AgentService {
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.broadcaster = broadcaster;
+        
+        startTelemetryLoop();
+    }
+
+    /**
+     * Starts a repeating task to push agent telemetry to IonCore.
+     * Replaces the old "Register Source" mechanism.
+     */
+    private void startTelemetryLoop() {
+        this.telemetryTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!Bukkit.getPluginManager().isPluginEnabled("IonCore")) return;
+            
+            for (NerrusAgent agent : agents.values()) {
+                if (agent.getPersona().isSpawned()) {
+                    try {
+                        AgentTelemetry telemetry = AgentTelemetry.from(agent);
+                        // Push to IonCore Telemetry Manager
+                        IonCore.getInstance().getTelemetryManager().sendTelemetry("AGENT_STATE", telemetry);
+                    } catch (Exception e) {
+                        // Suppress telemetry errors to avoid console spam
+                    }
+                }
+            }
+        }, 20L, 20L); // Run every 1 second (20 ticks)
     }
 
     /**
@@ -117,7 +144,7 @@ public class AgentService {
 
     /**
      * Internal helper to finalize the spawn process on the main thread.
-     * Applies skin, spawns entity, starts agent loop, and registers telemetry.
+     * Applies skin, spawns entity, starts agent loop.
      */
     private void finalizeSpawn(NerrusAgent agent, Location location, @Nullable SkinData skinData) {
         Persona persona = agent.getPersona();
@@ -134,9 +161,7 @@ public class AgentService {
         try {
             persona.spawn(location);
             agent.start();
-            if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
-                IonCore.getInstance().getTelemetryManager().register(new AgentTelemetrySource(agent));
-            }
+            // REMOVED: Legacy Telemetry Registration
             plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
             Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
         } catch (Exception e) {
@@ -150,9 +175,7 @@ public class AgentService {
     public boolean removeAgent(String name) {
         NerrusAgent agent = findAgentByName(name);
         if (agent != null) {
-            if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
-                IonCore.getInstance().getTelemetryManager().unregister(agent.getPersona().getUniqueId().toString());
-            }
+            // REMOVED: Legacy Telemetry Unregistration
             Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
@@ -181,9 +204,7 @@ public class AgentService {
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
             try {
-                if (Bukkit.getPluginManager().isPluginEnabled("IonCore")) {
-                    IonCore.getInstance().getTelemetryManager().unregister(agent.getPersona().getUniqueId().toString());
-                }
+                // REMOVED: Legacy Telemetry Unregistration
                 personaRegistry.deregister(agent.getPersona());
             } catch (Exception e) {
                 plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());
@@ -195,6 +216,9 @@ public class AgentService {
 
     public void shutdown() {
         plugin.getLogger().info("Shutting down AgentService...");
+        if (telemetryTask != null) {
+            telemetryTask.cancel();
+        }
         if (!agents.isEmpty()) {
             plugin.getLogger().warning("AgentService.shutdown() found " + agents.size() + " remaining agents - this shouldn't happen!");
             despawnAll();

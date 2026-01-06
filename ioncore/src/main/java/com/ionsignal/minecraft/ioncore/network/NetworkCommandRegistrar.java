@@ -1,61 +1,61 @@
 package com.ionsignal.minecraft.ioncore.network;
 
+import com.ionsignal.minecraft.ioncore.IonCore;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
-import java.util.logging.Logger;
+import java.util.function.Consumer;
 
 /**
- * A thread-safe registry for network command handlers.
- * Acts as the switchboard connecting raw JSON messages to specific plugin logic.
- * 
- * UPDATED: Uses raw String payloads to decouple JSON libraries.
+ * Registry for handling inbound network commands.
+ * <p>
+ * This class maps command "types" (e.g., "SPAWN_AGENT") to functional handlers.
+ * It is used by the {@link PostgresEventBus} to dispatch events received from the database.
  */
-public class NetworkCommandRegistrar {
-    private final Logger logger;
-    
-    // Maps "COMMAND_NAME" -> Handler Function
-    // The handler takes a raw JSON String and returns a Future result
-    private final Map<String, Function<String, CompletableFuture<Object>>> handlers = new ConcurrentHashMap<>();
+public final class NetworkCommandRegistrar {
 
-    public NetworkCommandRegistrar(Logger logger) {
-        this.logger = logger;
+    private final IonCore plugin;
+    private final Map<String, Consumer<String>> handlers = new ConcurrentHashMap<>();
+
+    public NetworkCommandRegistrar(IonCore plugin) {
+        this.plugin = plugin;
     }
 
     /**
-     * Registers a handler for a specific network command.
+     * Registers a handler for a specific command type.
      *
-     * @param type    The command key (e.g., "SPAWN_AGENT"). Case-insensitive.
-     * @param handler The function to execute when this command is received.
+     * @param commandType The unique identifier for the command (e.g., "SPAWN_AGENT").
+     * @param handler     The logic to execute when this command is received. The input String is the raw JSON payload.
      */
-    public void register(@NotNull String type, @NotNull Function<String, CompletableFuture<Object>> handler) {
-        handlers.put(type.toUpperCase(), handler);
-        logger.info("[IonCore] Registered network command listener: " + type.toUpperCase());
+    public void registerHandler(@NotNull String commandType, @NotNull Consumer<String> handler) {
+        handlers.put(commandType, handler);
+        plugin.getLogger().info("Registered Network Handler: " + commandType);
     }
 
     /**
-     * Dispatches an incoming payload to the appropriate handler.
+     * Dispatches an inbound command to the appropriate handler.
      *
-     * @param type       The command type.
-     * @param jsonPayload The raw JSON payload string.
-     * @return A future representing the result of the operation.
+     * @param commandType The type of command received.
+     * @param payload     The data associated with the command.
      */
-    public CompletableFuture<Object> dispatch(@NotNull String type, @NotNull String jsonPayload) {
-        String key = type.toUpperCase();
-        if (!handlers.containsKey(key)) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Unknown command type: " + type));
-        }
-        try {
-            // Execute the registered handler
-            return handlers.get(key).apply(jsonPayload);
-        } catch (Exception e) {
-            return CompletableFuture.failedFuture(e);
+    public void dispatch(@NotNull String commandType, @NotNull String payload) {
+        Consumer<String> handler = handlers.get(commandType);
+        if (handler != null) {
+            try {
+                handler.accept(payload);
+            } catch (Exception e) {
+                plugin.getLogger().severe("Error executing network handler for " + commandType + ": " + e.getMessage());
+                e.printStackTrace();
+            }
+        } else {
+            plugin.getLogger().warning("Received unknown network command: " + commandType);
         }
     }
-    
+
+    /**
+     * Clears all registered handlers.
+     */
     public void clear() {
         handlers.clear();
     }
