@@ -17,24 +17,6 @@ allprojects {
     }
 }
 
-subprojects {
-    apply(plugin = "java-library")
-
-    // Only configure java extension when the plugin is actually applied
-    plugins.withType<JavaLibraryPlugin> {
-        configure<JavaPluginExtension> {
-            toolchain {
-                languageVersion.set(JavaLanguageVersion.of(21))
-                vendor.set(JvmVendorSpec.ADOPTIUM)
-            }
-        }
-        tasks.withType<JavaCompile> {
-            options.encoding = "UTF-8"
-            options.release.set(21)
-        }
-    }
-}
-
 val minecraftVersion: Provider<String> = providers.gradleProperty("minecraft_version")
 val projectVersion: Provider<String> = provider { version.toString() }
 val ioncore = project(":ioncore")

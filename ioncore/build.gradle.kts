@@ -24,8 +24,8 @@ val devJar by configurations.creating {
 
 dependencies {
     // Core Dependencies (Shadowed)
-    implementation("org.postgresql:postgresql:42.7.2")
-    implementation("com.zaxxer:HikariCP:5.1.0")
+    implementation(libs.postgresql)
+    implementation(libs.hikaricp)
     implementation(libs.gson)
     
     // Optional: Service Discovery (Shadowed)
