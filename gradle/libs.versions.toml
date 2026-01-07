@@ -1,23 +1,24 @@
 [versions]
 minecraft = "1.21.10"
 paperweight = "2.0.0-beta.19"
-shadow = "9.2.2"
+shadow = "9.3.1"
 
 # Terra
 terra = "6.6.6-BETA+fb5e597a1"
 terra-manifest = "1.0.0-BETA+fb5e597a1"
 tectonic = "4.3.0"
-bluenbt = "3.0.3"
+bluenbt = "3.5.0"
 
 # IonNerrus
 simple-openai = "3.22.2"
-okhttp = "5.3.0"
+okhttp = "5.3.2"
 classgraph = "4.8.184"
 
 # IonCore (New additions)
-gson = "2.10.1"
-java-websocket = "1.5.4"
-adventure = "4.17.0"     # Standard Adventure API version for 1.21
+gson = "2.13.2"
+adventure = "4.26.1"
+postgresql = "42.7.8"
+hikaricp = "7.0.2"
 
 [plugins]
 standardConvention = { id = "standard-conventions" }
@@ -45,5 +46,6 @@ classgraph = { group = "io.github.classgraph", name = "classgraph", version.ref 
 
 # IonCore Specific
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
-java-websocket = { group = "org.java-websocket", name = "Java-WebSocket", version.ref = "java-websocket" }
 adventure-api = { group = "net.kyori", name = "adventure-api", version.ref = "adventure" }
+postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql" }
+hikaricp = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikaricp" }
