@@ -9,11 +9,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * Dependency Injection Root for IonCore.
- * <p>
- * MIGRATION STATUS: Phase 5 (PostgreSQL Bus)
- * - Removed: WebSocketServer, WebSocketClient
- * - Added: DatabaseManager, PostgresEventBus
- * - Retained: DebugSessionRegistry, VisualizationProviderRegistry
  */
 public final class ServiceContainer {
 
@@ -34,24 +29,19 @@ public final class ServiceContainer {
 
     public void initialize() {
         plugin.getLogger().info("Initializing Core Services...");
-
         try {
-            // 1. Database Infrastructure (The Hardware)
+            // Database Infrastructure (The Hardware)
             this.databaseManager = new DatabaseManager(plugin);
             this.databaseManager.initialize();
-
-            // 2. Event Bus (The Network)
+            // Event Bus (The Network)
             this.eventBus = new PostgresEventBus(plugin, databaseManager);
             this.eventBus.initialize();
-
-            // 3. Telemetry (The Application Layer)
+            // Telemetry (The Application Layer)
             this.telemetryManager = new TelemetryManager(plugin);
             this.telemetryManager.setEventBus(eventBus);
-
-            // 4. Debug & Visualization (Restored)
+            // Debug & Visualization (Restored)
             this.debugRegistry = new DebugSessionRegistry();
             this.visualizationRegistry = new VisualizationProviderRegistry();
-
             plugin.getLogger().info("Core Services initialized successfully.");
 
         } catch (Exception e) {
@@ -64,22 +54,17 @@ public final class ServiceContainer {
 
     public void shutdown() {
         plugin.getLogger().info("Shutting down Core Services...");
-
         if (eventBus != null) {
             eventBus.shutdown();
         }
-
         if (databaseManager != null) {
             databaseManager.shutdown();
         }
-
         // Clear debug sessions if necessary
         if (debugRegistry != null) {
             debugRegistry.clear();
         }
     }
-
-    // --- Accessors ---
 
     public @NotNull DatabaseManager getDatabaseManager() {
         if (databaseManager == null)
@@ -98,8 +83,6 @@ public final class ServiceContainer {
             throw new IllegalStateException("TelemetryManager not initialized");
         return telemetryManager;
     }
-
-    // --- Restored Accessors ---
 
     public @NotNull DebugSessionRegistry getDebugRegistry() {
         // These might be accessed early, so we ensure they exist if init failed partially
