@@ -3,5 +3,5 @@ name: IonCore
 version: "${version}"
 api-version: "1.21"
 description: "Core framework for Ion Signal plugins"
-author: Oliver Dyla
+author: IonSignal
 website: https://github.com/ionsignal/ioncore
