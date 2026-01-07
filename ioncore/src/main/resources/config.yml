@@ -9,10 +9,3 @@ database:
   pool-settings:
     maximum-pool-size: 5
     connection-timeout: 5000 # 5 seconds
-
-# Networking Mode: 'server', 'client', or 'disabled'
-# Temporarily set to 'disabled' for Phase 0 migration.
-mode: "disabled"
-
-# Legacy Client/Server Configuration
-# These sections have been removed for Phase 0 to prevent startup errors.
