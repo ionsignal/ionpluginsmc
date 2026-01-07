@@ -28,7 +28,7 @@ public class AgentTelemetrySource implements TelemetrySource {
         if (!agent.getPersona().isSpawned()) {
             return null;
         }
-        // Delegate to the DTO factory (safe on Main Thread)
+        // Delegate to the messages factory (safe on Main Thread)
         return AgentTelemetry.from(agent);
     }
 }

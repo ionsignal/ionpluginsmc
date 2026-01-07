@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class AgentService {
+    public static final Boolean TELEMETRY_ENABLED = false;
     public static final String NERRUS_AGENT_METADATA = "ionnerrus_agent";
 
     private final IonNerrus plugin;
@@ -38,7 +39,7 @@ public class AgentService {
     private final LLMService llmService;
     private final NetworkBroadcaster broadcaster;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
-    
+
     private BukkitTask telemetryTask;
 
     public AgentService(IonNerrus plugin, NerrusManager nerrusManager, GoalRegistry goalRegistry, GoalFactory goalFactory,
@@ -49,8 +50,10 @@ public class AgentService {
         this.goalFactory = goalFactory;
         this.llmService = llmService;
         this.broadcaster = broadcaster;
-        
-        startTelemetryLoop();
+        // Telemetry
+        if (TELEMETRY_ENABLED) {
+            startTelemetryLoop();
+        }
     }
 
     /**
@@ -59,13 +62,13 @@ public class AgentService {
      */
     private void startTelemetryLoop() {
         this.telemetryTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!Bukkit.getPluginManager().isPluginEnabled("IonCore")) return;
-            
+            if (!Bukkit.getPluginManager().isPluginEnabled("IonCore"))
+                return;
             for (NerrusAgent agent : agents.values()) {
                 if (agent.getPersona().isSpawned()) {
                     try {
-                        AgentTelemetry telemetry = AgentTelemetry.from(agent);
                         // Push to IonCore Telemetry Manager
+                        AgentTelemetry telemetry = AgentTelemetry.from(agent);
                         IonCore.getInstance().getTelemetryManager().sendTelemetry("AGENT_STATE", telemetry);
                     } catch (Exception e) {
                         // Suppress telemetry errors to avoid console spam
@@ -89,7 +92,6 @@ public class AgentService {
     public NerrusAgent spawnAgent(String name, Location location, @Nullable String skinNameToFetch) {
         NerrusAgent agent = createAgentBase(name);
         String lookupName = (skinNameToFetch != null && !skinNameToFetch.isEmpty()) ? skinNameToFetch : name;
-
         // Async Fetch -> Main Thread Spawn
         NerrusManager.getInstance().getSkinCache().fetchSkin(lookupName).thenAcceptAsync(skinData -> {
             if (skinData == null) {
@@ -148,20 +150,15 @@ public class AgentService {
      */
     private void finalizeSpawn(NerrusAgent agent, Location location, @Nullable SkinData skinData) {
         Persona persona = agent.getPersona();
-
-        // Concurrency check: Ensure agent wasn't removed while waiting for skin/thread
         if (!agents.containsKey(persona.getUniqueId())) {
             return;
         }
-
         if (skinData != null) {
             persona.setSkin(skinData);
         }
-
         try {
             persona.spawn(location);
             agent.start();
-            // REMOVED: Legacy Telemetry Registration
             plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
             Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
         } catch (Exception e) {
@@ -175,7 +172,6 @@ public class AgentService {
     public boolean removeAgent(String name) {
         NerrusAgent agent = findAgentByName(name);
         if (agent != null) {
-            // REMOVED: Legacy Telemetry Unregistration
             Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
@@ -204,7 +200,6 @@ public class AgentService {
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
             try {
-                // REMOVED: Legacy Telemetry Unregistration
                 personaRegistry.deregister(agent.getPersona());
             } catch (Exception e) {
                 plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());
