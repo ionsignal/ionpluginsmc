@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ioncore;
+package com.ionsignal.minecraft.ioncore.listeners;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import org.bukkit.event.EventHandler;
@@ -9,10 +9,10 @@ import org.bukkit.event.player.PlayerQuitEvent;
  * Handles Bukkit events for IonCore.
  * Extracted from IonCore.java to adhere to Single Responsibility Principle.
  */
-public class CoreEventListener implements Listener {
+public class EventListener implements Listener {
     private final DebugSessionRegistry debugRegistry;
 
-    public CoreEventListener(DebugSessionRegistry debugRegistry) {
+    public EventListener(DebugSessionRegistry debugRegistry) {
         this.debugRegistry = debugRegistry;
     }
 
