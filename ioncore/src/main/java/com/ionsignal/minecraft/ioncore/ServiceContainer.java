@@ -15,10 +15,10 @@ import org.jetbrains.annotations.NotNull;
  * - Added: DatabaseManager, PostgresEventBus
  * - Retained: DebugSessionRegistry, VisualizationProviderRegistry
  */
-public final class CoreServiceContainer {
+public final class ServiceContainer {
 
     private final IonCore plugin;
-    
+
     // Network & Data Services
     private DatabaseManager databaseManager;
     private PostgresEventBus eventBus;
@@ -28,7 +28,7 @@ public final class CoreServiceContainer {
     private DebugSessionRegistry debugRegistry;
     private VisualizationProviderRegistry visualizationRegistry;
 
-    public CoreServiceContainer(IonCore plugin) {
+    public ServiceContainer(IonCore plugin) {
         this.plugin = plugin;
     }
 
@@ -57,7 +57,7 @@ public final class CoreServiceContainer {
         } catch (Exception e) {
             plugin.getLogger().severe("CRITICAL: Failed to initialize Core Services.");
             e.printStackTrace();
-            // We do not disable the plugin here to allow for debugging, 
+            // We do not disable the plugin here to allow for debugging,
             // but functionality will be severely limited.
         }
     }
@@ -72,7 +72,7 @@ public final class CoreServiceContainer {
         if (databaseManager != null) {
             databaseManager.shutdown();
         }
-        
+
         // Clear debug sessions if necessary
         if (debugRegistry != null) {
             debugRegistry.clear();
@@ -82,17 +82,20 @@ public final class CoreServiceContainer {
     // --- Accessors ---
 
     public @NotNull DatabaseManager getDatabaseManager() {
-        if (databaseManager == null) throw new IllegalStateException("DatabaseManager not initialized");
+        if (databaseManager == null)
+            throw new IllegalStateException("DatabaseManager not initialized");
         return databaseManager;
     }
 
     public @NotNull PostgresEventBus getEventBus() {
-        if (eventBus == null) throw new IllegalStateException("EventBus not initialized");
+        if (eventBus == null)
+            throw new IllegalStateException("EventBus not initialized");
         return eventBus;
     }
 
     public @NotNull TelemetryManager getTelemetryManager() {
-        if (telemetryManager == null) throw new IllegalStateException("TelemetryManager not initialized");
+        if (telemetryManager == null)
+            throw new IllegalStateException("TelemetryManager not initialized");
         return telemetryManager;
     }
 
@@ -100,12 +103,14 @@ public final class CoreServiceContainer {
 
     public @NotNull DebugSessionRegistry getDebugRegistry() {
         // These might be accessed early, so we ensure they exist if init failed partially
-        if (debugRegistry == null) debugRegistry = new DebugSessionRegistry();
+        if (debugRegistry == null)
+            debugRegistry = new DebugSessionRegistry();
         return debugRegistry;
     }
 
     public @NotNull VisualizationProviderRegistry getVisualizationRegistry() {
-        if (visualizationRegistry == null) visualizationRegistry = new VisualizationProviderRegistry();
+        if (visualizationRegistry == null)
+            visualizationRegistry = new VisualizationProviderRegistry();
         return visualizationRegistry;
     }
 }

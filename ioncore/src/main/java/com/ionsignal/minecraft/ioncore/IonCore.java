@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
+import com.ionsignal.minecraft.ioncore.listeners.EventListener;
 import com.ionsignal.minecraft.ioncore.telemetry.TelemetryManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -13,7 +14,7 @@ public class IonCore extends JavaPlugin {
     private static IonCore instance;
 
     // The single source of truth for all subsystems
-    private CoreServiceContainer serviceContainer;
+    private ServiceContainer serviceContainer;
 
     @Override
     public void onEnable() {
@@ -21,11 +22,11 @@ public class IonCore extends JavaPlugin {
         saveDefaultConfig();
         try {
             // Initialize Service Container
-            this.serviceContainer = new CoreServiceContainer(this);
+            this.serviceContainer = new ServiceContainer(this);
             this.serviceContainer.initialize();
             // Register Event Listeners (Moved out of main class)
             getServer().getPluginManager().registerEvents(
-                    new CoreEventListener(serviceContainer.getDebugRegistry()),
+                    new EventListener(serviceContainer.getDebugRegistry()),
                     this);
             getLogger().info("IonCore v" + getPluginMeta().getVersion() + " initialized.");
         } catch (ServiceInitializationException e) {
@@ -48,7 +49,7 @@ public class IonCore extends JavaPlugin {
         return instance;
     }
 
-    public CoreServiceContainer getServiceContainer() {
+    public ServiceContainer getServiceContainer() {
         return serviceContainer;
     }
 
