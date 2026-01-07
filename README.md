@@ -175,3 +175,9 @@ Clean Gradle caches and rebuild
 ./gradlew clean build --refresh-dependencies
 ./gradlew runServer --refresh-dependencies
 ```
+
+### Check Latest Dependency Versions
+
+```bash
+./gradlew dependencyUpdates --no-configuration-cache --no-parallel
+```
