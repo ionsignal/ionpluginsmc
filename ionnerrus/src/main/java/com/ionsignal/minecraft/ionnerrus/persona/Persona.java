@@ -12,6 +12,7 @@ import com.mojang.authlib.properties.PropertyMap;
 
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.world.entity.Entity.RemovalReason;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -19,6 +20,7 @@ import net.minecraft.world.level.GameType;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.entity.Player;
 import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Entity;
@@ -74,7 +76,7 @@ public class Persona {
         // Register in World
         ClientboundPlayerInfoUpdatePacket addPlayerPacket = ClientboundPlayerInfoUpdatePacket.createSinglePlayerInitializing(personaEntity,
                 false);
-        for (org.bukkit.entity.Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             ((CraftPlayer) onlinePlayer).getHandle().connection.send(addPlayerPacket);
             personaEntity.grantVisibility(onlinePlayer);
         }
@@ -103,10 +105,10 @@ public class Persona {
         }
         // Remove entity from world
         ClientboundPlayerInfoRemovePacket removePacket = new ClientboundPlayerInfoRemovePacket(java.util.List.of(personaEntity.getUUID()));
-        for (org.bukkit.entity.Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             ((CraftPlayer) onlinePlayer).getHandle().connection.send(removePacket);
         }
-        personaEntity.remove(net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+        personaEntity.remove(RemovalReason.DISCARDED);
         // Cleanup references
         int personaEntityId = this.personaEntity.getId();
         this.personaEntity = null;

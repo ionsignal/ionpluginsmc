@@ -56,14 +56,19 @@ public class NetworkBootstrap {
                     plugin.getLogger().warning("Network Spawn Failed: Invalid location data for " + request.name());
                     return;
                 }
-                // Resolve Skin
-                SkinData skin = null;
+                // If texture data is provided (e.g. from Dashboard), use it directly.
+                // If not use the name to fetch the skin from Mojang.
                 if (request.skinTexture() != null && !request.skinTexture().isEmpty()) {
-                    skin = new SkinData(request.skinTexture(), request.skinSignature());
+                    // Explicit Texture Data
+                    SkinData skin = new SkinData(request.skinTexture(), request.skinSignature());
+                    plugin.getLogger().info("Network Command: Spawning agent " + request.name() + " with provided texture.");
+                    agentService.spawnAgent(request.name(), spawnLoc, skin);
+                } else {
+                    // Fetch by Name (Async lookup handled inside AgentService)
+                    // We use the agent's name as the skin lookup target
+                    plugin.getLogger().info("Network Command: Spawning agent " + request.name() + " (fetching skin...)");
+                    agentService.spawnAgent(request.name(), spawnLoc, request.name());
                 }
-                // Execute Spawn (Must be Sync)
-                plugin.getLogger().info("Network Command: Spawning agent " + request.name());
-                agentService.spawnAgent(request.name(), spawnLoc, skin);
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to execute SPAWN_AGENT on main thread", e);
             }
@@ -87,11 +92,15 @@ public class NetworkBootstrap {
         if (world == null)
             world = Bukkit.getWorlds().get(0); // Fallback
         // Handle "Spawn near Player" logic
-        if ("PLAYER".equalsIgnoreCase(data.type()) && data.playerName() != null) {
+        if ("PLAYER".equalsIgnoreCase(data.type())) {
+            if (data.playerName() == null)
+                return null;
             Player target = Bukkit.getPlayer(data.playerName());
             if (target != null && target.isOnline()) {
                 return target.getLocation();
             }
+            plugin.getLogger().warning("Network Spawn Failed: Target player '" + data.playerName() + "' not found or offline.");
+            return null;
         }
         // Default to coordinates
         return new Location(world, data.x(), data.y(), data.z());
