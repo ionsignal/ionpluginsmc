@@ -2,7 +2,7 @@ main: com.ionsignal.minecraft.ionnerrus.IonNerrus
 name: IonNerrus
 version: "${version}"
 api-version: "${api}"
-author: Ion Signal
+author: IonSignal
 description: "${description}"
 depend: [IonCore]
 softdepend: [CraftEngine, FancyHolograms, Terra]
