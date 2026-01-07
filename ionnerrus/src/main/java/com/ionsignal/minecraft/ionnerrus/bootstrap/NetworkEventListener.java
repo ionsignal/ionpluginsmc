@@ -12,20 +12,15 @@ public class NetworkEventListener implements Listener {
 
     @EventHandler
     public void onAgentSpawn(NerrusAgentSpawnEvent event) {
-        // Convert Domain Object -> DTO
-        AgentState dto = AgentState.from(event.getAgent());
-
+        AgentState message = AgentState.from(event.getAgent());
         // Broadcast "AGENT_SPAWNED"
-        // UPDATED: Use getEventBus().broadcast()
-        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_SPAWNED", dto);
+        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_SPAWNED", message);
     }
 
     @EventHandler
     public void onAgentRemove(NerrusAgentRemoveEvent event) {
-        AgentState dto = AgentState.from(event.getAgent());
-
+        AgentState message = AgentState.from(event.getAgent());
         // Broadcast "AGENT_REMOVED"
-        // UPDATED: Use getEventBus().broadcast()
-        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_REMOVED", dto);
+        IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_REMOVED", message);
     }
 }

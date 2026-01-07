@@ -27,21 +27,19 @@ public class NetworkBootstrap {
     }
 
     public void registerAll() {
-        // 1. Get the Registrar from IonCore
+        // Get the Registrar from IonCore
         NetworkCommandRegistrar registrar = IonCore.getInstance()
                 .getServiceContainer()
                 .getEventBus()
                 .getCommandRegistrar();
-
-        // 2. Register Handlers
+        // Register Handlers
         registrar.registerHandler("SPAWN_AGENT", this::handleSpawnAgent);
         registrar.registerHandler("DESPAWN_AGENT", this::handleDespawnAgent);
-
         plugin.getLogger().info("NetworkBootstrap: Listening for SPAWN_AGENT and DESPAWN_AGENT commands.");
     }
 
     private void handleSpawnAgent(String jsonPayload) {
-        // 1. Parse JSON on the Async/IO Thread (Safe & Performant)
+        // Parse JSON on the Async/IO Thread (Safe & Performant)
         SpawnAgentRequest request;
         try {
             request = gson.fromJson(jsonPayload, SpawnAgentRequest.class);
@@ -49,8 +47,7 @@ public class NetworkBootstrap {
             plugin.getLogger().warning("Invalid JSON in SPAWN_AGENT: " + e.getMessage());
             return;
         }
-
-        // 2. Dispatch Logic to Main Thread (Sync)
+        // Dispatch Logic to Main Thread (Sync)
         Bukkit.getScheduler().runTask(plugin, () -> {
             try {
                 // Resolve Location (Must be Sync)
@@ -59,17 +56,14 @@ public class NetworkBootstrap {
                     plugin.getLogger().warning("Network Spawn Failed: Invalid location data for " + request.name());
                     return;
                 }
-
                 // Resolve Skin
                 SkinData skin = null;
                 if (request.skinTexture() != null && !request.skinTexture().isEmpty()) {
                     skin = new SkinData(request.skinTexture(), request.skinSignature());
                 }
-
                 // Execute Spawn (Must be Sync)
                 plugin.getLogger().info("Network Command: Spawning agent " + request.name());
                 agentService.spawnAgent(request.name(), spawnLoc, skin);
-
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "Failed to execute SPAWN_AGENT on main thread", e);
             }
@@ -87,11 +81,11 @@ public class NetworkBootstrap {
     }
 
     private Location resolveLocation(SpawnAgentRequest.SpawnLocationData data) {
-        if (data == null) return null;
-        
+        if (data == null)
+            return null;
         World world = Bukkit.getWorld(data.world());
-        if (world == null) world = Bukkit.getWorlds().get(0); // Fallback
-
+        if (world == null)
+            world = Bukkit.getWorlds().get(0); // Fallback
         // Handle "Spawn near Player" logic
         if ("PLAYER".equalsIgnoreCase(data.type()) && data.playerName() != null) {
             Player target = Bukkit.getPlayer(data.playerName());
@@ -99,7 +93,6 @@ public class NetworkBootstrap {
                 return target.getLocation();
             }
         }
-
         // Default to coordinates
         return new Location(world, data.x(), data.y(), data.z());
     }

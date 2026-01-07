@@ -149,11 +149,8 @@ public class ServiceContainer {
             // Bootstrap (Commands from Web)
             NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService);
             netBootstrap.registerAll();
-            // Listener (Events to Web)
-            // PHASE 0: Disabled to prevent errors until DB layer is ready
-            // plugin.getServer().getPluginManager().registerEvents(new NetworkEventListener(), plugin);
             plugin.getLogger().info("Network Integration: Listeners paused for Phase 0 migration.");
-            
+
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
             e.printStackTrace();
