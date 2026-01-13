@@ -8,12 +8,12 @@ import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionReg
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
 import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
+import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
 
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.block.state.BlockState;
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.structure.Structure;
-import com.dfsek.terra.api.registry.key.RegistryKey;
 import com.dfsek.terra.api.world.WritableWorld;
 import com.dfsek.terra.api.world.chunk.generation.ProtoWorld;
 
@@ -141,13 +141,11 @@ public class JigsawStructure implements Structure {
             return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
         }
         NBTStructure.StructureData structureData = null;
-        String fileId = config.getStructure();
-        Optional<Structure> structureOpt;
-        if (fileId.contains(":")) {
-            structureOpt = pack.getRegistry(Structure.class).get(RegistryKey.parse(fileId));
-        } else {
-            structureOpt = pack.getRegistry(Structure.class).getByID(fileId);
-        }
+        String structureId = config.getStructure();
+        // Use ResourceResolver for consistent lookup strategy
+        Optional<Structure> structureOpt = ResourceResolver.resolve(
+                pack.getRegistry(Structure.class), structureId,
+                pack.getRegistryKey().getID());
         if (structureOpt.isPresent() && structureOpt.get() instanceof JigsawProvider provider) {
             structureData = provider.getStructureData();
         }

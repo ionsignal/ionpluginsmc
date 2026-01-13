@@ -9,12 +9,12 @@ import com.ionsignal.minecraft.ionnerrus.terra.model.JigsawData;
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
 import com.ionsignal.minecraft.ionnerrus.terra.util.JigsawUtils;
+import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
 import com.ionsignal.minecraft.ionnerrus.terra.util.TransformUtil;
 import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
 import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
 
 import com.dfsek.terra.api.config.ConfigPack;
-import com.dfsek.terra.api.registry.key.RegistryKey;
 import com.dfsek.terra.api.structure.Structure;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
@@ -50,12 +50,11 @@ public class ForcedPlacement {
      * Helper to load StructureData from Registry.
      */
     private NBTStructure.StructureData loadStructureData(String id) {
-        Optional<Structure> structureOpt;
-        if (id.contains(":")) {
-            structureOpt = pack.getRegistry(Structure.class).get(RegistryKey.parse(id));
-        } else {
-            structureOpt = pack.getRegistry(Structure.class).getByID(id);
-        }
+        // Use ResourceResolver for consistent lookup strategy
+        Optional<Structure> structureOpt = ResourceResolver.resolve(
+                pack.getRegistry(Structure.class),
+                id,
+                pack.getRegistryKey().getID());
         if (structureOpt.isPresent() && structureOpt.get() instanceof JigsawProvider provider) {
             return provider.getStructureData();
         }

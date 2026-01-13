@@ -18,11 +18,11 @@ import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
 import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
 import com.ionsignal.minecraft.ionnerrus.terra.util.JigsawUtils;
+import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
 import com.ionsignal.minecraft.ionnerrus.terra.util.TransformUtil;
 
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.config.ConfigPack;
-import com.dfsek.terra.api.registry.key.RegistryKey;
 import com.dfsek.terra.api.structure.Structure;
 import com.dfsek.seismic.type.Rotation;
 import com.dfsek.seismic.type.vector.Vector3Int;
@@ -193,12 +193,10 @@ public class JigsawGenerator {
      * Helper to load StructureData from Registry.
      */
     private NBTStructure.StructureData loadStructureData(String id) {
-        Optional<Structure> structureOpt;
-        if (id.contains(":")) {
-            structureOpt = pack.getRegistry(Structure.class).get(RegistryKey.parse(id));
-        } else {
-            structureOpt = pack.getRegistry(Structure.class).getByID(id);
-        }
+        // Use ResourceResolver for consistent lookup strategy (Exact -> Fuzzy -> Fallback)
+        Optional<Structure> structureOpt = ResourceResolver.resolve(
+                pack.getRegistry(Structure.class), id,
+                pack.getRegistryKey().getID());
         if (structureOpt.isPresent()) {
             Structure structure = structureOpt.get();
             if (structure instanceof JigsawProvider provider) {
@@ -456,7 +454,7 @@ public class JigsawGenerator {
             if (excludedIds.size() == pool.getElements().size()) {
                 break;
             }
-            String id = pool.selectRandomElementWithExclusions(random, excludedIds); // CHANGE
+            String id = pool.selectRandomElementWithExclusions(random, excludedIds);
             if (id == null) {
                 break;
             }
