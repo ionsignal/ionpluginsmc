@@ -1,9 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation;
 
 import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
 
 import com.dfsek.terra.api.config.ConfigPack;
-import com.dfsek.terra.api.registry.key.RegistryKey;
 import com.dfsek.terra.api.registry.Registry;
 
 import java.util.Optional;
@@ -46,24 +46,10 @@ public class PoolRegistry {
         if (cached != null) {
             return cached;
         }
-        // Parse the pool ID into a RegistryKey
-        RegistryKey poolKey;
-        try {
-            if (poolId.contains(":")) {
-                String[] parts = poolId.split(":", 2);
-                poolKey = RegistryKey.of(parts[0], parts[1]);
-            } else {
-                String currentPackId = pack.getRegistryKey().getID();
-                poolKey = RegistryKey.of(currentPackId, poolId);
-            }
-        } catch (Exception e) {
-            // Log warning about invalid pool ID format
-            return null;
-        }
-        // Query the pack's registry for JigsawPool
+        // Use ResourceResolver for standardized lookup (Exact -> Fuzzy -> Fallback)
         try {
             Registry<JigsawPool> registry = pack.getRegistry(JigsawPool.class);
-            Optional<JigsawPool> pool = registry.get(poolKey);
+            Optional<JigsawPool> pool = ResourceResolver.resolve(registry, poolId, pack.getRegistryKey().getID());
             if (pool.isPresent()) {
                 poolCache.put(poolId, pool.get());
                 return pool.get();

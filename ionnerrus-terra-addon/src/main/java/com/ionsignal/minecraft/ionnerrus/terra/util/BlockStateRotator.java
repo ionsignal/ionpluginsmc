@@ -77,6 +77,7 @@ public final class BlockStateRotator {
      *            The NMS BlockState to serialize
      * @return A string representation compatible with Minecraft/Bukkit parsers
      */
+    @SuppressWarnings("null")
     private static String serializeNMSState(net.minecraft.world.level.block.state.BlockState nmsState) {
         // Get the block's namespaced ID (e.g., "minecraft:oak_stairs")
         StringBuilder sb = new StringBuilder(
