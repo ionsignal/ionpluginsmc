@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
 
-import com.dfsek.terra.api.util.vector.Vector3Int;
+import com.dfsek.seismic.type.vector.Vector3Int;
 
 /**
  * Represents a jigsaw connection point that is queued for processing during generation.
@@ -16,118 +16,118 @@ import com.dfsek.terra.api.util.vector.Vector3Int;
  *            The processing priority (higher = process earlier)
  */
 public record PendingJigsawConnection(
-		TransformedJigsawBlock connection,
-		PlacedJigsawPiece sourcePiece,
-		int depth,
-		int priority) implements Comparable<PendingJigsawConnection> {
+        TransformedJigsawBlock connection,
+        PlacedJigsawPiece sourcePiece,
+        int depth,
+        int priority) implements Comparable<PendingJigsawConnection> {
 
-	/**
-	 * Creates a PendingJigsawConnection with validation.
-	 */
-	public PendingJigsawConnection {
-		if (connection == null) {
-			throw new IllegalArgumentException("Connection cannot be null");
-		}
-		if (sourcePiece == null) {
-			throw new IllegalArgumentException("Source piece cannot be null");
-		}
-		if (depth < 0) {
-			throw new IllegalArgumentException("Depth cannot be negative");
-		}
-	}
+    /**
+     * Creates a PendingJigsawConnection with validation.
+     */
+    public PendingJigsawConnection {
+        if (connection == null) {
+            throw new IllegalArgumentException("Connection cannot be null");
+        }
+        if (sourcePiece == null) {
+            throw new IllegalArgumentException("Source piece cannot be null");
+        }
+        if (depth < 0) {
+            throw new IllegalArgumentException("Depth cannot be negative");
+        }
+    }
 
-	/**
-	 * Factory method that calculates priority from the connection.
-	 */
-	public static PendingJigsawConnection create(
-			TransformedJigsawBlock connection,
-			PlacedJigsawPiece sourcePiece,
-			int depth) {
-		return new PendingJigsawConnection(connection, sourcePiece, depth, connection.getPriority());
-	}
+    /**
+     * Factory method that calculates priority from the connection.
+     */
+    public static PendingJigsawConnection create(
+            TransformedJigsawBlock connection,
+            PlacedJigsawPiece sourcePiece,
+            int depth) {
+        return new PendingJigsawConnection(connection, sourcePiece, depth, connection.getPriority());
+    }
 
-	/**
-	 * Compares connections for priority queue ordering.
-	 * Higher priority values are processed first.
-	 * If priorities are equal, prefer shallower depths (breadth-first tendency).
-	 */
-	@Override
-	public int compareTo(PendingJigsawConnection other) {
-		// First compare by priority (higher first)
-		int priorityCompare = Integer.compare(other.priority, this.priority);
-		if (priorityCompare != 0) {
-			return priorityCompare;
-		}
-		// Then by depth (shallower first for breadth-first tendency)
-		int depthCompare = Integer.compare(this.depth, other.depth);
-		if (depthCompare != 0) {
-			return depthCompare;
-		}
-		// Then by connection name
-		int nameCompare = this.connection.info().name().compareTo(other.connection.info().name());
-		if (nameCompare != 0) {
-			return nameCompare;
-		}
-		// Finally, by world position for guaranteed deterministic ordering
-		// Order: X (west to east), then Y (bottom to top), then Z (north to south)
-		Vector3Int thisPos = this.connection.position();
-		Vector3Int otherPos = other.connection.position();
-		int xCompare = Integer.compare(thisPos.getX(), otherPos.getX());
-		if (xCompare != 0)
-			return xCompare;
-		int yCompare = Integer.compare(thisPos.getY(), otherPos.getY());
-		if (yCompare != 0)
-			return yCompare;
-		return Integer.compare(thisPos.getZ(), otherPos.getZ());
-	}
+    /**
+     * Compares connections for priority queue ordering.
+     * Higher priority values are processed first.
+     * If priorities are equal, prefer shallower depths (breadth-first tendency).
+     */
+    @Override
+    public int compareTo(PendingJigsawConnection other) {
+        // First compare by priority (higher first)
+        int priorityCompare = Integer.compare(other.priority, this.priority);
+        if (priorityCompare != 0) {
+            return priorityCompare;
+        }
+        // Then by depth (shallower first for breadth-first tendency)
+        int depthCompare = Integer.compare(this.depth, other.depth);
+        if (depthCompare != 0) {
+            return depthCompare;
+        }
+        // Then by connection name
+        int nameCompare = this.connection.info().name().compareTo(other.connection.info().name());
+        if (nameCompare != 0) {
+            return nameCompare;
+        }
+        // Finally, by world position for guaranteed deterministic ordering
+        // Order: X (west to east), then Y (bottom to top), then Z (north to south)
+        Vector3Int thisPos = this.connection.position();
+        Vector3Int otherPos = other.connection.position();
+        int xCompare = Integer.compare(thisPos.getX(), otherPos.getX());
+        if (xCompare != 0)
+            return xCompare;
+        int yCompare = Integer.compare(thisPos.getY(), otherPos.getY());
+        if (yCompare != 0)
+            return yCompare;
+        return Integer.compare(thisPos.getZ(), otherPos.getZ());
+    }
 
-	/**
-	 * Checks if this connection has exceeded the maximum depth.
-	 * 
-	 * @param maxDepth
-	 *            The maximum allowed depth
-	 * @return true if this connection should be skipped due to depth
-	 */
-	public boolean exceedsDepth(int maxDepth) {
-		return depth >= maxDepth;
-	}
+    /**
+     * Checks if this connection has exceeded the maximum depth.
+     * 
+     * @param maxDepth
+     *            The maximum allowed depth
+     * @return true if this connection should be skipped due to depth
+     */
+    public boolean exceedsDepth(int maxDepth) {
+        return depth >= maxDepth;
+    }
 
-	/**
-	 * Checks if this connection is too far from an origin point.
-	 * 
-	 * @param origin
-	 *            The origin point
-	 * @param maxDistance
-	 *            The maximum allowed distance
-	 * @return true if this connection should be skipped due to distance
-	 */
-	public boolean exceedsDistance(Vector3Int origin, int maxDistance) {
-		Vector3Int pos = connection.position();
-		int dx = pos.getX() - origin.getX();
-		int dz = pos.getZ() - origin.getZ();
-		double distance = Math.sqrt(dx * dx + dz * dz);
-		return distance > maxDistance;
-	}
+    /**
+     * Checks if this connection is too far from an origin point.
+     * 
+     * @param origin
+     *            The origin point
+     * @param maxDistance
+     *            The maximum allowed distance
+     * @return true if this connection should be skipped due to distance
+     */
+    public boolean exceedsDistance(Vector3Int origin, int maxDistance) {
+        Vector3Int pos = connection.position();
+        int dx = pos.getX() - origin.getX();
+        int dz = pos.getZ() - origin.getZ();
+        double distance = Math.sqrt(dx * dx + dz * dz);
+        return distance > maxDistance;
+    }
 
-	/**
-	 * Gets the target connection name for this connection.
-	 */
-	public String getTargetName() {
-		return connection.info().target();
-	}
+    /**
+     * Gets the target connection name for this connection.
+     */
+    public String getTargetName() {
+        return connection.info().target();
+    }
 
-	/**
-	 * Gets the target pool ID for selecting the next piece.
-	 */
-	public String getTargetPoolId() {
-		return connection.info().pool();
-	}
+    /**
+     * Gets the target pool ID for selecting the next piece.
+     */
+    public String getTargetPoolId() {
+        return connection.info().pool();
+    }
 
-	/**
-	 * Checks if this connection targets an empty pool (terminator).
-	 */
-	public boolean isTerminator() {
-		String target = connection.info().target();
-		return "minecraft:empty".equals(target) || target.isEmpty();
-	}
+    /**
+     * Checks if this connection targets an empty pool (terminator).
+     */
+    public boolean isTerminator() {
+        String target = connection.info().target();
+        return "minecraft:empty".equals(target) || target.isEmpty();
+    }
 }

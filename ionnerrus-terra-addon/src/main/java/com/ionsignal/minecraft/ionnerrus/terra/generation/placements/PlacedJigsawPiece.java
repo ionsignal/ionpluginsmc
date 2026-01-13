@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
 
-import com.dfsek.terra.api.util.vector.Vector3Int;
-import com.dfsek.terra.api.util.Rotation;
+import com.dfsek.seismic.type.vector.Vector3Int;
+import com.dfsek.seismic.type.Rotation;
 
 import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
 import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
@@ -33,95 +33,94 @@ import java.util.List;
  *            The ID of the pool this piece was selected from
  */
 public record PlacedJigsawPiece(
-		String nbtFile,
-		Vector3Int worldPosition,
-		Rotation rotation,
-		NBTStructure.StructureData structureData,
-		List<TransformedJigsawBlock> connections,
-		int depth,
-		PlacedJigsawPiece parent,
-		String sourcePoolId) {
+        String structureId,
+        Vector3Int worldPosition,
+        Rotation rotation,
+        NBTStructure.StructureData structureData,
+        List<TransformedJigsawBlock> connections,
+        int depth,
+        PlacedJigsawPiece parent,
+        String sourcePoolId) {
 
-	/**
-	 * Creates a PlacedJigsawPiece with validation.
-	 */
-	public PlacedJigsawPiece {
-		if (nbtFile == null || nbtFile.isEmpty()) {
-			throw new IllegalArgumentException("NBT file path cannot be null or empty");
-		}
-		if (worldPosition == null) {
-			throw new IllegalArgumentException("World position cannot be null");
-		}
-		if (rotation == null) {
-			rotation = Rotation.NONE;
-		}
-		if (structureData == null) {
-			throw new IllegalArgumentException("Structure data cannot be null");
-		}
-		if (connections == null) {
-			throw new IllegalArgumentException("Connections list cannot be null");
-		}
-		if (depth < 0) {
-			throw new IllegalArgumentException("Depth cannot be negative");
-		}
-	}
+    /**
+     * Creates a PlacedJigsawPiece with validation.
+     */
+    public PlacedJigsawPiece {
+        if (structureId == null || structureId.isEmpty()) {
+            throw new IllegalArgumentException("Structure ID cannot be null or empty");
+        }
+        if (worldPosition == null) {
+            throw new IllegalArgumentException("World position cannot be null");
+        }
+        if (rotation == null) {
+            rotation = Rotation.NONE;
+        }
+        if (structureData == null) {
+            throw new IllegalArgumentException("Structure data cannot be null");
+        }
+        if (connections == null) {
+            throw new IllegalArgumentException("Connections list cannot be null");
+        }
+        if (depth < 0) {
+            throw new IllegalArgumentException("Depth cannot be negative");
+        }
+    }
 
-	/**
-	 * Gets the world-space bounding box of this placed piece.
-	 * This accounts for the piece's position and rotation.
-	 * 
-	 * @return The AABB encompassing this structure piece in world coordinates
-	 */
-	public AABB getWorldBounds() {
-		return AABB.fromPiece(worldPosition, structureData.size(), rotation);
-	}
+    /**
+     * Gets the world-space bounding box of this placed piece.
+     * This accounts for the piece's position and rotation.
+     * 
+     * @return The AABB encompassing this structure piece in world coordinates
+     */
+    public AABB getWorldBounds() {
+        return AABB.fromPiece(worldPosition, structureData.size(), rotation);
+    }
 
-	/**
-	 * Checks if this piece intersects with a chunk region.
-	 * 
-	 * @param chunkX
-	 *            The chunk X coordinate
-	 * @param chunkZ
-	 *            The chunk Z coordinate
-	 * @return true if this piece overlaps the chunk
-	 */
-	public boolean intersectsChunk(int chunkX, int chunkZ) {
-		return getWorldBounds().intersectsChunkRegion(chunkX, chunkZ);
-	}
+    /**
+     * Checks if this piece intersects with a chunk region.
+     * 
+     * @param chunkX
+     *            The chunk X coordinate
+     * @param chunkZ
+     *            The chunk Z coordinate
+     * @return true if this piece overlaps the chunk
+     */
+    public boolean intersectsChunk(int chunkX, int chunkZ) {
+        return getWorldBounds().intersectsChunkRegion(chunkX, chunkZ);
+    }
 
-	/**
-	 * Finds a connection by its world position.
-	 * 
-	 * @param position
-	 *            The world position to search for
-	 * @return The connection at that position, or null if not found
-	 */
-	public TransformedJigsawBlock findConnectionAt(Vector3Int position) {
-		return connections.stream()
-				.filter(conn -> conn.position().toVector3().equals(position.toVector3()))
-				.findFirst()
-				.orElse(null);
-	}
+    /**
+     * Finds a connection by its world position.
+     * 
+     * @param position
+     *            The world position to search for
+     * @return The connection at that position, or null if not found
+     */
+    public TransformedJigsawBlock findConnectionAt(Vector3Int position) {
+        return connections.stream()
+                .filter(conn -> conn.position().toFloat().equals(position.toFloat()))
+                .findFirst()
+                .orElse(null);
+    }
 
-	/**
-	 * Factory method to create a start piece (no parent).
-	 * PHASE 3 CHANGE: Added sourcePoolId parameter
-	 */
-	public static PlacedJigsawPiece createStartPiece(
-			String nbtFile,
-			Vector3Int worldPosition,
-			Rotation rotation,
-			NBTStructure.StructureData structureData,
-			List<TransformedJigsawBlock> connections,
-			String sourcePoolId) {
-		return new PlacedJigsawPiece(
-				nbtFile,
-				worldPosition,
-				rotation,
-				structureData,
-				connections,
-				0,
-				null,
-				sourcePoolId);
-	}
+    /**
+     * Factory method to create a start piece (no parent).
+     */
+    public static PlacedJigsawPiece createStartPiece(
+            String structureId, // Was nbtFile
+            Vector3Int worldPosition,
+            Rotation rotation,
+            NBTStructure.StructureData structureData,
+            List<TransformedJigsawBlock> connections,
+            String sourcePoolId) {
+        return new PlacedJigsawPiece(
+                structureId,
+                worldPosition,
+                rotation,
+                structureData,
+                connections,
+                0,
+                null,
+                sourcePoolId);
+    }
 }

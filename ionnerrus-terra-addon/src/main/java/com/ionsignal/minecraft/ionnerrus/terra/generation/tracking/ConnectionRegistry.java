@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation.tracking;
 
-import com.dfsek.terra.api.util.vector.Vector3;
-import com.dfsek.terra.api.util.vector.Vector3Int;
+import com.dfsek.seismic.type.vector.Vector3;
+import com.dfsek.seismic.type.vector.Vector3Int;
 
 import java.util.Map;
 // import java.util.logging.Logger;
@@ -38,7 +38,7 @@ public class ConnectionRegistry {
         if (position == null) {
             throw new IllegalArgumentException("Connection position cannot be null");
         }
-        consumedConnections.put(position.toVector3(), Boolean.TRUE);
+        consumedConnections.put(position.toFloat(), Boolean.TRUE);
     }
 
     /**
@@ -52,7 +52,7 @@ public class ConnectionRegistry {
         if (position == null) {
             return false;
         }
-        return consumedConnections.containsKey(position.toVector3());
+        return consumedConnections.containsKey(position.toFloat());
     }
 
     /**

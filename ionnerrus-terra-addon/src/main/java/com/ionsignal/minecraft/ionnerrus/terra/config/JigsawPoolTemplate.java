@@ -8,73 +8,66 @@ import com.dfsek.terra.api.config.meta.Meta;
 
 import java.util.List;
 
-/**
- * Terra configuration template for jigsaw structure pools.
- * A pool contains weighted structure pieces that can be selected during generation.
- */
 public class JigsawPoolTemplate implements AbstractableTemplate {
 
-	@Value("id")
-	private @Meta String id;
+    @Value("id")
+    private @Meta String id;
 
-	@Value("elements")
-	private @Meta List<PoolElement> elements;
+    @Value("elements")
+    private @Meta List<PoolElement> elements;
 
-	@Value("fallback")
-	@Default
-	private @Meta String fallback = "minecraft:empty";
+    @Default
+    @Value("fallback")
+    private @Meta String fallback = "minecraft:empty";
 
-	@Override
-	public String getID() {
-		return id;
-	}
+    @Override
+    public String getID() {
+        return id;
+    }
 
-	public List<PoolElement> getElements() {
-		return elements;
-	}
+    public List<PoolElement> getElements() {
+        return elements;
+    }
 
-	public String getFallback() {
-		return fallback;
-	}
+    public String getFallback() {
+        return fallback;
+    }
 
-	/**
-	 * Represents a weighted element in the structure pool.
-	 */
-	public static class PoolElement implements ObjectTemplate<PoolElement> {
-		@Value("file")
-		private String file;
+    public static class PoolElement implements ObjectTemplate<PoolElement> {
+        @Value("structure")
+        private String structure;
 
-		@Value("weight")
-		@Default
-		private int weight = 1;
+        @Default
+        @Value("weight")
+        private int weight = 1;
 
-		@Value("min-count")
-		@Default
-		private int minCount = 0;
+        @Default
+        @Value("min-count")
+        private int minCount = 0;
 
-		@Value("max-count")
-		@Default
-		private int maxCount = Integer.MAX_VALUE;
+        @Default
+        @Value("max-count")
+        private int maxCount = Integer.MAX_VALUE;
 
-		public String getFile() {
-			return file;
-		}
+        public String getStructure() {
+            return structure;
+        }
 
-		public int getWeight() {
-			return weight;
-		}
+        public int getWeight() {
+            return weight;
+        }
 
-		public int getMinCount() {
-			return minCount;
-		}
+        public int getMinCount() {
+            return minCount;
+        }
 
-		public int getMaxCount() {
-			return maxCount;
-		}
+        public int getMaxCount() {
+            return maxCount;
+        }
 
-		@Override
-		public PoolElement get() {
-			return this;
-		}
-	}
+        @Override
+        public PoolElement get() {
+            return this;
+        }
+    }
 }
