@@ -2,7 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.terra.util;
 
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.block.state.BlockState;
-import com.dfsek.terra.api.util.Rotation;
+import com.dfsek.seismic.type.Rotation;
 
 import org.bukkit.craftbukkit.block.data.CraftBlockData;
 

@@ -74,14 +74,14 @@ tasks {
         javaLauncher.set(
             project.extensions.getByType<JavaToolchainService>().launcherFor {
                 languageVersion.set(JavaLanguageVersion.of(21))
-                vendor.set(JvmVendorSpec.JETBRAINS)
+                vendor.set(JvmVendorSpec.ADOPTIUM)
             }
         )
 
         // Enable debugger with suspend (port 5005)
         jvmArgs(
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005",
-            "-XX:+AllowEnhancedClassRedefinition",
+            // "-XX:+AllowEnhancedClassRedefinition",
             "-Xmx4G", "-Xms2G", "-XX:+UseG1GC",
             "-Dlog4j.configurationFile=${project.projectDir}/log4j2-debug.xml"
         )
@@ -106,13 +106,9 @@ tasks {
                     (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
                 }
         )
-        
-        // downloadPlugins {
-        //     modrinth("terra", "6.6.6-BETA-bukkit")
-        // }
 
         // Ensure Terra addon is copied before server starts
-        // dependsOn(copyTerraAddon)
+        dependsOn(copyTerraAddon)
         dependsOn(ionnerrus.tasks.named("shadowJar"))
     }
 }
