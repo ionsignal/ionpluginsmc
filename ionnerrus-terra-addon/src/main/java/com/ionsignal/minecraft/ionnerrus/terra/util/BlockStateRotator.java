@@ -36,6 +36,7 @@ public final class BlockStateRotator {
      *            The Terra Platform instance, used to wrap the result.
      * @return The rotated BlockState, or the original state if rotation is NONE or handle is invalid.
      */
+    @SuppressWarnings("null")
     public static BlockState rotate(BlockState state, Rotation rotation, Platform platform) {
         if (state == null || rotation == Rotation.NONE) {
             return state;
