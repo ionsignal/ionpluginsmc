@@ -1,7 +1,12 @@
 package com.ionsignal.minecraft.ionnerrus.terra.generation;
 
-import com.dfsek.seismic.type.Rotation;
-import com.dfsek.seismic.type.vector.Vector3Int;
+import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
+import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.BlockEntry;
+import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.PaletteEntry;
+import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.StructureData;
+import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
+import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
+
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.block.state.BlockState;
 import com.dfsek.terra.api.registry.key.Keyed;
@@ -9,12 +14,8 @@ import com.dfsek.terra.api.registry.key.RegistryKey;
 import com.dfsek.terra.api.structure.Structure;
 import com.dfsek.terra.api.world.WritableWorld;
 
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.BlockEntry;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.PaletteEntry;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.StructureData;
-import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
-import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
+import com.dfsek.seismic.type.Rotation;
+import com.dfsek.seismic.type.vector.Vector3Int;
 
 import java.util.random.RandomGenerator;
 
