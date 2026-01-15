@@ -29,20 +29,21 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 
 /**
- * State machine based structure planner.
- * Replaces the monolithic JigsawGenerator.
- * Supports incremental "ticking" for time-sliced generation.
+ * State machine based structure planner with incremental "ticking" for time-sliced generation.
  */
 public class StructurePlanner {
     private static final Logger LOGGER = Logger.getLogger(StructurePlanner.class.getName());
@@ -59,6 +60,7 @@ public class StructurePlanner {
     private final Vector3Int origin;
     private final RandomGenerator random;
     private final PlanningEventListener listener;
+    private final UUID sessionId;
 
     // Internal State
     private State state = State.INITIALIZING;
@@ -72,21 +74,26 @@ public class StructurePlanner {
     private final List<UsageConstraints> allConstraints;
     private final ForcedPlacement forcedPlacement;
     private final List<ConstraintViolation> capturedViolations = new ArrayList<>();
+    private final Queue<UsageConstraints> pendingEnforcement = new LinkedList<>();
 
     // Metrics
     private int attemptedConnections = 0;
     private int successfulConnections = 0;
     private long generationStartTime;
 
-    public StructurePlanner(ConfigPack pack, JigsawStructureTemplate config, Vector3Int origin, RandomGenerator random, long seed,
-            PlanningEventListener listener) {
+    public StructurePlanner(
+            ConfigPack pack,
+            JigsawStructureTemplate config,
+            Vector3Int origin,
+            RandomGenerator random, long seed,
+            PlanningEventListener listener, UUID sessionId) {
         this.pack = pack;
         this.config = config;
         this.origin = origin;
         this.random = random;
         this.seed = seed;
         this.listener = listener;
-
+        this.sessionId = sessionId;
         this.poolRegistry = new PoolRegistry(pack);
         this.enforcementStrategy = EnforcementStrategy.fromConfig(config.getEnforcementStrategy());
         this.allConstraints = gatherConstraintsFromPools();
@@ -119,14 +126,21 @@ public class StructurePlanner {
             case GENERATING:
                 if (connectionQueue.isEmpty()) {
                     state = State.ENFORCING;
+                    // Initialize enforcement queue
+                    prepareEnforcementQueue();
                     return true;
                 }
                 processNextConnection();
                 return true;
 
             case ENFORCING:
-                ensureMinimumPieceCounts();
-                state = State.FINISHED;
+                // Incremental enforcement logic
+                if (pendingEnforcement.isEmpty()) {
+                    checkStrictEnforcementFailure(); // Final check
+                    state = State.FINISHED;
+                    return true;
+                }
+                processNextEnforcement();
                 return true;
 
             case FINISHED:
@@ -148,6 +162,57 @@ public class StructurePlanner {
         } else {
             LOGGER.warning("Failed to place start piece.");
             state = State.FINISHED;
+        }
+    }
+
+    private void prepareEnforcementQueue() {
+        if (allConstraints.isEmpty())
+            return;
+        for (UsageConstraints constraint : allConstraints) {
+            if (!constraint.hasMinimum())
+                continue;
+            int currentCount = usageTracker.getCount(constraint.poolId(), constraint.structureId());
+            if (currentCount < constraint.minCount()) {
+                pendingEnforcement.offer(constraint);
+            }
+        }
+    }
+
+    private void processNextEnforcement() {
+        UsageConstraints constraint = pendingEnforcement.poll();
+        if (constraint == null)
+            return;
+        int currentCount = usageTracker.getCount(constraint.poolId(), constraint.structureId());
+        // Double check count in case previous enforcements affected this (rare but possible)
+        if (currentCount >= constraint.minCount())
+            return;
+        if (enforcementStrategy == EnforcementStrategy.STRICT || enforcementStrategy == EnforcementStrategy.BEST_EFFORT) {
+            ForcedPlacement.ForcedPlacementResult result = forcedPlacement.forcePlacementsForMinimum(
+                    constraint, currentCount, pieces, occupiedSpace);
+
+            if (!result.pieces().isEmpty()) {
+                for (PlacedJigsawPiece piece : result.pieces()) {
+                    addPiece(piece);
+                    usageTracker.recordPlacement(constraint.poolId(), piece.structureId());
+                }
+                for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
+                    connectionRegistry.markConsumed(usage.connectionPosition());
+                }
+            }
+
+            int finalCount = currentCount + result.pieces().size();
+            if (finalCount < constraint.minCount()) {
+                capturedViolations.add(new ConstraintViolation(constraint, finalCount, ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
+            }
+        } else if (enforcementStrategy == EnforcementStrategy.FLEXIBLE) {
+            capturedViolations.add(new ConstraintViolation(constraint, currentCount, ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
+        }
+    }
+
+    private void checkStrictEnforcementFailure() {
+        if (!capturedViolations.isEmpty() && enforcementStrategy == EnforcementStrategy.STRICT) {
+            LOGGER.severe("Generation FAILED due to Strict Enforcement violations.");
+            pieces.clear(); // Fail hard
         }
     }
 
@@ -182,10 +247,12 @@ public class StructurePlanner {
                 config.getID(),
                 origin,
                 new ArrayList<>(pieces), // Defensive copy
-                connectionRegistry,
+                connectionRegistry.snapshot(), // Snapshot registry
                 null, // Auto-calc bounds
                 new ArrayList<>(capturedViolations),
-                getStatistics());
+                getStatistics(),
+                sessionId // Pass session ID
+        );
     }
 
     private List<UsageConstraints> gatherConstraintsFromPools() {
@@ -249,9 +316,7 @@ public class StructurePlanner {
                             pending.connection().position().getX() + connectionOffset.getX() - rotatedJigsawPos.getX(),
                             pending.connection().position().getY() + connectionOffset.getY() - rotatedJigsawPos.getY(),
                             pending.connection().position().getZ() + connectionOffset.getZ() - rotatedJigsawPos.getZ());
-
                     AABB childBounds = AABB.fromPiece(finalPosition, structureData.size(), finalRotation);
-
                     if (!collides(childBounds)) {
                         List<TransformedJigsawBlock> connections = transformJigsawBlocks(
                                 structureData.jigsawBlocks(), finalPosition, finalRotation, structureData.size());
@@ -268,45 +333,6 @@ public class StructurePlanner {
             }
         }
         return null;
-    }
-
-    private void ensureMinimumPieceCounts() {
-        if (allConstraints.isEmpty())
-            return;
-
-        for (UsageConstraints constraint : allConstraints) {
-            if (!constraint.hasMinimum())
-                continue;
-            int currentCount = usageTracker.getCount(constraint.poolId(), constraint.structureId());
-            if (currentCount < constraint.minCount()) {
-                if (enforcementStrategy == EnforcementStrategy.STRICT || enforcementStrategy == EnforcementStrategy.BEST_EFFORT) {
-                    ForcedPlacement.ForcedPlacementResult result = forcedPlacement.forcePlacementsForMinimum(
-                            constraint, currentCount, pieces, occupiedSpace);
-                    if (!result.pieces().isEmpty()) {
-                        for (PlacedJigsawPiece piece : result.pieces()) {
-                            addPiece(piece); // Use helper to trigger events
-                            usageTracker.recordPlacement(constraint.poolId(), piece.structureId());
-                        }
-                        for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
-                            connectionRegistry.markConsumed(usage.connectionPosition());
-                        }
-                    }
-                    int finalCount = currentCount + result.pieces().size();
-                    if (finalCount < constraint.minCount()) {
-                        capturedViolations
-                                .add(new ConstraintViolation(constraint, finalCount, ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
-                    }
-                } else if (enforcementStrategy == EnforcementStrategy.FLEXIBLE) {
-                    capturedViolations
-                            .add(new ConstraintViolation(constraint, currentCount, ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
-                }
-            }
-        }
-
-        if (!capturedViolations.isEmpty() && enforcementStrategy == EnforcementStrategy.STRICT) {
-            LOGGER.severe("Generation FAILED due to Strict Enforcement violations.");
-            pieces.clear(); // Fail hard
-        }
     }
 
     private void queueConnections(PlacedJigsawPiece piece, int depth) {

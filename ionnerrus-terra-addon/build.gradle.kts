@@ -12,7 +12,9 @@ paperweight.reobfArtifactConfiguration.set(
 
 dependencies {
     // IonCore 
-    compileOnly(project(":ioncore"))
+    compileOnly(project(":ioncore", configuration = "devJar"))
+    // Cloud (Provided by Terra) - Added to ensure IDE resolution
+    compileOnly(libs.cloud.core)
     // Paper API is provided by paperweight-conventions
     // compileOnly(project(":ionnerrus"))
     // Terra API and dependencies (compileOnly - provided by Terra at runtime)

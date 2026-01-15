@@ -97,7 +97,7 @@ public class JigsawStructure implements Structure {
                 return generateSimplePlacement(origin, structureSeed);
             }
             // Complex Placement (Jigsaw Planner)
-            StructurePlanner planner = new StructurePlanner(pack, config, origin, random, structureSeed, null);
+            StructurePlanner planner = new StructurePlanner(pack, config, origin, random, structureSeed, null, null);
             StructureBlueprint blueprint = planner.generateFull(config.getStartPool());
             return new JigsawPlacement(blueprint);
         } catch (Exception e) {
@@ -126,5 +126,9 @@ public class JigsawStructure implements Structure {
         StructureBlueprint blueprint = new StructureBlueprint(config.getID(), origin, List.of(singlePiece), new ConnectionRegistry(), null,
                 null, null);
         return new JigsawPlacement(blueprint);
+    }
+
+    public JigsawStructureTemplate getConfig() {
+        return config;
     }
 }
