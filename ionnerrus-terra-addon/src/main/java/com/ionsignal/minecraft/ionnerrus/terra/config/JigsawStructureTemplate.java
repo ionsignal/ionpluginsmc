@@ -37,6 +37,10 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
         return id;
     }
 
+    public void setSyntheticID(String id) {
+        this.id = id;
+    }
+
     public String getStructure() {
         return structure;
     }

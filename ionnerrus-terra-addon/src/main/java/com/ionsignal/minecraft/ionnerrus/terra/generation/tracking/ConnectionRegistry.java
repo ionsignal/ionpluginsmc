@@ -4,7 +4,6 @@ import com.dfsek.seismic.type.vector.Vector3;
 import com.dfsek.seismic.type.vector.Vector3Int;
 
 import java.util.Map;
-// import java.util.logging.Logger;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -21,11 +20,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread Safety: Uses ConcurrentHashMap for thread-safe access during parallel chunk generation.
  */
 public class ConnectionRegistry {
-    // private static final Logger LOGGER = Logger.getLogger(ConnectionRegistry.class.getName());
     private final Map<Vector3, Boolean> consumedConnections;
 
     public ConnectionRegistry() {
         this.consumedConnections = new ConcurrentHashMap<>();
+    }
+
+    private ConnectionRegistry(Map<Vector3, Boolean> data) {
+        this.consumedConnections = new ConcurrentHashMap<>(data);
     }
 
     /**
@@ -71,5 +73,15 @@ public class ConnectionRegistry {
      */
     public void clear() {
         consumedConnections.clear();
+    }
+
+    /**
+     * Creates a deep copy of the current registry state.
+     * Used for creating immutable snapshots for debugging.
+     * 
+     * @return A new independent ConnectionRegistry
+     */
+    public ConnectionRegistry snapshot() {
+        return new ConnectionRegistry(this.consumedConnections);
     }
 }
