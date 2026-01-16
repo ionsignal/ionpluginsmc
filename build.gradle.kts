@@ -21,52 +21,7 @@ val minecraftVersion: Provider<String> = providers.gradleProperty("minecraft_ver
 val projectVersion: Provider<String> = provider { version.toString() }
 val ioncore = project(":ioncore")
 val ionnerrus = project(":ionnerrus")
-val terraAddon = project(":ionnerrus-terra-addon")
-
-abstract class CopyTerraAddonTask : DefaultTask() {
-    @get:InputFile
-    abstract val addonJar: RegularFileProperty
-    
-    @get:OutputDirectory
-    abstract val targetDirectory: DirectoryProperty
-    
-    @TaskAction
-    fun copy() {
-        val source = addonJar.asFile.get()
-        val targetDir = targetDirectory.asFile.get()
-        val target = targetDir.resolve(source.name)
-        try {
-            // Skip if already up-to-date
-            if (target.exists() && target.lastModified() >= source.lastModified()) {
-                logger.info("Terra addon already up-to-date, skipping copy")
-                return
-            }
-            logger.lifecycle("Copying Terra addon: ${source.name} -> ${targetDir.absolutePath}")
-            if (!targetDir.exists()) {
-                targetDir.mkdirs()
-            }
-            source.copyTo(target, overwrite = true)
-            logger.info("Successfully copied ${source.name}")
-        } catch (e: Exception) {
-            throw GradleException("Failed to copy Terra addon: ${e.message}", e)
-        }
-    }
-}
-
-val copyTerraAddon = tasks.register<CopyTerraAddonTask>("copyTerraAddon") {
-    // For MOJANG_PRODUCTION, use shadowJar output
-    addonJar.set(
-        terraAddon.tasks.named("shadowJar")
-            .flatMap { task ->
-                @Suppress("UNCHECKED_CAST")
-                (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
-            }
-    )
-    // Output: Terra's addons directory
-    targetDirectory.set(layout.projectDirectory.dir("run/plugins/Terra/addons"))
-    // Ensure addon is built before copying
-    dependsOn(terraAddon.tasks.named("shadowJar"))
-}
+val iongenesis = project(":iongenesis")
 
 tasks {    
     runServer {
@@ -89,9 +44,18 @@ tasks {
         minecraftVersion(minecraftVersion.get())
         runDirectory.set(layout.projectDirectory.dir("run"))
 
-        // For MOJANG_PRODUCTION, use jar outputs (IonCore)
+        // IonCore
         pluginJars(
             ioncore.tasks.named("shadowJar")
+                .flatMap { task ->
+                    @Suppress("UNCHECKED_CAST")
+                    (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
+                }
+        )
+
+        // IonGenesis
+        pluginJars(
+            iongenesis.tasks.named("shadowJar")
                 .flatMap { task ->
                     @Suppress("UNCHECKED_CAST")
                     (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
@@ -108,7 +72,8 @@ tasks {
         )
 
         // Ensure Terra addon is copied before server starts
-        dependsOn(copyTerraAddon)
+        dependsOn(ioncore.tasks.named("shadowJar"))
+        dependsOn(iongenesis.tasks.named("shadowJar"))
         dependsOn(ionnerrus.tasks.named("shadowJar"))
     }
 }

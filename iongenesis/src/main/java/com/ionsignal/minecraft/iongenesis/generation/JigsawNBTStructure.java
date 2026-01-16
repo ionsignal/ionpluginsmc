@@ -1,11 +1,11 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.BlockEntry;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.PaletteEntry;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.StructureData;
-import com.ionsignal.minecraft.ionnerrus.terra.util.BlockStateRotator;
-import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure.BlockEntry;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure.PaletteEntry;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure.StructureData;
+import com.ionsignal.minecraft.iongenesis.util.BlockStateRotator;
+import com.ionsignal.minecraft.iongenesis.util.CoordinateConverter;
 
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.block.state.BlockState;

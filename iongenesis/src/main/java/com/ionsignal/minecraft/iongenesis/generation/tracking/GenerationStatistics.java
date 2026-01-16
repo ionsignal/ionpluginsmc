@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.tracking;
+package com.ionsignal.minecraft.iongenesis.generation.tracking;
 
 import java.util.Map;
 import java.util.List;
@@ -25,50 +25,50 @@ import java.util.List;
  *            Number of successful placements
  */
 public record GenerationStatistics(
-		String structureId,
-		int totalPieces,
-		int maxDepthReached,
-		long generationTimeMs,
-		Map<String, Integer> poolUsage,
-		List<String> constraintViolations,
-		int attemptedConnections,
-		int successfulConnections) {
+        String structureId,
+        int totalPieces,
+        int maxDepthReached,
+        long generationTimeMs,
+        Map<String, Integer> poolUsage,
+        List<String> constraintViolations,
+        int attemptedConnections,
+        int successfulConnections) {
 
-	/**
-	 * Gets the connection success rate as a percentage.
-	 */
-	public double getSuccessRate() {
-		if (attemptedConnections == 0)
-			return 0.0;
-		return (successfulConnections * 100.0) / attemptedConnections;
-	}
+    /**
+     * Gets the connection success rate as a percentage.
+     */
+    public double getSuccessRate() {
+        if (attemptedConnections == 0)
+            return 0.0;
+        return (successfulConnections * 100.0) / attemptedConnections;
+    }
 
-	/**
-	 * Checks if generation was successful (no constraint violations).
-	 */
-	public boolean isSuccess() {
-		return constraintViolations.isEmpty();
-	}
+    /**
+     * Checks if generation was successful (no constraint violations).
+     */
+    public boolean isSuccess() {
+        return constraintViolations.isEmpty();
+    }
 
-	/**
-	 * Formats a human-readable summary.
-	 */
-	public String getSummary() {
-		return String.format(
-				"Structure: %s\n" +
-						"Pieces Placed: %d (max depth: %d)\n" +
-						"Generation Time: %dms\n" +
-						"Connection Success Rate: %.1f%% (%d/%d)\n" +
-						"Constraint Violations: %d\n" +
-						"Pool Usage: %s",
-				structureId,
-				totalPieces,
-				maxDepthReached,
-				generationTimeMs,
-				getSuccessRate(),
-				successfulConnections,
-				attemptedConnections,
-				constraintViolations.size(),
-				poolUsage);
-	}
+    /**
+     * Formats a human-readable summary.
+     */
+    public String getSummary() {
+        return String.format(
+                "Structure: %s\n" +
+                        "Pieces Placed: %d (max depth: %d)\n" +
+                        "Generation Time: %dms\n" +
+                        "Connection Success Rate: %.1f%% (%d/%d)\n" +
+                        "Constraint Violations: %d\n" +
+                        "Pool Usage: %s",
+                structureId,
+                totalPieces,
+                maxDepthReached,
+                generationTimeMs,
+                getSuccessRate(),
+                successfulConnections,
+                attemptedConnections,
+                constraintViolations.size(),
+                poolUsage);
+    }
 }

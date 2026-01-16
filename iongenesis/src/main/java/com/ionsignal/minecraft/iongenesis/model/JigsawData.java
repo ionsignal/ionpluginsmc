@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.model;
+package com.ionsignal.minecraft.iongenesis.model;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 

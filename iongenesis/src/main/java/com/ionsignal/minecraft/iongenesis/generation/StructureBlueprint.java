@@ -1,11 +1,11 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ConstraintViolation;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.GenerationStatistics;
-import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
+import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViolation;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.GenerationStatistics;
+import com.ionsignal.minecraft.iongenesis.util.AABB;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 

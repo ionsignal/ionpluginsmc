@@ -1,6 +1,6 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 
 /**
  * Observer interface for the StructurePlanner.

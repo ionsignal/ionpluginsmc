@@ -1,9 +1,9 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
 import com.dfsek.terra.api.Platform;
 
-import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawPoolTemplate;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.iongenesis.config.JigsawPoolTemplate;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,18 +1,18 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement;
+package com.ionsignal.minecraft.iongenesis.generation.enforcement;
 
-import com.ionsignal.minecraft.ionnerrus.terra.generation.JigsawProvider;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacementTransform;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
-import com.ionsignal.minecraft.ionnerrus.terra.model.JigsawData;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
-import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
-import com.ionsignal.minecraft.ionnerrus.terra.util.JigsawUtils;
-import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
-import com.ionsignal.minecraft.ionnerrus.terra.util.TransformUtil;
-import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
-import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
+import com.ionsignal.minecraft.iongenesis.generation.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
+import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.iongenesis.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.util.AABB;
+import com.ionsignal.minecraft.iongenesis.util.JigsawUtils;
+import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;
+import com.ionsignal.minecraft.iongenesis.util.TransformUtil;
+import com.ionsignal.minecraft.iongenesis.util.CoordinateConverter;
+import com.ionsignal.minecraft.iongenesis.core.JigsawConnection;
 
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.structure.Structure;

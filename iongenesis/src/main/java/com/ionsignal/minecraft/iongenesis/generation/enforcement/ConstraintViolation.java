@@ -1,6 +1,6 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement;
+package com.ionsignal.minecraft.iongenesis.generation.enforcement;
 
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
 
 /**
  * Represents a violation of min/max count constraints after generation.

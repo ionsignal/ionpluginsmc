@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.model;
+package com.ionsignal.minecraft.iongenesis.model;
 
 import java.util.List;
 import java.util.Map;

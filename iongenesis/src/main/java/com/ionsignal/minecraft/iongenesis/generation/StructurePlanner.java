@@ -1,24 +1,24 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureTemplate;
-import com.ionsignal.minecraft.ionnerrus.terra.core.JigsawConnection;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ConstraintViolation;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.EnforcementStrategy;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.enforcement.ForcedPlacement;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PendingJigsawConnection;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.GenerationStatistics;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.PoolUsageTracker;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
-import com.ionsignal.minecraft.ionnerrus.terra.model.JigsawData;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
-import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
-import com.ionsignal.minecraft.ionnerrus.terra.util.CoordinateConverter;
-import com.ionsignal.minecraft.ionnerrus.terra.util.JigsawUtils;
-import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
-import com.ionsignal.minecraft.ionnerrus.terra.util.TransformUtil;
+import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
+import com.ionsignal.minecraft.iongenesis.core.JigsawConnection;
+import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViolation;
+import com.ionsignal.minecraft.iongenesis.generation.enforcement.EnforcementStrategy;
+import com.ionsignal.minecraft.iongenesis.generation.enforcement.ForcedPlacement;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PendingJigsawConnection;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
+import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.GenerationStatistics;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.PoolUsageTracker;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.iongenesis.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.util.AABB;
+import com.ionsignal.minecraft.iongenesis.util.CoordinateConverter;
+import com.ionsignal.minecraft.iongenesis.util.JigsawUtils;
+import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;
+import com.ionsignal.minecraft.iongenesis.util.TransformUtil;
 
 import com.dfsek.seismic.type.Rotation;
 import com.dfsek.seismic.type.vector.Vector3Int;
@@ -77,9 +77,9 @@ public class StructurePlanner {
     private final Queue<UsageConstraints> pendingEnforcement = new LinkedList<>();
 
     // Metrics
+    private long generationStartTime;
     private int attemptedConnections = 0;
     private int successfulConnections = 0;
-    private long generationStartTime;
 
     public StructurePlanner(
             ConfigPack pack,

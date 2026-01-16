@@ -1,0 +1,15 @@
+name: IonGenesis
+version: "${version}"
+main: com.ionsignal.minecraft.iongenesis.IonGenesis
+api-version: "1.21"
+load: STARTUP
+authors: [Ion Signal]
+description: Standalone Jigsaw Structure Generation Engine
+depend:
+  - IonCore
+  - Terra
+commands:
+  iongenesis:
+    description: Main command for IonGenesis debug tools
+    usage: /iongenesis <subcommand>
+    permission: iongenesis.command

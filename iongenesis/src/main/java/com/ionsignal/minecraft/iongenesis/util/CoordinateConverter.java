@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.util;
+package com.ionsignal.minecraft.iongenesis.util;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 import com.dfsek.seismic.type.Rotation;
@@ -6,7 +6,7 @@ import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.block.state.BlockState;
 
 // import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure.PaletteEntry;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure.PaletteEntry;
 
 import java.util.stream.Collectors;
 

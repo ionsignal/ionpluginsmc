@@ -2,9 +2,13 @@ package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
+import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 import com.ionsignal.minecraft.ioncore.telemetry.TelemetryManager;
+
+import org.bukkit.scheduler.BukkitTask;
+
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -22,6 +26,9 @@ public final class ServiceContainer {
     // Debug & Visualization Services
     private DebugSessionRegistry debugRegistry;
     private VisualizationProviderRegistry visualizationRegistry;
+
+    // Lifecycle Tasks
+    private BukkitTask visualizationTask;
 
     public ServiceContainer(IonCore plugin) {
         this.plugin = plugin;
@@ -42,8 +49,10 @@ public final class ServiceContainer {
             // Debug & Visualization (Restored)
             this.debugRegistry = new DebugSessionRegistry();
             this.visualizationRegistry = new VisualizationProviderRegistry();
+            // Start the Visualization Heartbeat (1 tick interval)
+            DebugVisualizationTask task = new DebugVisualizationTask(debugRegistry, visualizationRegistry);
+            this.visualizationTask = task.runTaskTimer(plugin, 1L, 1L);
             plugin.getLogger().info("Core Services initialized successfully.");
-
         } catch (Exception e) {
             plugin.getLogger().severe("CRITICAL: Failed to initialize Core Services.");
             e.printStackTrace();
@@ -54,6 +63,10 @@ public final class ServiceContainer {
 
     public void shutdown() {
         plugin.getLogger().info("Shutting down Core Services...");
+        if (visualizationTask != null && !visualizationTask.isCancelled()) {
+            visualizationTask.cancel();
+            visualizationTask = null;
+        }
         if (eventBus != null) {
             eventBus.shutdown();
         }

@@ -1,7 +1,7 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.UsageConstraints;
-import com.ionsignal.minecraft.ionnerrus.terra.util.ResourceResolver;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
+import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;
 
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.registry.Registry;

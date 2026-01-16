@@ -1,10 +1,10 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
+package com.ionsignal.minecraft.iongenesis.generation.placements;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 import com.dfsek.seismic.type.Rotation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
-import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.util.AABB;
 
 import java.util.List;
 
