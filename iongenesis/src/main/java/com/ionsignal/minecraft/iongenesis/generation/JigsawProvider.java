@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.iongenesis.generation;
 
-import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 
 /**
  * Interface for Structures that provide Jigsaw data. Allows the JigsawGenerator to access the

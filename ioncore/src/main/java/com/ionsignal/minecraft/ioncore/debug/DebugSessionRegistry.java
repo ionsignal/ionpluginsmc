@@ -17,6 +17,17 @@ import java.util.logging.Logger;
 public class DebugSessionRegistry {
     private static final Logger LOGGER = Logger.getLogger(DebugSessionRegistry.class.getName());
     private final Map<UUID, DebugSession<?>> sessions = new ConcurrentHashMap<>();
+    private final VisualizationProviderRegistry visualizationRegistry;
+
+    /**
+     * Creates a registry with the visualization provider registry for cleanup coordination.
+     * 
+     * @param visualizationRegistry
+     *            The registry to look up providers for cleanup.
+     */
+    public DebugSessionRegistry(VisualizationProviderRegistry visualizationRegistry) {
+        this.visualizationRegistry = visualizationRegistry;
+    }
 
     /**
      * Creates and registers a new debug session for a player.
@@ -100,6 +111,7 @@ public class DebugSessionRegistry {
                 session.transitionTo(SessionStatus.COMPLETED);
             }
             shutdownController(session);
+            triggerVisualizationCleanup(session);
             return true;
         }
         return false;
@@ -119,41 +131,31 @@ public class DebugSessionRegistry {
             return false; // Session doesn't exist
         }
         try {
-            // Step 1: Cancel the controller (should always succeed)
+            // Cancel the controller (should always succeed)
             session.getController().ifPresent(ExecutionController::cancel);
-            // Step 2: Update session status to CANCELLED
-            // This may fail if the state machine is in an invalid state
+            // Update session status to CANCELLED
             if (session.getStatus() != SessionStatus.CANCELLED) {
                 try {
                     session.transitionTo(SessionStatus.CANCELLED);
                 } catch (DebugSessionException e) {
-                    // State transition failed, log but don't propagate since we've already cancelled the controller, so
-                    // we must ensure status gets set
-                    String message = String.format(
-                            "Failed to transition session %s to CANCELLED: %s",
-                            owner, e.getMessage());
-                    LOGGER.warning(message);
-                    // Force status to CANCELLED anyway (defensive) which bypasses the state validation ensuring cleanup
+                    LOGGER.warning(String.format("Failed to transition session %s to CANCELLED: %s", owner, e.getMessage()));
                     session.setStatus(SessionStatus.CANCELLED);
                 }
             }
             shutdownController(session);
+            triggerVisualizationCleanup(session);
             return true;
         } catch (Exception e) {
-            // Unexpected error during cancel - log but don't propagate
-            LOGGER.log(Level.SEVERE,
-                    String.format("Unexpected error cancelling session %s", owner), e);
-            // Ensure the controller is still cancelled even if something went wrong
+            LOGGER.log(Level.SEVERE, String.format("Unexpected error cancelling session %s", owner), e);
             session.getController().ifPresent(controller -> {
                 try {
                     controller.cancel();
-                } catch (Exception cancelError) {
-                    LOGGER.log(Level.SEVERE,
-                            "Failed to cancel execution controller during error recovery", cancelError);
+                } catch (Exception ignored) {
                 }
             });
             shutdownController(session);
-            return true; // Session was removed, cleanup initiated
+            triggerVisualizationCleanup(session);
+            return true;
         }
     }
 
@@ -180,6 +182,7 @@ public class DebugSessionRegistry {
                 session.transitionTo(SessionStatus.CANCELLED);
             }
             shutdownController(session);
+            triggerVisualizationCleanup(session);
         });
         sessions.clear();
     }
@@ -193,24 +196,36 @@ public class DebugSessionRegistry {
         return sessions.size();
     }
 
-    /**
-     * Safely shuts down the execution controller associated with a session.
-     * Uses the default interface method to ensure proper resource cleanup
-     * regardless of the concrete controller implementation.
-     *
-     * This method is idempotent and safe to call multiple times.
-     *
-     * @param session
-     *            The session whose controller should be shut down.
-     */
     private void shutdownController(DebugSession<?> session) {
         session.getController().ifPresent(controller -> {
             try {
                 controller.shutdown();
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "Exception during controller shutdown (non-fatal)", e);
+                LOGGER.log(Level.WARNING, "Exception during controller shutdown (non-fatal)", e);
             }
         });
+    }
+
+    /**
+     * Triggers cleanup on the VisualizationProvider associated with the session's state type.
+     */
+    @SuppressWarnings("unchecked")
+    private void triggerVisualizationCleanup(DebugSession<?> session) {
+        if (visualizationRegistry == null || session.getState() == null)
+            return;
+        // We need to cast to raw DebugStateSnapshot to look up the provider
+        Object state = session.getState();
+        if (state instanceof DebugStateSnapshot snapshot) {
+            Optional<VisualizationProvider<DebugStateSnapshot>> providerOpt = (Optional<VisualizationProvider<DebugStateSnapshot>>) (Optional<?>) visualizationRegistry
+                    .get(snapshot.getClass());
+
+            providerOpt.ifPresent(provider -> {
+                try {
+                    provider.cleanup(session.getOwner());
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error cleaning up visualization for session " + session.getOwner(), e);
+                }
+            });
+        }
     }
 }

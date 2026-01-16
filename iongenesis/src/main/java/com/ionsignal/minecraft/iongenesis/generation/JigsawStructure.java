@@ -4,7 +4,7 @@ import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
 import com.ionsignal.minecraft.iongenesis.generation.placements.JigsawPlacement;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
-import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;
 import com.ionsignal.minecraft.iongenesis.util.SystemContext;
 

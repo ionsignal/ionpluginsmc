@@ -38,8 +38,15 @@ public class DebugVisualizationTask extends BukkitRunnable {
     public void run() {
         // Iterate all active sessions and render those marked dirty
         for (DebugSession<?> session : sessionRegistry.getAllSessions()) {
-            // Skip inactive sessions or those not needing updates
-            if (!session.isActive() || !session.isVisualizationDirty()) {
+            // Allow rendering if dirty, even if COMPLETED/FAILED
+            // This ensures the final frame is rendered before the session goes dormant
+            boolean isTerminalButDirty = (session.getStatus() == SessionStatus.COMPLETED ||
+                    session.getStatus() == SessionStatus.FAILED)
+                    && session.isVisualizationDirty();
+            if (!session.isActive() && !isTerminalButDirty) {
+                continue;
+            }
+            if (!session.isVisualizationDirty()) {
                 continue;
             }
             Object rawState = session.getState();

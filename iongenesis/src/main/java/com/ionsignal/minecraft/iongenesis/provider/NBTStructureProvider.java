@@ -1,8 +1,8 @@
 package com.ionsignal.minecraft.iongenesis.provider;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
-import com.ionsignal.minecraft.iongenesis.model.JigsawData;
-import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.model.structure.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.util.NBTUtil;
 
 import de.bluecolored.bluenbt.BlueNBT;

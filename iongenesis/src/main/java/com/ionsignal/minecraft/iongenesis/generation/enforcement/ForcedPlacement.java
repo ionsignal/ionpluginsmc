@@ -1,19 +1,18 @@
 package com.ionsignal.minecraft.iongenesis.generation.enforcement;
 
 import com.ionsignal.minecraft.iongenesis.generation.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.logic.JigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
-import com.ionsignal.minecraft.iongenesis.model.JigsawData;
-import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
-import com.ionsignal.minecraft.iongenesis.util.AABB;
+import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
+import com.ionsignal.minecraft.iongenesis.model.structure.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.util.JigsawUtils;
 import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;
 import com.ionsignal.minecraft.iongenesis.util.TransformUtil;
-import com.ionsignal.minecraft.iongenesis.util.CoordinateConverter;
-import com.ionsignal.minecraft.iongenesis.core.JigsawConnection;
-
+import com.ionsignal.minecraft.iongenesis.util.SpatialMath;
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.structure.Structure;
 
@@ -276,7 +275,7 @@ public class ForcedPlacement {
         if (rotation == Rotation.NONE) {
             return jigsaw;
         }
-        Vector3Int rotatedPos = CoordinateConverter.rotate(
+        Vector3Int rotatedPos = SpatialMath.rotate(
                 jigsaw.position(),
                 rotation,
                 structureSize);

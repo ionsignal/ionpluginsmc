@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.iongenesis.generation.placements;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
-import com.ionsignal.minecraft.iongenesis.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.structure.JigsawData;
 
 /**
  * Represents a jigsaw connection point that has been transformed from structure-local

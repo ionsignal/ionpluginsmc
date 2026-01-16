@@ -1,7 +1,8 @@
-package com.ionsignal.minecraft.iongenesis.util;
+package com.ionsignal.minecraft.iongenesis.model.geometry;
 
 import com.dfsek.seismic.type.Rotation;
 import com.dfsek.seismic.type.vector.Vector3Int;
+import com.ionsignal.minecraft.iongenesis.util.SpatialMath;
 
 import java.util.Objects;
 
@@ -113,7 +114,7 @@ public final class AABB {
      * 
      * Algorithm:
      * 1. Generate all 8 corners of the unrotated bounding box in structure-local space
-     * 2. Rotate each corner using CoordinateConverter.rotate() (single source of truth)
+     * 2. Rotate each corner using SpatialMath.rotate() (single source of truth)
      * 3. Transform each rotated corner to world space by adding the structure's world position
      * 4. Find the min/max coordinates of all 8 transformed corners
      * 
@@ -152,8 +153,8 @@ public final class AABB {
             // Create a position vector for this corner in structure-local space
             Vector3Int localCorner = Vector3Int.of(localX, localY, localZ);
             // Rotate using the SAME logic as block placement
-            // This is the critical fix - we now use CoordinateConverter as the single source of truth
-            Vector3Int rotatedCorner = CoordinateConverter.rotate(localCorner, rotation, size);
+            // This is the critical fix - we now use SpatialMath as the single source of truth
+            Vector3Int rotatedCorner = SpatialMath.rotate(localCorner, rotation, size);
             // Transform the rotated corner to world space
             int worldX = position.getX() + rotatedCorner.getX();
             int worldY = position.getY() + rotatedCorner.getY();

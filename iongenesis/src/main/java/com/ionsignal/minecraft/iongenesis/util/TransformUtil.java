@@ -5,7 +5,7 @@ import com.dfsek.seismic.type.Rotation;
 
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
-import com.ionsignal.minecraft.iongenesis.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.structure.JigsawData;
 
 /**
  * Utility class for spatial transformations required for jigsaw structure generation.
@@ -37,17 +37,17 @@ public final class TransformUtil {
             Vector3Int structureWorldPos,
             Rotation structureRotation,
             Vector3Int structureSize) {
-        // Step 1: Rotate the jigsaw's position within the structure bounds
-        Vector3Int rotatedLocalPos = CoordinateConverter.rotate(
+        // Rotate the jigsaw's position within the structure bounds
+        Vector3Int rotatedLocalPos = SpatialMath.rotate(
                 jigsawBlock.position(),
                 structureRotation,
                 structureSize);
-        // Step 2: Calculate world position
+        // Calculate world position
         Vector3Int worldPos = Vector3Int.of(
                 structureWorldPos.getX() + rotatedLocalPos.getX(),
                 structureWorldPos.getY() + rotatedLocalPos.getY(),
                 structureWorldPos.getZ() + rotatedLocalPos.getZ());
-        // Step 3: Rotate the jigsaw's orientation
+        // Rotate the jigsaw's orientation
         String rotatedOrientation = rotateOrientation(jigsawBlock.orientation(), structureRotation);
         // Create the transformed jigsaw block
         return new TransformedJigsawBlock(
@@ -58,14 +58,12 @@ public final class TransformUtil {
 
     /**
      * Calculates the placement transform needed to align a child structure with a parent connection
-     * point.
-     * This is the core algorithm for connecting jigsaw pieces together.
+     * point. This is the core algorithm for connecting jigsaw pieces together.
      * 
      * CRITICAL: The childJigsaw MUST be in its ORIGINAL, UNROTATED state (local coordinates).
      * This method calculates only the alignment rotation needed to make the two jigsaws face each
-     * other.
-     * Any geometric rotation (for ROLLABLE joints) must be handled by the caller AFTER this method
-     * returns.
+     * other. Any geometric rotation (for ROLLABLE joints) must be handled by the caller AFTER this
+     * method returns.
      * 
      * @param parentConnection
      *            The connection point on the already-placed parent structure (in world space)
@@ -90,23 +88,23 @@ public final class TransformUtil {
         if (childStructureSize == null) {
             throw new IllegalArgumentException("childStructureSize cannot be null");
         }
-        // Step 1: Determine the rotation needed to align the child's jigsaw with the parent's
+        // Determine the rotation needed to align the child's jigsaw with the parent's
         // This calculates the alignment rotation assuming the child is in its ORIGINAL, UNROTATED state
         Rotation requiredRotation = calculateRequiredRotation(
                 parentConnection.orientation(),
                 childJigsaw.orientation());
-        // Step 2: Rotate the child jigsaw's position within its structure
+        // Rotate the child jigsaw's position within its structure
         // CRITICAL: We use childStructureSize here, which is the UNROTATED size
         // This is correct because childJigsaw.position() is in UNROTATED local space
-        Vector3Int rotatedChildJigsawPos = CoordinateConverter.rotate(
+        Vector3Int rotatedChildJigsawPos = SpatialMath.rotate(
                 childJigsaw.position(),
                 requiredRotation,
                 childStructureSize);
-        // Step 3: Calculate the offset needed to align the connection points
+        // Calculate the offset needed to align the connection points
         // The child's rotated jigsaw position should align with the parent's connection point
         // We need to account for the face-to-face connection (jigsaws touch at their faces)
         Vector3Int connectionOffset = getConnectionOffset(parentConnection.orientation());
-        // Step 4: Calculate the child structure's world position
+        // Calculate the child structure's world position
         // childWorldPos + rotatedChildJigsawPos = parentConnection.position() + connectionOffset
         // Solving for childWorldPos:
         Vector3Int childWorldPos = Vector3Int.of(
@@ -161,7 +159,6 @@ public final class TransformUtil {
         if ("up".equals(direction) || "down".equals(direction)) {
             return direction;
         }
-
         // Convert direction to index (north=0, east=1, south=2, west=3)
         int dirIndex = switch (direction) {
             case "north" -> 0;
@@ -170,11 +167,9 @@ public final class TransformUtil {
             case "west" -> 3;
             default -> -1;
         };
-
         if (dirIndex == -1) {
             return direction; // Unknown direction, return as-is
         }
-
         // Apply rotation
         int rotationSteps = switch (rotation) {
             case CW_90 -> 1;
@@ -182,9 +177,7 @@ public final class TransformUtil {
             case CCW_90 -> 3;
             case NONE -> 0;
         };
-
         int newIndex = (dirIndex + rotationSteps) % 4;
-
         // Convert back to direction string
         return switch (newIndex) {
             case 0 -> "north";
@@ -257,18 +250,14 @@ public final class TransformUtil {
         if (from.equals(to)) {
             return Rotation.NONE;
         }
-
         // Convert directions to indices
         int fromIndex = directionToIndex(from);
         int toIndex = directionToIndex(to);
-
         if (fromIndex == -1 || toIndex == -1) {
             return Rotation.NONE; // Unknown direction
         }
-
         // Calculate the rotation steps needed (positive = clockwise)
         int steps = (toIndex - fromIndex + 4) % 4;
-
         return switch (steps) {
             case 0 -> Rotation.NONE;
             case 1 -> Rotation.CW_90;
@@ -332,7 +321,6 @@ public final class TransformUtil {
     public static boolean areOrientationsCompatible(String orientation1, String orientation2) {
         String dir1 = orientation1.toLowerCase().split("_")[0];
         String dir2 = orientation2.toLowerCase().split("_")[0];
-
         return dir2.equals(getOppositeDirection(dir1));
     }
 }

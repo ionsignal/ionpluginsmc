@@ -6,9 +6,13 @@ import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
 import com.ionsignal.minecraft.iongenesis.generation.StructurePlanner;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import org.bukkit.scheduler.BukkitRunnable;
 
 public class JigsawDebugDriver extends BukkitRunnable {
+    private static final Logger LOGGER = Logger.getLogger(JigsawDebugDriver.class.getName());
     private static final long MAX_MS_PER_TICK = 40;
 
     private final DebugSession<StructureBlueprint> session;
@@ -23,58 +27,47 @@ public class JigsawDebugDriver extends BukkitRunnable {
 
     @Override
     public void run() {
-        if (session.getStatus() == SessionStatus.CANCELLED || session.getStatus() == SessionStatus.FAILED) {
-            this.cancel();
-            return;
-        }
-
-        if (controller.isPaused()) {
-            return; // Wait for resume
-        }
-
-        boolean finished = false;
-        long startTime = System.currentTimeMillis();
-
-        if (controller.isContinuingToEnd()) {
-            // Fast mode: Run as many steps as possible within time budget
-            while (System.currentTimeMillis() - startTime < MAX_MS_PER_TICK) {
-                if (!planner.tick()) {
-                    finished = true;
-                    break;
-                }
+        try {
+            if (session.getStatus() == SessionStatus.CANCELLED ||
+                    session.getStatus() == SessionStatus.FAILED ||
+                    session.getStatus() == SessionStatus.COMPLETED) {
+                this.cancel();
+                return;
             }
-        } else {
-            // Step mode: Run one logical step (place one piece)
-            // Planner.tick() might process a failed connection and return true without placing a piece.
-            // We want to step until a piece is placed or finished to avoid "empty" steps for the user.
-            int initialPieceCount = session.getState().pieces().size();
-            while (true) {
+            if (controller.isPaused()) {
+                return; // Wait for resume
+            }
+            boolean finished = false;
+            long startTime = System.currentTimeMillis();
+            if (controller.isContinuingToEnd()) {
+                // Fast mode: Run as many steps as possible within time budget
+                while (System.currentTimeMillis() - startTime < MAX_MS_PER_TICK) {
+                    if (!planner.tick()) {
+                        finished = true;
+                        break;
+                    }
+                }
+            } else {
                 boolean working = planner.tick();
                 if (!working) {
                     finished = true;
-                    break;
                 }
-                // Check if we placed a piece
-                // Note: We need to peek at the planner's internal state via blueprint
-                // Optimization: Planner could return a result enum instead of boolean
-                if (planner.getBlueprint().pieces().size() > initialPieceCount) {
-                    break; // Piece placed, stop stepping
-                }
-                // Safety break for infinite loops in non-placing ticks
-                if (System.currentTimeMillis() - startTime > MAX_MS_PER_TICK)
-                    break;
             }
-        }
-
-        // Update Session State
-        session.setState(planner.getBlueprint());
-
-        if (finished) {
-            session.transitionTo(SessionStatus.COMPLETED);
+            // Update Session State
+            session.setState(planner.getBlueprint());
+            if (finished) {
+                LOGGER.info("[Driver] Finished detected. Transitioning to COMPLETED.");
+                session.transitionTo(SessionStatus.COMPLETED);
+                this.cancel();
+            } else if (!controller.isContinuingToEnd()) {
+                // Auto-pause after step
+                controller.pause("Placed Piece", "Count: " + planner.getBlueprint().pieces().size());
+            }
+        } catch (Exception e) {
+            // THIS is where we catch the crash and print the stack trace
+            LOGGER.log(Level.SEVERE, "[Driver] CRITICAL EXCEPTION:", e);
+            session.setStatus(SessionStatus.FAILED); // Force status
             this.cancel();
-        } else if (!controller.isContinuingToEnd()) {
-            // Auto-pause after step
-            controller.pause("Placed Piece", "Count: " + planner.getBlueprint().pieces().size());
         }
     }
 }
