@@ -1,26 +1,53 @@
 package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
-import com.ionsignal.minecraft.ionnerrus.network.messages.AgentState;
+import com.ionsignal.minecraft.ionnerrus.network.schema.Outgoing;
+import com.ionsignal.minecraft.ionnerrus.network.schema.Shared;
 
+import org.bukkit.Location;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
+import java.util.UUID;
+
 public class NetworkEventListener implements Listener {
+
+    private static final UUID NIL_UUID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     @EventHandler
     public void onAgentSpawn(NerrusAgentSpawnEvent event) {
-        AgentState message = AgentState.from(event.getAgent());
-        // Broadcast "AGENT_SPAWNED"
+        Outgoing.AgentState message = mapToState(event.getAgent(), "ACTIVE");
         IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_SPAWNED", message);
     }
 
     @EventHandler
     public void onAgentRemove(NerrusAgentRemoveEvent event) {
-        AgentState message = AgentState.from(event.getAgent());
-        // Broadcast "AGENT_REMOVED"
+        Outgoing.AgentState message = mapToState(event.getAgent(), "DESPAWNED");
         IonCore.getInstance().getServiceContainer().getEventBus().broadcast("AGENT_REMOVED", message);
+    }
+
+    private Outgoing.AgentState mapToState(NerrusAgent agent, String status) {
+        Location loc = agent.getPersona().getLocation();
+        
+        // Resolve Volatile ID or Fallback to Nil
+        UUID defId = agent.getPersona().getDefinitionId();
+        if (defId == null) {
+            defId = NIL_UUID;
+        }
+
+        return new Outgoing.AgentState(
+            agent.getPersona().getUniqueId(),
+            defId,
+            agent.getName(),
+            status,
+            new Shared.LocationData(
+                loc.getWorld().getName(),
+                loc.getX(), loc.getY(), loc.getZ(),
+                loc.getYaw(), loc.getPitch()
+            )
+        );
     }
 }

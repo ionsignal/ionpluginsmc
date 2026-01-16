@@ -1,22 +1,17 @@
 package com.ionsignal.minecraft.ionnerrus.network.messages;
 
-import java.util.List;
-
 /**
  * Represents the JSON payload received from the web to spawn an agent.
- * Matches the structure previously defined in IonCore.
+ * Updated to match the new JSON structure where IDs are UUID strings and skin data is removed.
  */
 public record SpawnAgentRequest(
+        String definitionId, // UUID String
+        String ownerId,      // UUID String
         String name,
-        String skin, // Simplified skin name/url if needed
-        String skinTexture, // Base64 value
-        String skinSignature, // Base64 signature
-        int definitionId,
-        SpawnLocationData location,
-        String ownerUuid,
-        List<String> authorizedUuids) {
+        SpawnLocationData location
+) {
     /**
-     * Nested record for location data to handle the specific JSON structure.
+     * Nested record for location data.
      */
     public record SpawnLocationData(
             String type, // "PLAYER" or "COORDINATES"
