@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ioncore.debug.controllers;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugSession;
+import com.ionsignal.minecraft.ioncore.debug.DebugSessionException;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.ioncore.debug.TimeoutBehavior;
@@ -11,6 +12,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
 
 /**
  * An execution controller that uses flag-based coordination for main-thread tick loops. Unlike
@@ -57,6 +59,15 @@ public class TickBasedController implements ExecutionController {
         if (continueToEnd.get() || cancelled.get()) {
             return;
         }
+        // Added defensive check for session liveness to prevent zombie pauses
+        DebugSession<?> attachedSession = session.get();
+        if (attachedSession != null && !attachedSession.isActive()) {
+            // Allow pausing if the session is just starting (CREATED).
+            // CREATED is not "active" yet, but pausing it transitions it to PAUSED (which is active).
+            if (attachedSession.getStatus() != SessionStatus.CREATED) {
+                return;
+            }
+        }
         // Set paused flag (non-blocking)
         isPaused.set(true);
         // Update session status and phase information
@@ -67,6 +78,11 @@ public class TickBasedController implements ExecutionController {
 
     @Override
     public void resume() {
+        // Added defensive check for session liveness
+        DebugSession<?> attachedSession = session.get();
+        if (attachedSession != null && !attachedSession.isActive()) {
+            return;
+        }
         // Clear paused flag
         isPaused.set(false);
         // Cancel any pending timeout
@@ -88,6 +104,7 @@ public class TickBasedController implements ExecutionController {
         // Update session to CANCELLED status
         DebugSession<?> attachedSession = session.get();
         if (attachedSession != null) {
+            // Use safe transition if possible, but force status for cancellation
             attachedSession.setStatus(SessionStatus.CANCELLED);
             attachedSession.markVisualizationDirty();
         }
@@ -178,10 +195,19 @@ public class TickBasedController implements ExecutionController {
     private void updateSessionStatus(SessionStatus newStatus, String phase, String info) {
         DebugSession<?> attachedSession = session.get();
         if (attachedSession != null) {
-            attachedSession.setStatus(newStatus);
-            attachedSession.setCurrentPhase(phase);
-            attachedSession.setCurrentInfo(info);
-            attachedSession.markVisualizationDirty();
+            try {
+                // Use transitionTo for strict state machine enforcement
+                // Only transition if the status is actually changing to avoid redundant checks
+                if (attachedSession.getStatus() != newStatus) {
+                    attachedSession.transitionTo(newStatus);
+                }
+                attachedSession.setCurrentPhase(phase);
+                attachedSession.setCurrentInfo(info);
+                attachedSession.markVisualizationDirty();
+            } catch (DebugSessionException e) {
+                // Log warning if invalid transition attempted (e.g. race condition)
+                Bukkit.getLogger().log(Level.WARNING, "[TickBasedController] Failed to update session status: {0}", e.getMessage());
+            }
         }
     }
 }

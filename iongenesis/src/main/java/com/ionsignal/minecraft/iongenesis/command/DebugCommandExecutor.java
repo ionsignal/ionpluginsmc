@@ -7,12 +7,15 @@ import com.dfsek.terra.api.structure.Structure;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSession;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionControllerFactory;
+import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.ioncore.debug.controllers.TickBasedController;
 import com.ionsignal.minecraft.iongenesis.IonGenesis;
 import com.ionsignal.minecraft.iongenesis.debug.JigsawDebugDriver;
 import com.ionsignal.minecraft.iongenesis.generation.JigsawStructure;
+import com.ionsignal.minecraft.iongenesis.generation.PlanningEventListener;
 import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
 import com.ionsignal.minecraft.iongenesis.generation.StructurePlanner;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.util.SystemContext;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
@@ -64,9 +67,30 @@ public class DebugCommandExecutor implements CommandExecutor {
         switch (action) {
             case "start" -> handleStart(player, args);
             case "step" -> IonCore.getDebugRegistry().getActiveSession(player.getUniqueId())
-                    .ifPresent(s -> s.getController().ifPresent(c -> c.resume()));
+                    .ifPresent(s -> {
+                        if (s.getStatus() == com.ionsignal.minecraft.ioncore.debug.SessionStatus.COMPLETED) {
+                            player.sendMessage(
+                                    Component.text("Generation finished. Use /iongenesis debug cancel to clear.", NamedTextColor.GREEN));
+                        } else if (s.getStatus() == com.ionsignal.minecraft.ioncore.debug.SessionStatus.FAILED) {
+                            player.sendMessage(
+                                    Component.text("Generation failed. Use /iongenesis debug cancel to clear.", NamedTextColor.RED));
+                        } else if (s.getStatus() == com.ionsignal.minecraft.ioncore.debug.SessionStatus.CANCELLED) {
+                            player.sendMessage(
+                                    Component.text("Session is cancelled. Use /iongenesis debug cancel to clear.", NamedTextColor.YELLOW));
+                        } else {
+                            s.getController().ifPresent(c -> c.resume());
+                        }
+                    });
             case "finish" -> IonCore.getDebugRegistry().getActiveSession(player.getUniqueId())
-                    .ifPresent(s -> s.getController().ifPresent(c -> c.continueToEnd()));
+                    .ifPresent(s -> {
+                        if (s.getStatus() == com.ionsignal.minecraft.ioncore.debug.SessionStatus.COMPLETED) {
+                            player.sendMessage(Component.text("Generation already finished.", NamedTextColor.GREEN));
+                        } else if (!s.isActive()) {
+                            player.sendMessage(Component.text("Session is not active.", NamedTextColor.RED));
+                        } else {
+                            s.getController().ifPresent(c -> c.resume());
+                        }
+                    });
             case "cancel" -> {
                 if (IonCore.getDebugRegistry().cancelSession(player.getUniqueId())) {
                     player.sendMessage(Component.text("Session cancelled.", NamedTextColor.GREEN));
@@ -131,6 +155,26 @@ public class DebugCommandExecutor implements CommandExecutor {
             RandomGenerator random = RandomGeneratorFactory.of("Xoroshiro128PlusPlus").create(seed);
             Vector3Int origin = Vector3Int.of(player.getLocation().getBlockX(), player.getLocation().getBlockY(),
                     player.getLocation().getBlockZ());
+            // Create a concrete listener to report failures to the user immediately.
+            PlanningEventListener listener = new PlanningEventListener() {
+                @Override
+                public void onPiecePlaced(PlacedJigsawPiece piece) {
+                    // Visuals handle this, but we could log verbose info here if needed.
+                }
+
+                @Override
+                public void onConnectionFailed(PlacedJigsawPiece parent, String reason) {
+                    // Send directly to player to avoid silent failure confusion
+                    player.sendMessage(Component.text("[Debug] Connection Failed: " + reason, NamedTextColor.RED));
+                    plugin.getLogger().warning("[Debug Session " + player.getName() + "] Connection Failed: " + reason);
+                }
+
+                @Override
+                public void onGenerationFinished(StructureBlueprint blueprint) {
+                    player.sendMessage(
+                            Component.text("Generation Finished. Total Pieces: " + blueprint.pieces().size(), NamedTextColor.GREEN));
+                }
+            };
             // Create Planner
             StructurePlanner planner = new StructurePlanner(
                     foundPack,
@@ -138,7 +182,7 @@ public class DebugCommandExecutor implements CommandExecutor {
                     origin,
                     random,
                     seed,
-                    null, // Listener
+                    listener,
                     player.getUniqueId() // Session ID
             );
             // Initialize Planner State
@@ -153,6 +197,7 @@ public class DebugCommandExecutor implements CommandExecutor {
                         player.getUniqueId(),
                         initialBlueprint,
                         controller);
+                session.transitionTo(SessionStatus.ACTIVE);
                 // Start Driver Task
                 JigsawDebugDriver driver = new JigsawDebugDriver(session, planner);
                 driver.runTaskTimer(plugin, 1L, 1L);

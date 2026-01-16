@@ -1,6 +1,6 @@
-package com.ionsignal.minecraft.iongenesis.core;
+package com.ionsignal.minecraft.iongenesis.generation.logic;
 
-import com.ionsignal.minecraft.iongenesis.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.structure.JigsawData;
 
 /**
  * Utility class for validating jigsaw connections between structure pieces.

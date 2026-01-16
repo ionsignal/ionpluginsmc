@@ -5,8 +5,7 @@ import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViola
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.GenerationStatistics;
-import com.ionsignal.minecraft.iongenesis.util.AABB;
-
+import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
 import com.dfsek.seismic.type.vector.Vector3Int;
 
 import java.util.Collections;

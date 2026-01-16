@@ -2,8 +2,7 @@ package com.ionsignal.minecraft.iongenesis.generation.placements;
 
 import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
-import com.ionsignal.minecraft.iongenesis.util.AABB;
-
+import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
 import com.dfsek.seismic.type.vector.Vector3Int;
 
 import java.util.List;

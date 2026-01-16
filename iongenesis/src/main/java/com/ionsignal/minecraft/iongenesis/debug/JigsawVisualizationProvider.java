@@ -4,7 +4,7 @@ import com.ionsignal.minecraft.ioncore.debug.VisualizationProvider;
 import com.ionsignal.minecraft.iongenesis.IonGenesis;
 import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
-import com.ionsignal.minecraft.iongenesis.util.AABB;
+import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 
@@ -22,7 +22,6 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.util.Transformation;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -32,6 +31,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class JigsawVisualizationProvider implements VisualizationProvider<StructureBlueprint> {
     private final Map<UUID, Set<UUID>> sessionEntities = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> renderedPieceCounts = new ConcurrentHashMap<>();
+    private final Map<UUID, ActiveHead> sessionHeads = new ConcurrentHashMap<>();
+
+    // Record to track active head entities
+    private record ActiveHead(UUID blockDisplayId, UUID textDisplayId) {
+    }
 
     @Override
     public void render(StructureBlueprint state) {
@@ -49,27 +53,58 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
         }
         if (world == null)
             return;
-        Set<UUID> entities = sessionEntities.computeIfAbsent(sessionId, k -> new HashSet<>());
+        Set<UUID> entities = sessionEntities.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet());
         int previouslyRendered = renderedPieceCounts.getOrDefault(sessionId, 0);
         int currentCount = state.pieces().size();
+        // Demote the previous "Head" if new pieces are being added
+        if (currentCount > previouslyRendered) {
+            demoteActiveHead(sessionId);
+        }
         // Render new pieces
         for (int i = previouslyRendered; i < currentCount; i++) {
             PlacedJigsawPiece piece = state.pieces().get(i);
             boolean isNewest = (i == currentCount - 1);
-            spawnPieceVisuals(world, piece, isNewest, entities);
+            // Capture the returned ActiveHead (if any) and track it
+            ActiveHead newHead = spawnPieceVisuals(world, piece, isNewest, entities);
+            if (newHead != null) {
+                sessionHeads.put(sessionId, newHead);
+            }
         }
         // Update "Active" highlight logic would go here in a full implementation
         // For now, we rely on the incremental spawning to highlight the newest added piece.
         renderedPieceCounts.put(sessionId, currentCount);
     }
 
-    private void spawnPieceVisuals(World world, PlacedJigsawPiece piece, boolean isNewest, Set<UUID> tracker) {
+    // Helper to fade the previous active piece to gray and remove text
+    private void demoteActiveHead(UUID sessionId) {
+        ActiveHead head = sessionHeads.remove(sessionId);
+        if (head == null)
+            return;
+        // Update Block Display (Fade to Gray, remove Glow)
+        // Defensive check: Entity might be null if chunk unloaded or killed
+        Entity blockEntity = Bukkit.getEntity(head.blockDisplayId());
+        if (blockEntity instanceof BlockDisplay blockDisplay) {
+            blockDisplay.setBlock(Material.GRAY_STAINED_GLASS.createBlockData());
+            blockDisplay.setGlowing(false);
+            blockDisplay.setGlowColorOverride(null);
+        }
+        // Remove Text Display (Reduce clutter)
+        if (head.textDisplayId() != null) {
+            Entity textEntity = Bukkit.getEntity(head.textDisplayId());
+            if (textEntity != null && textEntity.isValid()) {
+                textEntity.remove();
+            }
+        }
+    }
+
+    private ActiveHead spawnPieceVisuals(World world, PlacedJigsawPiece piece, boolean isNewest, Set<UUID> tracker) {
         AABB bounds = piece.getWorldBounds();
         Vector3Int min = bounds.min();
         Vector3Int size = bounds.getSize();
         Location loc = new Location(world, min.getX(), min.getY(), min.getZ());
         // Spawn Block Display (Bounding Box)
         BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
+        // Logic moved here - if newest, Green, else Gray.
         display.setBlock(isNewest ? Material.LIME_STAINED_GLASS.createBlockData() : Material.GRAY_STAINED_GLASS.createBlockData());
         // Transform to match size
         Transformation transform = display.getTransformation();
@@ -84,7 +119,7 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
             display.setGlowing(true);
         }
         tracker.add(display.getUniqueId());
-        // Spawn Text Info if newest
+        UUID textId = null;
         if (isNewest) {
             Location textLoc = loc.clone().add(size.getX() / 2.0, size.getY() + 1.5, size.getZ() / 2.0);
             TextDisplay text = (TextDisplay) world.spawnEntity(textLoc, EntityType.TEXT_DISPLAY);
@@ -93,36 +128,64 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
             text.setPersistent(false);
             text.addScoreboardTag("ionnerrus:debug_visualizer");
             tracker.add(text.getUniqueId());
+            textId = text.getUniqueId();
         }
+        if (isNewest) {
+            return new ActiveHead(display.getUniqueId(), textId);
+        }
+        return null;
     }
 
     @Override
     public CompletableFuture<Void> cleanup() {
+        // Grab all entities and clear the map immediately.
+        // This prevents race conditions where new sessions might be cleared by old tasks.
+        Set<UUID> allEntities = ConcurrentHashMap.newKeySet();
+        for (Set<UUID> set : sessionEntities.values()) {
+            allEntities.addAll(set);
+        }
+        sessionEntities.clear();
+        renderedPieceCounts.clear();
+        sessionHeads.clear(); // NEW: Clear head tracking
+        return scheduleRemoval(allEntities);
+    }
+
+    @Override
+    public CompletableFuture<Void> cleanup(UUID sessionId) {
+        // Remove the specific session set immediately.
+        Set<UUID> entities = sessionEntities.remove(sessionId);
+        renderedPieceCounts.remove(sessionId);
+        sessionHeads.remove(sessionId); // NEW: Clear head tracking
+        if (entities == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        return scheduleRemoval(entities);
+    }
+
+    private CompletableFuture<Void> scheduleRemoval(Set<UUID> entitiesToRemove) {
+        if (entitiesToRemove.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
         if (!Bukkit.isPrimaryThread()) {
-            // Schedule on main
             CompletableFuture<Void> future = new CompletableFuture<>();
             Bukkit.getScheduler().runTask(IonGenesis.getInstance(), () -> {
-                cleanupInternal();
+                removeEntities(entitiesToRemove);
                 future.complete(null);
             });
             return future;
         } else {
-            cleanupInternal();
+            removeEntities(entitiesToRemove);
             return CompletableFuture.completedFuture(null);
         }
     }
 
-    private void cleanupInternal() {
-        for (Set<UUID> uuids : sessionEntities.values()) {
-            for (UUID uuid : uuids) {
-                Entity e = Bukkit.getEntity(uuid);
-                if (e != null && e.isValid()) {
-                    e.remove();
-                }
+    private void removeEntities(Set<UUID> uuids) {
+        for (UUID uuid : uuids) {
+            Entity e = Bukkit.getEntity(uuid);
+            if (e != null && e.isValid()) {
+                e.remove();
             }
         }
-        sessionEntities.clear();
-        renderedPieceCounts.clear();
     }
 
     @Override

@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.iongenesis.model;
+package com.ionsignal.minecraft.iongenesis.model.structure;
 
 import java.util.List;
 import java.util.Map;

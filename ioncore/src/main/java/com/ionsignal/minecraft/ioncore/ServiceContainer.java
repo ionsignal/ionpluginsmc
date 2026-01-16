@@ -47,8 +47,8 @@ public final class ServiceContainer {
             this.telemetryManager = new TelemetryManager(plugin);
             this.telemetryManager.setEventBus(eventBus);
             // Debug & Visualization (Restored)
-            this.debugRegistry = new DebugSessionRegistry();
             this.visualizationRegistry = new VisualizationProviderRegistry();
+            this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);
             // Start the Visualization Heartbeat (1 tick interval)
             DebugVisualizationTask task = new DebugVisualizationTask(debugRegistry, visualizationRegistry);
             this.visualizationTask = task.runTaskTimer(plugin, 1L, 1L);
@@ -99,8 +99,12 @@ public final class ServiceContainer {
 
     public @NotNull DebugSessionRegistry getDebugRegistry() {
         // These might be accessed early, so we ensure they exist if init failed partially
-        if (debugRegistry == null)
-            debugRegistry = new DebugSessionRegistry();
+        if (debugRegistry == null) {
+            if (visualizationRegistry == null) {
+                visualizationRegistry = new VisualizationProviderRegistry();
+            }
+            debugRegistry = new DebugSessionRegistry(visualizationRegistry);
+        }
         return debugRegistry;
     }
 

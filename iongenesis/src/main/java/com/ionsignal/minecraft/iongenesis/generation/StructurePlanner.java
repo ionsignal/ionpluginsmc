@@ -1,10 +1,12 @@
 package com.ionsignal.minecraft.iongenesis.generation;
 
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
-import com.ionsignal.minecraft.iongenesis.core.JigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViolation;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.EnforcementStrategy;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.ForcedPlacement;
+import com.ionsignal.minecraft.iongenesis.generation.logic.CandidateSelector;
+import com.ionsignal.minecraft.iongenesis.generation.logic.ConnectionFitter;
+import com.ionsignal.minecraft.iongenesis.generation.logic.JigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PendingJigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
@@ -12,14 +14,12 @@ import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry
 import com.ionsignal.minecraft.iongenesis.generation.tracking.GenerationStatistics;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.PoolUsageTracker;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
-import com.ionsignal.minecraft.iongenesis.model.JigsawData;
-import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
-import com.ionsignal.minecraft.iongenesis.util.AABB;
-import com.ionsignal.minecraft.iongenesis.util.CoordinateConverter;
-import com.ionsignal.minecraft.iongenesis.util.JigsawUtils;
+import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
+import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;
 import com.ionsignal.minecraft.iongenesis.util.TransformUtil;
 
+import com.dfsek.seismic.type.DistanceFunction;
 import com.dfsek.seismic.type.Rotation;
 import com.dfsek.seismic.type.vector.Vector3Int;
 import com.dfsek.terra.api.config.ConfigPack;
@@ -43,24 +43,29 @@ import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 
 /**
- * State machine based structure planner with incremental "ticking" for time-sliced generation.
+ * State machine based structure planner. Orchestrates the generation process by delegating specific
+ * logic to CandidateSelector and ConnectionFitter.
  */
 public class StructurePlanner {
     private static final Logger LOGGER = Logger.getLogger(StructurePlanner.class.getName());
+    private static final int MAX_OPS_PER_TICK = 100; // Safety valve to prevent main thread freeze
 
     public enum State {
         INITIALIZING, GENERATING, ENFORCING, FINISHED
     }
 
     // Inputs
-    @SuppressWarnings("unused")
-    private final long seed;
     private final ConfigPack pack;
     private final JigsawStructureTemplate config;
     private final Vector3Int origin;
     private final RandomGenerator random;
     private final PlanningEventListener listener;
     private final UUID sessionId;
+
+    // Logic Delegates
+    private final CandidateSelector candidateSelector;
+    private final ConnectionFitter connectionFitter;
+    private final ForcedPlacement forcedPlacement;
 
     // Internal State
     private State state = State.INITIALIZING;
@@ -72,14 +77,13 @@ public class StructurePlanner {
     private final ConnectionRegistry connectionRegistry = new ConnectionRegistry();
     private final EnforcementStrategy enforcementStrategy;
     private final List<UsageConstraints> allConstraints;
-    private final ForcedPlacement forcedPlacement;
     private final List<ConstraintViolation> capturedViolations = new ArrayList<>();
     private final Queue<UsageConstraints> pendingEnforcement = new LinkedList<>();
 
     // Metrics
-    private long generationStartTime;
     private int attemptedConnections = 0;
     private int successfulConnections = 0;
+    private long generationStartTime;
 
     public StructurePlanner(
             ConfigPack pack,
@@ -91,19 +95,18 @@ public class StructurePlanner {
         this.config = config;
         this.origin = origin;
         this.random = random;
-        this.seed = seed;
         this.listener = listener;
         this.sessionId = sessionId;
         this.poolRegistry = new PoolRegistry(pack);
         this.enforcementStrategy = EnforcementStrategy.fromConfig(config.getEnforcementStrategy());
         this.allConstraints = gatherConstraintsFromPools();
+
+        // Initialize Logic Delegates
+        this.candidateSelector = new CandidateSelector(random, usageTracker);
+        this.connectionFitter = new ConnectionFitter(pack, random, occupiedSpace);
         this.forcedPlacement = new ForcedPlacement(pack, seed);
     }
 
-    /**
-     * Runs the planner synchronously until completion.
-     * Used for standard Terra WorldGen.
-     */
     public StructureBlueprint generateFull(String startPoolId) {
         initialize(startPoolId);
         while (tick()) {
@@ -112,40 +115,51 @@ public class StructurePlanner {
         return getBlueprint();
     }
 
-    /**
-     * Advances the generation state by one step.
-     * 
-     * @return true if generation is still in progress, false if finished.
-     */
     public boolean tick() {
         switch (state) {
             case INITIALIZING:
-                // Should have been called via initialize(), but safe guard here
                 return false;
-
             case GENERATING:
                 if (connectionQueue.isEmpty()) {
+                    LOGGER.info("[Planner] Transitioning to ENFORCING phase");
                     state = State.ENFORCING;
-                    // Initialize enforcement queue
                     prepareEnforcementQueue();
                     return true;
                 }
-                processNextConnection();
-                return true;
-
-            case ENFORCING:
-                // Incremental enforcement logic
-                if (pendingEnforcement.isEmpty()) {
-                    checkStrictEnforcementFailure(); // Final check
-                    state = State.FINISHED;
-                    return true;
+                // Safety Valve Loop: Process up to MAX_OPS_PER_TICK attempts
+                // Returns true immediately if something is placed (visual update)
+                // Returns true at end if queue still has items (continue next tick)
+                int ops = 0;
+                while (!connectionQueue.isEmpty() && ops < MAX_OPS_PER_TICK) {
+                    boolean didWork = processNextConnection();
+                    if (didWork) {
+                        return true; // Yield to driver for visualization
+                    }
+                    ops++;
                 }
-                processNextEnforcement();
+                // Always return true to allow the next tick to handle the empty queue transition
                 return true;
-
+            case ENFORCING:
+                if (pendingEnforcement.isEmpty()) {
+                    checkStrictEnforcementFailure();
+                    LOGGER.info("[Planner] Transitioning to FINISHED phase. Returning FALSE to stop driver.");
+                    state = State.FINISHED;
+                    return false; // Return false immediately to stop driver (Fixes Phantom Tick)
+                }
+                // Same Safety Valve logic for Enforcement
+                int enforcementOps = 0;
+                while (!pendingEnforcement.isEmpty() && enforcementOps < MAX_OPS_PER_TICK) {
+                    boolean didWork = processNextEnforcement();
+                    if (didWork) {
+                        return true;
+                    }
+                    enforcementOps++;
+                }
+                // Always return true to allow the next tick to handle the empty queue transition
+                return true;
             case FINISHED:
+                LOGGER.info("[Planner] In FINISHED state. Returning FALSE.");
                 return false;
-
             default:
                 return false;
         }
@@ -165,6 +179,109 @@ public class StructurePlanner {
         }
     }
 
+    /**
+     * Processes the next connection in the queue.
+     * 
+     * @return true if a piece was placed (visual change), false if skipped/failed.
+     */
+    private boolean processNextConnection() {
+        PendingJigsawConnection pending = connectionQueue.poll();
+        if (pending == null)
+            return false;
+        // Corrected Depth Check: Allow placing AT maxDepth, but reject connections FROM maxDepth pieces
+        // If pending.depth() is 3 (max 3), we are trying to place a piece at depth 3. This is allowed.
+        // The connections ON that new piece will be depth 4, which will be rejected next time.
+        if (pending.depth() > config.getMaxDepth()) {
+            // Log only periodically or at fine level to avoid spam
+            LOGGER.log(Level.FINE, "[Planner] Skipping connection: Depth=" + pending.depth() + " (Max: " + config.getMaxDepth() + ")");
+            return false;
+        }
+        if (pending.exceedsDistance(origin, config.getMaxDistance()) || pending.isTerminator()) {
+            return false;
+        }
+        LOGGER.fine("Popped connection: " + pending);
+        PlacedJigsawPiece childPiece = tryPlaceConnectingPiece(pending);
+        if (childPiece != null) {
+            addPiece(childPiece);
+            queueConnections(childPiece, pending.depth() + 1);
+            connectionRegistry.markConsumed(pending.connection().position());
+            return true; // Work done
+        } else if (listener != null) {
+            // Failed to find a fit, but this is a "silent" failure in terms of visual updates
+            // We log it but return false so the loop continues
+            listener.onConnectionFailed(pending.sourcePiece(), "Could not find valid connection");
+        }
+        return false;
+    }
+
+    private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
+        attemptedConnections++;
+        String targetPoolId = pending.getTargetPoolId();
+        JigsawPool pool = poolRegistry.getPool(targetPoolId);
+        if (pool == null)
+            return null;
+        // 1. Select Candidates (Delegated)
+        List<String> candidateIds = candidateSelector.selectCandidates(pool, 10);
+        if (candidateIds.isEmpty())
+            return null;
+        // 2. Fit Connection (Delegated)
+        PlacedJigsawPiece result = connectionFitter.tryFit(pending, candidateIds, pool.getId());
+        if (result != null) {
+            successfulConnections++;
+            usageTracker.recordPlacement(pool.getId(), result.structureId());
+            // 3. Mark the child's connection as consumed
+            // We need to find which connection on the new piece connected to the parent.
+            // Logic: It must be adjacent (dist=1) and have a compatible orientation.
+            Vector3Int parentPos = pending.connection().position();
+            for (TransformedJigsawBlock conn : result.connections()) {
+                // Check distance (Euclidean Squared distance of 1 block is 1.0)
+                if (conn.position().distance(DistanceFunction.EuclideanSq, parentPos) <= 1.1) {
+                    // Check orientation compatibility (e.g. North connects to South)
+                    if (JigsawConnection.areOrientationsCompatible(pending.connection().orientation(), conn.orientation())) {
+                        connectionRegistry.markConsumed(conn.position());
+                        break;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private PlacedJigsawPiece selectAndPlaceStartPiece(String startPoolId) {
+        JigsawPool startPool = poolRegistry.getPool(startPoolId);
+        if (startPool == null)
+            return null;
+        String structureId = startPool.selectRandomElement(random);
+        if (structureId == null)
+            return null;
+        Optional<Structure> structureOpt = ResourceResolver.resolve(pack.getRegistry(Structure.class), structureId,
+                pack.getRegistryKey().getID());
+        if (structureOpt.isEmpty() || !(structureOpt.get() instanceof JigsawProvider))
+            return null;
+        NBTStructure.StructureData structureData = ((JigsawProvider) structureOpt.get()).getStructureData();
+        Rotation rotation = Rotation.values()[random.nextInt(Rotation.values().length)];
+        List<TransformedJigsawBlock> connections = structureData.jigsawBlocks().stream()
+                .map(j -> TransformUtil.transformJigsawConnection(j, origin, rotation, structureData.size()))
+                .collect(Collectors.toList());
+        usageTracker.recordPlacement(startPool.getId(), structureId);
+        return PlacedJigsawPiece.createStartPiece(structureId, origin, rotation, structureData, connections, startPool.getId());
+    }
+
+    private void addPiece(PlacedJigsawPiece piece) {
+        pieces.add(piece);
+        occupiedSpace.add(piece.getWorldBounds());
+        if (listener != null)
+            listener.onPiecePlaced(piece);
+    }
+
+    private void queueConnections(PlacedJigsawPiece piece, int depth) {
+        for (TransformedJigsawBlock connection : piece.connections()) {
+            if (!connectionRegistry.isConsumed(connection.position())) {
+                connectionQueue.offer(PendingJigsawConnection.create(connection, piece, depth));
+            }
+        }
+    }
+
     private void prepareEnforcementQueue() {
         if (allConstraints.isEmpty())
             return;
@@ -178,18 +295,23 @@ public class StructurePlanner {
         }
     }
 
-    private void processNextEnforcement() {
+    /**
+     * Processes the next enforcement constraint.
+     * 
+     * @return true if a forced placement occurred (visual change), false if satisfied or skipped.
+     */
+    private boolean processNextEnforcement() {
         UsageConstraints constraint = pendingEnforcement.poll();
         if (constraint == null)
-            return;
+            return false;
         int currentCount = usageTracker.getCount(constraint.poolId(), constraint.structureId());
-        // Double check count in case previous enforcements affected this (rare but possible)
-        if (currentCount >= constraint.minCount())
-            return;
+        if (currentCount >= constraint.minCount()) {
+            LOGGER.fine("Checked constraint: " + constraint + " [Satisfied]");
+            return false;
+        }
         if (enforcementStrategy == EnforcementStrategy.STRICT || enforcementStrategy == EnforcementStrategy.BEST_EFFORT) {
             ForcedPlacement.ForcedPlacementResult result = forcedPlacement.forcePlacementsForMinimum(
                     constraint, currentCount, pieces, occupiedSpace);
-
             if (!result.pieces().isEmpty()) {
                 for (PlacedJigsawPiece piece : result.pieces()) {
                     addPiece(piece);
@@ -198,8 +320,8 @@ public class StructurePlanner {
                 for (ForcedPlacement.ConnectionUsage usage : result.consumedConnections()) {
                     connectionRegistry.markConsumed(usage.connectionPosition());
                 }
+                return true; // Visual change happened
             }
-
             int finalCount = currentCount + result.pieces().size();
             if (finalCount < constraint.minCount()) {
                 capturedViolations.add(new ConstraintViolation(constraint, finalCount, ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
@@ -207,185 +329,32 @@ public class StructurePlanner {
         } else if (enforcementStrategy == EnforcementStrategy.FLEXIBLE) {
             capturedViolations.add(new ConstraintViolation(constraint, currentCount, ConstraintViolation.ViolationType.MINIMUM_NOT_MET));
         }
+        return false;
     }
 
     private void checkStrictEnforcementFailure() {
         if (!capturedViolations.isEmpty() && enforcementStrategy == EnforcementStrategy.STRICT) {
             LOGGER.severe("Generation FAILED due to Strict Enforcement violations.");
-            pieces.clear(); // Fail hard
+            pieces.clear();
         }
-    }
-
-    private void processNextConnection() {
-        PendingJigsawConnection pending = connectionQueue.poll();
-        if (pending == null)
-            return;
-        if (pending.exceedsDepth(config.getMaxDepth()) ||
-                pending.exceedsDistance(origin, config.getMaxDistance()) ||
-                pending.isTerminator()) {
-            return;
-        }
-        PlacedJigsawPiece childPiece = tryPlaceConnectingPiece(pending);
-        if (childPiece != null) {
-            addPiece(childPiece);
-            queueConnections(childPiece, pending.depth() + 1);
-            connectionRegistry.markConsumed(pending.connection().position());
-        } else if (listener != null) {
-            listener.onConnectionFailed(pending.sourcePiece(), "Could not find valid connection");
-        }
-    }
-
-    private void addPiece(PlacedJigsawPiece piece) {
-        pieces.add(piece);
-        occupiedSpace.add(piece.getWorldBounds());
-        if (listener != null)
-            listener.onPiecePlaced(piece);
     }
 
     public StructureBlueprint getBlueprint() {
+        // Add defensive logging here
+        if (pieces == null)
+            LOGGER.severe("[Planner] Blueprint creation: pieces is NULL");
+        if (capturedViolations == null)
+            LOGGER.severe("[Planner] Blueprint creation: capturedViolations is NULL");
+
         return new StructureBlueprint(
                 config.getID(),
                 origin,
-                new ArrayList<>(pieces), // Defensive copy
-                connectionRegistry.snapshot(), // Snapshot registry
-                null, // Auto-calc bounds
+                new ArrayList<>(pieces),
+                connectionRegistry.snapshot(),
+                null,
                 new ArrayList<>(capturedViolations),
                 getStatistics(),
-                sessionId // Pass session ID
-        );
-    }
-
-    private List<UsageConstraints> gatherConstraintsFromPools() {
-        try {
-            return poolRegistry.getAllConstraints().stream()
-                    .filter(c -> c.hasMinimum() || c.hasMaximum())
-                    .sorted(Comparator.comparing(UsageConstraints::poolId).thenComparing(UsageConstraints::structureId))
-                    .toList();
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Failed to gather constraints", e);
-            return Collections.emptyList();
-        }
-    }
-
-    private PlacedJigsawPiece selectAndPlaceStartPiece(String startPoolId) {
-        JigsawPool startPool = poolRegistry.getPool(startPoolId);
-        if (startPool == null)
-            return null;
-        String structureId = startPool.selectRandomElement(random);
-        if (structureId == null)
-            return null;
-        NBTStructure.StructureData structureData = loadStructureData(structureId);
-        if (structureData == null)
-            return null;
-        Rotation rotation = selectRandomRotation();
-        List<TransformedJigsawBlock> connections = transformJigsawBlocks(
-                structureData.jigsawBlocks(), origin, rotation, structureData.size());
-        usageTracker.recordPlacement(startPool.getId(), structureId);
-        return PlacedJigsawPiece.createStartPiece(structureId, origin, rotation, structureData, connections, startPool.getId());
-    }
-
-    private PlacedJigsawPiece tryPlaceConnectingPiece(PendingJigsawConnection pending) {
-        attemptedConnections++;
-        String targetPoolId = pending.getTargetPoolId();
-        JigsawPool pool = poolRegistry.getPool(targetPoolId);
-        if (pool == null)
-            return null;
-        List<String> candidateIds = selectCandidateFilesRespectingMaxCounts(pool, 10);
-        if (candidateIds.isEmpty())
-            return null;
-        JigsawUtils.shuffle(candidateIds, random);
-        for (String structureId : candidateIds) {
-            NBTStructure.StructureData structureData = loadStructureData(structureId);
-            if (structureData == null)
-                continue;
-            List<JigsawData.JigsawBlock> shuffledJigsaws = new ArrayList<>(structureData.jigsawBlocks());
-            JigsawUtils.shuffle(shuffledJigsaws, random);
-            for (JigsawData.JigsawBlock childJigsaw : shuffledJigsaws) {
-                if (!JigsawConnection.canConnect(pending.connection().toJigsawBlock(), childJigsaw))
-                    continue;
-                List<Rotation> rotationsToTry = getRotationsForJoint(childJigsaw.info().jointType());
-                for (Rotation geometricRotation : rotationsToTry) {
-                    // Logic identical to JigsawGenerator
-                    JigsawData.JigsawBlock rotatedChildJigsaw = rotateJigsawBlock(childJigsaw, geometricRotation, structureData.size());
-                    Rotation alignmentRotation = calculateRequiredRotation(pending.connection().orientation(),
-                            rotatedChildJigsaw.orientation());
-                    Rotation finalRotation = combineRotations(geometricRotation, alignmentRotation);
-                    Vector3Int rotatedJigsawPos = CoordinateConverter.rotate(childJigsaw.position(), finalRotation, structureData.size());
-                    Vector3Int connectionOffset = getConnectionOffset(pending.connection().orientation());
-                    Vector3Int finalPosition = Vector3Int.of(
-                            pending.connection().position().getX() + connectionOffset.getX() - rotatedJigsawPos.getX(),
-                            pending.connection().position().getY() + connectionOffset.getY() - rotatedJigsawPos.getY(),
-                            pending.connection().position().getZ() + connectionOffset.getZ() - rotatedJigsawPos.getZ());
-                    AABB childBounds = AABB.fromPiece(finalPosition, structureData.size(), finalRotation);
-                    if (!collides(childBounds)) {
-                        List<TransformedJigsawBlock> connections = transformJigsawBlocks(
-                                structureData.jigsawBlocks(), finalPosition, finalRotation, structureData.size());
-                        // Mark the child's connection as consumed immediately
-                        Vector3Int consumedChildPosition = calculateTransformedJigsawPosition(childJigsaw, finalPosition, finalRotation,
-                                structureData.size());
-                        connectionRegistry.markConsumed(consumedChildPosition);
-                        successfulConnections++;
-                        usageTracker.recordPlacement(pool.getId(), structureId);
-                        return new PlacedJigsawPiece(structureId, finalPosition, finalRotation, structureData, connections,
-                                pending.depth() + 1, pending.sourcePiece(), pool.getId());
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private void queueConnections(PlacedJigsawPiece piece, int depth) {
-        for (TransformedJigsawBlock connection : piece.connections()) {
-            if (!connectionRegistry.isConsumed(connection.position())) {
-                connectionQueue.offer(PendingJigsawConnection.create(connection, piece, depth));
-            }
-        }
-    }
-
-    private boolean collides(AABB bounds) {
-        for (AABB occupied : occupiedSpace) {
-            if (bounds.intersects(occupied))
-                return true;
-        }
-        return false;
-    }
-
-    private NBTStructure.StructureData loadStructureData(String id) {
-        Optional<Structure> structureOpt = ResourceResolver.resolve(pack.getRegistry(Structure.class), id, pack.getRegistryKey().getID());
-        if (structureOpt.isPresent() && structureOpt.get() instanceof JigsawProvider provider) {
-            return provider.getStructureData();
-        }
-        return null;
-    }
-
-    private List<String> selectCandidateFilesRespectingMaxCounts(JigsawPool pool, int count) {
-        List<String> candidates = new ArrayList<>();
-        Set<String> selected = new HashSet<>();
-        int attempts = 0;
-        int maxAttempts = count * 3;
-        while (candidates.size() < count && attempts++ < maxAttempts) {
-            Set<String> excludedIds = new HashSet<>();
-            for (JigsawPool.WeightedElement element : pool.getElements()) {
-                int currentCount = usageTracker.getCount(pool.getId(), element.getStructureId());
-                int pendingCount = (int) candidates.stream().filter(c -> c.equals(element.getStructureId())).count();
-                if (currentCount + pendingCount >= element.getMaxCount()) {
-                    excludedIds.add(element.getStructureId());
-                }
-            }
-            if (excludedIds.size() == pool.getElements().size())
-                break;
-
-            String id = pool.selectRandomElementWithExclusions(random, excludedIds);
-            if (id == null)
-                break;
-
-            if (!selected.contains(id)) {
-                candidates.add(id);
-                selected.add(id);
-            }
-        }
-        return candidates;
+                sessionId);
     }
 
     private GenerationStatistics getStatistics() {
@@ -398,126 +367,15 @@ public class StructurePlanner {
                 attemptedConnections, successfulConnections);
     }
 
-    // Math helpers (Rotation, Transform) are pure and copied from Generator
-    private Rotation selectRandomRotation() {
-        return Rotation.values()[random.nextInt(Rotation.values().length)];
-    }
-
-    private List<TransformedJigsawBlock> transformJigsawBlocks(List<JigsawData.JigsawBlock> blocks, Vector3Int pos, Rotation rot,
-            Vector3Int size) {
-        return blocks.stream().map(j -> TransformUtil.transformJigsawConnection(j, pos, rot, size)).collect(Collectors.toList());
-    }
-
-    private JigsawData.JigsawBlock rotateJigsawBlock(JigsawData.JigsawBlock jigsaw, Rotation rotation, Vector3Int size) {
-        if (rotation == Rotation.NONE)
-            return jigsaw;
-        Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rotation, size);
-        String rotatedOrientation = TransformUtil.rotateOrientation(jigsaw.orientation(), rotation);
-        return new JigsawData.JigsawBlock(rotatedPos, rotatedOrientation, jigsaw.info());
-    }
-
-    private Rotation calculateRequiredRotation(String parent, String child) {
-        // Simplified for brevity, logic identical to Generator
-        String[] pParts = parent.toLowerCase().split("_");
-        String[] cParts = child.toLowerCase().split("_");
-        String pPrimary = pParts[0];
-        String pSecondary = pParts.length > 1 ? pParts[1] : "north";
-        String cPrimary = cParts[0];
-        String cSecondary = cParts.length > 1 ? cParts[1] : "north";
-
-        if ("up".equals(pPrimary) || "down".equals(pPrimary)) {
-            return calculateRotationBetweenDirections(cSecondary, pSecondary);
+    private List<UsageConstraints> gatherConstraintsFromPools() {
+        try {
+            return poolRegistry.getAllConstraints().stream()
+                    .filter(c -> c.hasMinimum() || c.hasMaximum())
+                    .sorted(Comparator.comparing(UsageConstraints::poolId).thenComparing(UsageConstraints::structureId))
+                    .toList();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to gather constraints", e);
+            return Collections.emptyList();
         }
-        return calculateRotationBetweenDirections(cPrimary, getOppositeDirection(pPrimary));
-    }
-
-    private String getOppositeDirection(String d) {
-        return switch (d.toLowerCase()) {
-            case "north" -> "south";
-            case "south" -> "north";
-            case "east" -> "west";
-            case "west" -> "east";
-            case "up" -> "down";
-            case "down" -> "up";
-            default -> d;
-        };
-    }
-
-    private Rotation calculateRotationBetweenDirections(String from, String to) {
-        if (from.equals(to))
-            return Rotation.NONE;
-        int fIdx = dirIdx(from);
-        int tIdx = dirIdx(to);
-        if (fIdx == -1 || tIdx == -1)
-            return Rotation.NONE;
-        int steps = (tIdx - fIdx + 4) % 4;
-        return Rotation.values()[(steps + 1) % 4 == 0 ? 0 : (steps + 1)]; // Mapping logic check: Seismic Rotation enum order is NONE,
-                                                                          // CW_90, CW_180, CCW_90
-        // Seismic mapping: 0->NONE, 1->CW_90, 2->CW_180, 3->CCW_90
-        // Steps 1 = CW_90. Steps 2 = CW_180. Steps 3 = CCW_90.
-        // My previous helper was switch(steps). Let's use that.
-    }
-
-    private int dirIdx(String d) {
-        return switch (d) {
-            case "north" -> 0;
-            case "east" -> 1;
-            case "south" -> 2;
-            case "west" -> 3;
-            default -> -1;
-        };
-    }
-
-    private Rotation combineRotations(Rotation r1, Rotation r2) {
-        if (r1 == Rotation.NONE)
-            return r2;
-        if (r2 == Rotation.NONE)
-            return r1;
-        int s1 = rotSteps(r1);
-        int s2 = rotSteps(r2);
-        int total = (s1 + s2) % 4;
-        return stepsToRot(total);
-    }
-
-    private int rotSteps(Rotation r) {
-        return switch (r) {
-            case NONE -> 0;
-            case CW_90 -> 1;
-            case CW_180 -> 2;
-            case CCW_90 -> 3;
-        };
-    }
-
-    private Rotation stepsToRot(int s) {
-        return switch (s % 4) {
-            case 0 -> Rotation.NONE;
-            case 1 -> Rotation.CW_90;
-            case 2 -> Rotation.CW_180;
-            case 3 -> Rotation.CCW_90;
-            default -> Rotation.NONE;
-        };
-    }
-
-    private List<Rotation> getRotationsForJoint(JigsawData.JointType type) {
-        return type == JigsawData.JointType.ROLLABLE ? List.of(Rotation.values()) : List.of(Rotation.NONE);
-    }
-
-    private Vector3Int getConnectionOffset(String orientation) {
-        String primary = orientation.toLowerCase().split("_")[0];
-        return switch (primary) {
-            case "north" -> Vector3Int.of(0, 0, -1);
-            case "south" -> Vector3Int.of(0, 0, 1);
-            case "east" -> Vector3Int.of(1, 0, 0);
-            case "west" -> Vector3Int.of(-1, 0, 0);
-            case "up" -> Vector3Int.of(0, 1, 0);
-            case "down" -> Vector3Int.of(0, -1, 0);
-            default -> Vector3Int.of(0, 0, 0);
-        };
-    }
-
-    private Vector3Int calculateTransformedJigsawPosition(JigsawData.JigsawBlock jigsaw, Vector3Int worldPos, Rotation rot,
-            Vector3Int size) {
-        Vector3Int rotatedPos = CoordinateConverter.rotate(jigsaw.position(), rot, size);
-        return Vector3Int.of(worldPos.getX() + rotatedPos.getX(), worldPos.getY() + rotatedPos.getY(), worldPos.getZ() + rotatedPos.getZ());
     }
 }

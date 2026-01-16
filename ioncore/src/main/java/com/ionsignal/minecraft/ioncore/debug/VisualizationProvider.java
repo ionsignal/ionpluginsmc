@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ioncore.debug;
 
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -28,12 +29,24 @@ public interface VisualizationProvider<TState extends DebugStateSnapshot> {
     void render(TState state);
 
     /**
-     * Optional: Clean up all visualizations for this provider.
-     * Called when a debug session is ended or the plugin is shutting down.
+     * Clean up all visualizations for this provider.
+     * Called when the plugin is shutting down.
      * 
      * @return A {@link CompletableFuture} that completes when cleanup is done
      */
     default CompletableFuture<Void> cleanup() {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /**
+     * Clean up visualizations for a specific session.
+     * Called when a debug session is ended or cancelled.
+     * 
+     * @param sessionId
+     *            The UUID of the session to clean up.
+     * @return A {@link CompletableFuture} that completes when cleanup is done
+     */
+    default CompletableFuture<Void> cleanup(UUID sessionId) {
         return CompletableFuture.completedFuture(null);
     }
 
