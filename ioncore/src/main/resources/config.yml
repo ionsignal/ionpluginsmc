@@ -3,8 +3,8 @@
 # REQUIRED: Must be configured for the plugin to start.
 database:
   jdbc-url: "jdbc:postgresql://localhost:5432/runemind_db"
-  username: "runemind"
-  password: "runemind_local_dev"
+  username: "runemind_admin"
+  password: "admin"
   pool-settings:
     maximum-pool-size: 5
     connection-timeout: 5000 # 5 seconds
