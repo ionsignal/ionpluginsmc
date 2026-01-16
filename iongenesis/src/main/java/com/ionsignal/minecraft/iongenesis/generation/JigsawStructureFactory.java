@@ -1,6 +1,6 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation;
+package com.ionsignal.minecraft.iongenesis.generation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.config.JigsawStructureTemplate;
+import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
 
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.structure.Structure;

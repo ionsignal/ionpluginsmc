@@ -1,12 +1,15 @@
-package com.ionsignal.minecraft.ionnerrus.terra.debug;
+package com.ionsignal.minecraft.iongenesis.debug;
 
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProvider;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.StructureBlueprint;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacedJigsawPiece;
-import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
+import com.ionsignal.minecraft.iongenesis.IonGenesis;
+import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
+import com.ionsignal.minecraft.iongenesis.util.AABB;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
+
 import net.kyori.adventure.text.Component;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -98,7 +101,7 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
         if (!Bukkit.isPrimaryThread()) {
             // Schedule on main
             CompletableFuture<Void> future = new CompletableFuture<>();
-            Bukkit.getScheduler().runTask(com.ionsignal.minecraft.ionnerrus.terra.NerrusTerraAddon.getTerraPlugin(), () -> {
+            Bukkit.getScheduler().runTask(IonGenesis.getInstance(), () -> {
                 cleanupInternal();
                 future.complete(null);
             });

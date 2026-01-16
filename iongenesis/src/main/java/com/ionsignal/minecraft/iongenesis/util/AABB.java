@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.util;
+package com.ionsignal.minecraft.iongenesis.util;
 
 import com.dfsek.seismic.type.Rotation;
 import com.dfsek.seismic.type.vector.Vector3Int;

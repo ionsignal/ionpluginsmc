@@ -1,8 +1,8 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
+package com.ionsignal.minecraft.iongenesis.generation.placements;
 
-import com.ionsignal.minecraft.ionnerrus.terra.generation.StructureBlueprint;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.tracking.ConnectionRegistry;
-import com.ionsignal.minecraft.ionnerrus.terra.util.AABB;
+import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
+import com.ionsignal.minecraft.iongenesis.util.AABB;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 

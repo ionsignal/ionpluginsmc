@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.util;
+package com.ionsignal.minecraft.iongenesis.util;
 
 import com.dfsek.terra.api.registry.Registry;
 import com.dfsek.terra.api.registry.key.RegistryKey;

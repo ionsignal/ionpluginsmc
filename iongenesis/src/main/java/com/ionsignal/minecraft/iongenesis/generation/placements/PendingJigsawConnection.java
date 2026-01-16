@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.placements;
+package com.ionsignal.minecraft.iongenesis.generation.placements;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 

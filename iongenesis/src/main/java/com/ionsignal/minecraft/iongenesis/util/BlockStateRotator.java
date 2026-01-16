@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.util;
+package com.ionsignal.minecraft.iongenesis.util;
 
 import com.dfsek.terra.api.Platform;
 import com.dfsek.terra.api.block.state.BlockState;

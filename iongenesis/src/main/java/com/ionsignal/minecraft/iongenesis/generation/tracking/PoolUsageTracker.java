@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.tracking;
+package com.ionsignal.minecraft.iongenesis.generation.tracking;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

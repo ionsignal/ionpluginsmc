@@ -1,11 +1,11 @@
-package com.ionsignal.minecraft.ionnerrus.terra.util;
+package com.ionsignal.minecraft.iongenesis.util;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 import com.dfsek.seismic.type.Rotation;
 
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.PlacementTransform;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.placements.TransformedJigsawBlock;
-import com.ionsignal.minecraft.ionnerrus.terra.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
+import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
+import com.ionsignal.minecraft.iongenesis.model.JigsawData;
 
 /**
  * Utility class for spatial transformations required for jigsaw structure generation.

@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.tracking;
+package com.ionsignal.minecraft.iongenesis.generation.tracking;
 
 /**
  * Immutable record encapsulating min/max constraints for a pool element.

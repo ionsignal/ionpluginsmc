@@ -1,10 +1,10 @@
-package com.ionsignal.minecraft.ionnerrus.terra.debug;
+package com.ionsignal.minecraft.iongenesis.debug;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugSession;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.StructureBlueprint;
-import com.ionsignal.minecraft.ionnerrus.terra.generation.StructurePlanner;
+import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
+import com.ionsignal.minecraft.iongenesis.generation.StructurePlanner;
 
 import org.bukkit.scheduler.BukkitRunnable;
 

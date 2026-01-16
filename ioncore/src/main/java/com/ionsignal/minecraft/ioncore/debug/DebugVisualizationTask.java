@@ -55,6 +55,9 @@ public class DebugVisualizationTask extends BukkitRunnable {
             // Look up provider for this state type and render
             visualizationRegistry.get(state.getClass()).ifPresent(provider -> {
                 try {
+                    // Log rendering event for verification (Mitigation M-02)
+                    LOGGER.info(String.format("[IonCore Debug] Rendering frame for session %s via %s",
+                            session.getOwner(), provider.getClass().getSimpleName()));
                     renderState(provider, state);
                     session.clearVisualizationDirty(); // Mark rendered
                 } catch (Exception e) {

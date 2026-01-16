@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.shadow)
 }
 
-description = "Terra addon for IonNerrus"
+description = "Standalone Jigsaw Structure Generation Engine"
 
 // Configure paperweight for Mojang production mappings
 paperweight.reobfArtifactConfiguration.set(
@@ -11,41 +11,41 @@ paperweight.reobfArtifactConfiguration.set(
 )
 
 dependencies {
-    // IonCore 
+    // IonCore (API Access)
     compileOnly(project(":ioncore", configuration = "devJar"))
-    // Cloud (Provided by Terra) - Added to ensure IDE resolution
-    compileOnly(libs.cloud.core)
-    // Paper API is provided by paperweight-conventions
-    // compileOnly(project(":ionnerrus"))
-    // Terra API and dependencies (compileOnly - provided by Terra at runtime)
-    // compileOnly(libs.terra.api)
-    compileOnly(libs.terra.manifest.loader)
+    
+    // Terra (Compile-time only, provided at runtime)
     compileOnly(files("libs/terra-paper-7.0.0-BETA+75dddb2af.jar"))
-    // Tectonic (compileOnly - provided by Terra)
+    compileOnly(libs.terra.manifest.loader)
+    // Ensure we have access to the specific Terra implementation for NMS bridging if needed
+    
+    // Seismic
+    compileOnly(libs.seismic)
+
+    // Tectonic (Terra Config)
     compileOnly(libs.tectonic.common)
     compileOnly(libs.tectonic.yaml)
-    // BlueNBT - we shadow and relocate this
+    
+    // BlueNBT (Implementation detail, shadowed)
     implementation(libs.bluenbt)
 }
 
 tasks {
-    // The regular jar task produces a dev JAR with Mojang mappings
     jar {
         archiveClassifier.set("mojmap")
     }
 
-    // Shadow task shades BlueNBT into the dev JAR
     shadowJar {
-        archiveClassifier.set("") // No classifier for the final artifact
+        archiveClassifier.set("") 
 
-        relocate("de.bluecolored.bluenbt", "com.ionsignal.minecraft.ionnerrus.terra.lib.bluenbt")
+        // Relocate BlueNBT to avoid classpath conflicts
+        relocate("de.bluecolored.bluenbt", "com.ionsignal.minecraft.iongenesis.lib.bluenbt")
         
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")
     }
     
-    // For MOJANG_PRODUCTION, shadowJar is the final artifact
     assemble {
         dependsOn(shadowJar)
     }
@@ -53,7 +53,7 @@ tasks {
     processResources {
         val props = mapOf("version" to project.version)
         inputs.properties(props)
-        filesMatching("terra.addon.yml") {
+        filesMatching("plugin.yml") {
             expand(props)
         }
     }

@@ -1,9 +1,10 @@
-package com.ionsignal.minecraft.ionnerrus.terra.provider;
+package com.ionsignal.minecraft.iongenesis.provider;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
-import com.ionsignal.minecraft.ionnerrus.terra.model.JigsawData;
-import com.ionsignal.minecraft.ionnerrus.terra.model.NBTStructure;
-import com.ionsignal.minecraft.ionnerrus.terra.util.NBTUtil;
+import com.ionsignal.minecraft.iongenesis.model.JigsawData;
+import com.ionsignal.minecraft.iongenesis.model.NBTStructure;
+import com.ionsignal.minecraft.iongenesis.util.NBTUtil;
+
 import de.bluecolored.bluenbt.BlueNBT;
 import de.bluecolored.bluenbt.TypeToken;
 

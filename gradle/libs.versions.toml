@@ -7,6 +7,7 @@ shadow = "9.3.1"
 terra = "6.6.6-BETA+fb5e597a1"
 terra-manifest = "1.0.0-BETA+fb5e597a1"
 tectonic = "4.3.0"
+seismic = "2.5.7"
 bluenbt = "3.5.0"
 
 # IonNerrus
@@ -20,6 +21,9 @@ adventure = "4.26.1"
 postgresql = "42.7.8"
 hikaricp = "7.0.2"
 
+# Cloud (Added for Terra Addon)
+cloud = "2.0.0"
+
 [plugins]
 standardConvention = { id = "standard-conventions" }
 paperweightConvention = { id = "paperweight-conventions" }
@@ -30,11 +34,15 @@ shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "minecraft" }
 paperweight = { module = "io.papermc.paperweight.userdev:io.papermc.paperweight.userdev.gradle.plugin", version.ref = "paperweight" }
 
-# Terra, Tectonic
+# Terra, Tectonic, Seismic
 terra-api = { group = "com.dfsek.terra", name = "api", version.ref = "terra" }
 terra-manifest-loader = { group = "com.dfsek.terra", name = "manifest-addon-loader", version.ref = "terra-manifest" }
 tectonic-common = { group = "com.dfsek.tectonic", name = "common", version.ref = "tectonic" }
 tectonic-yaml = { group = "com.dfsek.tectonic", name = "yaml", version.ref = "tectonic" }
+seismic = { group = "com.dfsek", name = "seismic", version.ref = "seismic" }
+
+# Cloud (Added)
+cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud" }
 
 # BlueNBT
 bluenbt = { group = "de.bluecolored", name = "bluenbt", version.ref = "bluenbt" }

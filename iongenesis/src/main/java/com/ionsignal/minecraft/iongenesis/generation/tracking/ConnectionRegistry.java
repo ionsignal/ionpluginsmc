@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.generation.tracking;
+package com.ionsignal.minecraft.iongenesis.generation.tracking;
 
 import com.dfsek.seismic.type.vector.Vector3;
 import com.dfsek.seismic.type.vector.Vector3Int;

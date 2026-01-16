@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.terra.config;
+package com.ionsignal.minecraft.iongenesis.config;
 
 import com.dfsek.tectonic.api.config.template.annotations.Default;
 import com.dfsek.tectonic.api.config.template.annotations.Value;
