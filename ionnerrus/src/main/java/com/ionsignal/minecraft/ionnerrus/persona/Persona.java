@@ -34,6 +34,7 @@ import com.google.common.collect.LinkedHashMultimap;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
+import java.util.Optional;
 
 public class Persona {
     private final UUID uuid;
@@ -42,6 +43,11 @@ public class Persona {
     private final MetadataStorage metadata;
 
     private String name;
+    
+    // TRANSIENT: This ID is held in memory. It will be lost on restart.
+    @Nullable
+    private UUID definitionId; 
+    
     private PersonaEntity personaEntity;
     private PhysicalBody physicalBody;
     private Location lastLocation;
@@ -53,6 +59,15 @@ public class Persona {
         this.name = name;
         this.entityType = entityType;
         this.metadata = new MetadataStorage();
+    }
+
+    public void setDefinitionId(@Nullable UUID definitionId) {
+        this.definitionId = definitionId;
+    }
+
+    @Nullable
+    public UUID getDefinitionId() {
+        return definitionId;
     }
 
     @SuppressWarnings("null")
@@ -232,10 +247,17 @@ public class Persona {
      * Required because GameProfile and PropertyMap are immutable in 1.21+.
      */
     private GameProfile createGameProfile(UUID uuid, String name, SkinData skin) {
-        if (skin != null) {
+        if (skin != null && skin.texture() != null && !skin.texture().isEmpty()) {
             // Build mutable map first
             Multimap<String, Property> properties = LinkedHashMultimap.create();
-            properties.put("textures", new Property("textures", skin.texture(), skin.signature()));
+            
+            // FIX: Ensure signature is handled correctly (null check)
+            if (skin.signature() != null && !skin.signature().isEmpty()) {
+                properties.put("textures", new Property("textures", skin.texture(), skin.signature()));
+            } else {
+                properties.put("textures", new Property("textures", skin.texture()));
+            }
+            
             // Create immutable PropertyMap
             PropertyMap propertyMap = new PropertyMap(properties);
             // Construct profile
