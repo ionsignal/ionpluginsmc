@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.components;
 
 import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
 import com.ionsignal.minecraft.iongenesis.util.ResourceResolver;

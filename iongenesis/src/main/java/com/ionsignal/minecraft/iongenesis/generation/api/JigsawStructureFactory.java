@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.api;
 
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
 

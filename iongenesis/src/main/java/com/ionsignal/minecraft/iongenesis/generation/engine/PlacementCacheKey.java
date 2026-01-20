@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.engine;
 
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.seismic.type.vector.Vector3Int;

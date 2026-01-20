@@ -1,9 +1,13 @@
 package com.ionsignal.minecraft.iongenesis.generation;
 
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawPool;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.components.PoolRegistry;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViolation;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.EnforcementStrategy;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.ForcedPlacement;
+import com.ionsignal.minecraft.iongenesis.generation.engine.PlanningEventListener;
 import com.ionsignal.minecraft.iongenesis.generation.logic.CandidateSelector;
 import com.ionsignal.minecraft.iongenesis.generation.logic.ConnectionFitter;
 import com.ionsignal.minecraft.iongenesis.generation.logic.JigsawConnection;

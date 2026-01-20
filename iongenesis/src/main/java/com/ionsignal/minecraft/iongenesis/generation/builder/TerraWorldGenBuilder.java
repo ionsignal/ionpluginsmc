@@ -1,6 +1,7 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.builder;
 
 import com.ionsignal.minecraft.iongenesis.adapter.BlockStateRotator;
+import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;

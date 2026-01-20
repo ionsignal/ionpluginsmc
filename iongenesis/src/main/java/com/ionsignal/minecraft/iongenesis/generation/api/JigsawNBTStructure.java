@@ -1,5 +1,7 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.api;
 
+import com.ionsignal.minecraft.iongenesis.generation.builder.TerraWorldGenBuilder;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 

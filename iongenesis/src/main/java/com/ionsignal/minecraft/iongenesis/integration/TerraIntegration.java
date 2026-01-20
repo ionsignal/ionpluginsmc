@@ -4,7 +4,7 @@ import com.ionsignal.minecraft.iongenesis.IonGenesis;
 import com.ionsignal.minecraft.iongenesis.config.JigsawPoolTemplate;
 import com.ionsignal.minecraft.iongenesis.config.JigsawPoolType;
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureType;
-import com.ionsignal.minecraft.iongenesis.generation.JigsawNBTStructure;
+import com.ionsignal.minecraft.iongenesis.generation.api.JigsawNBTStructure;
 import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.provider.NBTStructureProvider;
 
