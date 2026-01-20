@@ -115,6 +115,7 @@ public class TerraIntegration implements EventHandler {
             pack.registerConfigType(new JigsawPoolType(terraPlatform), RegistryKey.of("ionnerrus", "jigsaw_pool"), 100);
             pack.registerConfigType(new JigsawStructureType(pack), RegistryKey.of("ionnerrus", "jigsaw_structure"), 100);
             pack.applyLoader(JigsawPoolTemplate.PoolElement.class, JigsawPoolTemplate.PoolElement::new);
+            pack.applyLoader(JigsawPoolTemplate.MetadataTemplate.class, JigsawPoolTemplate.MetadataTemplate::new);
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to register IonGenesis types for pack " + pack.getRegistryKey() + ": " + e.getMessage());
             e.printStackTrace();

@@ -9,7 +9,6 @@ import com.dfsek.terra.api.config.meta.Meta;
 import java.util.List;
 
 public class JigsawPoolTemplate implements AbstractableTemplate {
-
     @Value("id")
     private @Meta String id;
 
@@ -49,6 +48,10 @@ public class JigsawPoolTemplate implements AbstractableTemplate {
         @Value("max-count")
         private int maxCount = Integer.MAX_VALUE;
 
+        @Default
+        @Value("metadata")
+        private @Meta MetadataTemplate metadata = new MetadataTemplate();
+
         public String getStructure() {
             return structure;
         }
@@ -65,8 +68,35 @@ public class JigsawPoolTemplate implements AbstractableTemplate {
             return maxCount;
         }
 
+        public MetadataTemplate getMetadata() {
+            return metadata;
+        }
+
         @Override
         public PoolElement get() {
+            return this;
+        }
+    }
+
+    public static class MetadataTemplate implements ObjectTemplate<MetadataTemplate> {
+        @Default
+        @Value("vertical-delta")
+        private int verticalDelta = 0;
+
+        @Default
+        @Value("role")
+        private String role = "default";
+
+        public int getVerticalDelta() {
+            return verticalDelta;
+        }
+
+        public String getRole() {
+            return role;
+        }
+
+        @Override
+        public MetadataTemplate get() {
             return this;
         }
     }

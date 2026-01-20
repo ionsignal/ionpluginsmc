@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.iongenesis.generation.tracking;
 
-import com.dfsek.seismic.type.vector.Vector3;
 import com.dfsek.seismic.type.vector.Vector3Int;
 
 import java.util.Map;
@@ -20,14 +19,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread Safety: Uses ConcurrentHashMap for thread-safe access during parallel chunk generation.
  */
 public class ConnectionRegistry {
-    private final Map<Vector3, Boolean> consumedConnections;
+    private final Map<Vector3Int, ConnectionStatus> connectionStates;
 
     public ConnectionRegistry() {
-        this.consumedConnections = new ConcurrentHashMap<>();
+        this.connectionStates = new ConcurrentHashMap<>();
     }
 
-    private ConnectionRegistry(Map<Vector3, Boolean> data) {
-        this.consumedConnections = new ConcurrentHashMap<>(data);
+    private ConnectionRegistry(Map<Vector3Int, ConnectionStatus> data) {
+        this.connectionStates = new ConcurrentHashMap<>(data);
     }
 
     /**
@@ -37,34 +36,59 @@ public class ConnectionRegistry {
      *            The world position of the connection point
      */
     public void markConsumed(Vector3Int position) {
-        if (position == null) {
+        if (position == null)
             throw new IllegalArgumentException("Connection position cannot be null");
-        }
-        consumedConnections.put(position.toFloat(), Boolean.TRUE);
+        connectionStates.put(position, ConnectionStatus.CONSUMED);
     }
 
     /**
-     * Checks if a connection has been consumed.
+     * Marks a connection as sealed (force-closed by Panic Mode).
+     * 
+     * @param position
+     *            The world position of the connection point
+     */
+    public void markSealed(Vector3Int position) {
+        if (position == null)
+            throw new IllegalArgumentException("Connection position cannot be null");
+        connectionStates.put(position, ConnectionStatus.SEALED);
+    }
+
+    /**
+     * Checks if a connection has been consumed OR sealed.
+     * Maintained for backward compatibility with StructurePlanner logic.
      * 
      * @param position
      *            The world position to check
-     * @return true if the connection has been consumed, false otherwise
+     * @return true if the connection is not OPEN (either CONSUMED or SEALED)
      */
     public boolean isConsumed(Vector3Int position) {
-        if (position == null) {
+        if (position == null)
             return false;
-        }
-        return consumedConnections.containsKey(position.toFloat());
+        ConnectionStatus status = connectionStates.get(position);
+        return status == ConnectionStatus.CONSUMED || status == ConnectionStatus.SEALED;
     }
 
     /**
-     * Gets the total number of consumed connections.
+     * Gets the specific status of a connection.
+     * 
+     * @param position
+     *            The world position to check
+     * @return The status (OPEN if not present)
+     */
+    public ConnectionStatus getStatus(Vector3Int position) {
+        if (position == null)
+            return ConnectionStatus.OPEN;
+        return connectionStates.getOrDefault(position, ConnectionStatus.OPEN);
+    }
+
+    /**
+     * Gets the total number of consumed or sealed connections.
      * Useful for statistics and debugging.
      * 
-     * @return The count of consumed connections
+     * @return The count of non-OPEN connections
      */
     public int getConsumedCount() {
-        return consumedConnections.size();
+        return connectionStates.size();
     }
 
     /**
@@ -72,7 +96,7 @@ public class ConnectionRegistry {
      * Should only be used for testing or cleanup.
      */
     public void clear() {
-        consumedConnections.clear();
+        connectionStates.clear();
     }
 
     /**
@@ -82,6 +106,6 @@ public class ConnectionRegistry {
      * @return A new independent ConnectionRegistry
      */
     public ConnectionRegistry snapshot() {
-        return new ConnectionRegistry(this.consumedConnections);
+        return new ConnectionRegistry(this.connectionStates);
     }
 }

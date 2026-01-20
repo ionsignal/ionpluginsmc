@@ -227,4 +227,9 @@ public final class AABB {
                 max.getY() - min.getY() + 1,
                 max.getZ() - min.getZ() + 1);
     }
+
+    @Override
+    public String toString() {
+        return "AABB[" + min + " -> " + max + "]";
+    }
 }

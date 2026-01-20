@@ -1,9 +1,10 @@
 package com.ionsignal.minecraft.iongenesis.config;
 
-import com.dfsek.tectonic.api.config.template.annotations.Default;
-import com.dfsek.tectonic.api.config.template.annotations.Value;
 import com.dfsek.terra.api.config.AbstractableTemplate;
 import com.dfsek.terra.api.config.meta.Meta;
+
+import com.dfsek.tectonic.api.config.template.annotations.Default;
+import com.dfsek.tectonic.api.config.template.annotations.Value;
 
 public class JigsawStructureTemplate implements AbstractableTemplate {
     @Value("id")
@@ -31,6 +32,26 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
     @Default
     @Value("enforcement-strategy")
     private @Meta String enforcementStrategy = "best_effort";
+
+    @Default
+    @Value("generation-strategy")
+    private @Meta String generationStrategy = "simple";
+
+    @Default
+    @Value("fallback-pool")
+    private @Meta String fallbackPool = "minecraft:empty";
+
+    @Default
+    @Value("sealer-material")
+    private @Meta String sealerMaterial = "minecraft:cobblestone";
+
+    @Default
+    @Value("look-ahead-depth")
+    private @Meta int lookAheadDepth = 1;
+
+    @Default
+    @Value("y-level")
+    private @Meta int yLevel = 0;
 
     @Override
     public String getID() {
@@ -63,5 +84,25 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
 
     public String getEnforcementStrategy() {
         return enforcementStrategy;
+    }
+
+    public String getGenerationStrategy() {
+        return generationStrategy;
+    }
+
+    public String getFallbackPool() {
+        return fallbackPool;
+    }
+
+    public String getSealerMaterial() {
+        return sealerMaterial;
+    }
+
+    public int getLookAheadDepth() {
+        return lookAheadDepth;
+    }
+
+    public int getYLevel() {
+        return yLevel;
     }
 }

@@ -1,9 +1,5 @@
 package com.ionsignal.minecraft.iongenesis.command;
 
-import com.dfsek.terra.api.Platform;
-import com.dfsek.terra.api.config.ConfigPack;
-import com.dfsek.terra.api.registry.Registry;
-import com.dfsek.terra.api.structure.Structure;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSession;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionControllerFactory;
@@ -15,8 +11,17 @@ import com.ionsignal.minecraft.iongenesis.generation.JigsawStructure;
 import com.ionsignal.minecraft.iongenesis.generation.PlanningEventListener;
 import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
 import com.ionsignal.minecraft.iongenesis.generation.StructurePlanner;
+import com.ionsignal.minecraft.iongenesis.generation.oracle.FlatOracle;
+import com.ionsignal.minecraft.iongenesis.generation.oracle.TerraGeneratorOracle;
+import com.ionsignal.minecraft.iongenesis.generation.oracle.TerrainOracle;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.util.SystemContext;
+
+import com.dfsek.terra.api.Platform;
+import com.dfsek.terra.api.config.ConfigPack;
+import com.dfsek.terra.api.registry.Registry;
+import com.dfsek.terra.api.structure.Structure;
+import com.dfsek.terra.api.world.info.WorldProperties;
 
 import com.dfsek.seismic.type.vector.Vector3Int;
 
@@ -101,17 +106,21 @@ public class DebugCommandExecutor implements CommandExecutor {
         }
     }
 
+    @SuppressWarnings("null")
     private void handleStart(Player player, String[] args) {
         if (args.length < 3) {
-            player.sendMessage(Component.text("Usage: /iongenesis debug start <structure_id> [pool] [seed]", NamedTextColor.RED));
+            // Updated signature to include mode
+            player.sendMessage(Component.text("Usage: /iongenesis debug start <structure_id> [mode] [pool] [seed]", NamedTextColor.RED));
             return;
         }
         String structureId = args[2];
-        String poolOverride = args.length > 3 ? args[3] : "";
+        // Parse new optional arguments: mode, pool, seed
+        String mode = args.length > 3 ? args[3].toLowerCase() : "flat";
+        String poolOverride = args.length > 4 ? args[4] : "";
         long seed;
-        if (args.length > 4) {
+        if (args.length > 5) {
             try {
-                seed = Long.parseLong(args[4]);
+                seed = Long.parseLong(args[5]);
             } catch (NumberFormatException e) {
                 player.sendMessage(Component.text("Invalid seed.", NamedTextColor.RED));
                 return;
@@ -149,7 +158,27 @@ public class DebugCommandExecutor implements CommandExecutor {
                     NamedTextColor.RED));
             return;
         }
-        player.sendMessage(Component.text("Starting debug for " + structureId + "...", NamedTextColor.YELLOW));
+        // Determine Oracle Strategy based on 'mode' argument
+        TerrainOracle oracle;
+        if ("terra".equals(mode)) {
+            try {
+                // Instantiate a fresh ChunkGenerator from the pack configuration
+                var generator = foundPack.getGeneratorProvider().newInstance(foundPack);
+                // Wrap the Bukkit world in a Terra WorldProperties adapter
+                WorldProperties worldProps = new BukkitWorldAdapter(player.getWorld());
+                oracle = new TerraGeneratorOracle(generator, worldProps, foundPack.getBiomeProvider());
+                player.sendMessage(Component.text("Starting debug session... Mode: TERRA (Real Terrain)", NamedTextColor.AQUA));
+            } catch (Exception e) {
+                player.sendMessage(Component.text("Failed to initialize Terra Oracle: " + e.getMessage() + ". Falling back to FLAT.",
+                        NamedTextColor.RED));
+                oracle = new FlatOracle(player.getLocation().getBlockY());
+            }
+        } else {
+            // Default to Flat Oracle
+            oracle = new FlatOracle(player.getLocation().getBlockY());
+            player.sendMessage(Component.text("Starting debug session... Mode: FLAT (Y=" + player.getLocation().getBlockY() + ")",
+                    NamedTextColor.AQUA));
+        }
         try (SystemContext ignored = new SystemContext()) {
             // Initialize Random
             RandomGenerator random = RandomGeneratorFactory.of("Xoroshiro128PlusPlus").create(seed);
@@ -175,7 +204,7 @@ public class DebugCommandExecutor implements CommandExecutor {
                             Component.text("Generation Finished. Total Pieces: " + blueprint.pieces().size(), NamedTextColor.GREEN));
                 }
             };
-            // Create Planner
+            // Create Planner with the selected Oracle
             StructurePlanner planner = new StructurePlanner(
                     foundPack,
                     jigsawStructure.getConfig(),
@@ -183,8 +212,8 @@ public class DebugCommandExecutor implements CommandExecutor {
                     random,
                     seed,
                     listener,
-                    player.getUniqueId() // Session ID
-            );
+                    player.getUniqueId(),
+                    oracle);
             // Initialize Planner State
             String startPool = (poolOverride != null && !poolOverride.isEmpty()) ? poolOverride
                     : jigsawStructure.getConfig().getStartPool();
@@ -210,6 +239,31 @@ public class DebugCommandExecutor implements CommandExecutor {
             // Catch errors related to RandomGenerator or Planner initialization
             player.sendMessage(Component.text("Initialization Error: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Adapter to expose Bukkit World properties to Terra API consumers.
+     */
+    private record BukkitWorldAdapter(org.bukkit.World world) implements WorldProperties {
+        @Override
+        public long getSeed() {
+            return world.getSeed();
+        }
+
+        @Override
+        public int getMaxHeight() {
+            return world.getMaxHeight();
+        }
+
+        @Override
+        public int getMinHeight() {
+            return world.getMinHeight();
+        }
+
+        @Override
+        public Object getHandle() {
+            return world;
         }
     }
 }

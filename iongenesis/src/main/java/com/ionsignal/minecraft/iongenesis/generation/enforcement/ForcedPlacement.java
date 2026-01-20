@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsa
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
 import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
+import com.ionsignal.minecraft.iongenesis.model.geometry.CollisionDetector;
 import com.ionsignal.minecraft.iongenesis.model.structure.JigsawData;
 import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.util.JigsawUtils;
@@ -22,7 +23,6 @@ import com.dfsek.seismic.type.Rotation;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
-import java.util.Set;
 import java.util.random.RandomGenerator;
 import java.util.random.RandomGeneratorFactory;
 import java.util.logging.Logger;
@@ -64,7 +64,7 @@ public class ForcedPlacement {
             UsageConstraints constraint,
             int currentCount,
             List<PlacedJigsawPiece> existingPieces,
-            Set<AABB> occupiedSpace) {
+            CollisionDetector occupiedSpace) {
         List<PlacedJigsawPiece> forcedPieces = new ArrayList<>();
         List<ConnectionUsage> consumedConnections = new ArrayList<>();
         int needed = constraint.minCount() - currentCount;
@@ -153,7 +153,7 @@ public class ForcedPlacement {
             ConnectionCandidate candidate,
             NBTStructure.StructureData structureData,
             UsageConstraints constraint,
-            Set<AABB> occupiedSpace) {
+            CollisionDetector occupiedSpace) {
         TransformedJigsawBlock parentConnection = candidate.connection();
         JigsawData.JigsawBlock parentJigsaw = parentConnection.toJigsawBlock();
         List<JigsawData.JigsawBlock> compatibleJigsaws = structureData.jigsawBlocks().stream()
@@ -259,13 +259,8 @@ public class ForcedPlacement {
         };
     }
 
-    private boolean collides(AABB bounds, Set<AABB> occupiedSpace) {
-        for (AABB occupied : occupiedSpace) {
-            if (bounds.intersects(occupied)) {
-                return true;
-            }
-        }
-        return false;
+    private boolean collides(AABB bounds, CollisionDetector occupiedSpace) {
+        return occupiedSpace.collides(bounds);
     }
 
     private JigsawData.JigsawBlock rotateJigsawBlock(

@@ -29,9 +29,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class JigsawVisualizationProvider implements VisualizationProvider<StructureBlueprint> {
-    private final Map<UUID, Set<UUID>> sessionEntities = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> renderedPieceCounts = new ConcurrentHashMap<>();
     private final Map<UUID, ActiveHead> sessionHeads = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> renderedPieceCounts = new ConcurrentHashMap<>();
+    private final Map<UUID, Set<UUID>> sessionEntities = new ConcurrentHashMap<>();
+    private final Map<UUID, Set<UUID>> sessionProbeEntities = new ConcurrentHashMap<>();
 
     // Record to track active head entities
     private record ActiveHead(UUID blockDisplayId, UUID textDisplayId) {
@@ -73,6 +74,41 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
         // Update "Active" highlight logic would go here in a full implementation
         // For now, we rely on the incremental spawning to highlight the newest added piece.
         renderedPieceCounts.put(sessionId, currentCount);
+        // Render Probe Visualization
+        renderProbe(world, state);
+    }
+
+    private void renderProbe(World world, StructureBlueprint state) {
+        UUID sessionId = state.sessionId();
+        if (sessionId == null)
+            return;
+        Set<UUID> probes = sessionProbeEntities.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet());
+        // Always clear previous probes first to avoid ghosts
+        removeEntities(probes);
+        probes.clear();
+        StructureBlueprint.ProbeResult probe = state.latestProbe();
+        if (probe != null) {
+            Vector3Int pos = probe.position();
+            Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
+            BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
+            Material mat = switch (probe.trend()) {
+                case RISING -> Material.YELLOW_STAINED_GLASS;
+                case FALLING -> Material.RED_STAINED_GLASS;
+                case FLAT -> Material.BLUE_STAINED_GLASS;
+            };
+            display.setBlock(mat.createBlockData());
+            display.setPersistent(false);
+            display.addScoreboardTag("ionnerrus:debug_probe");
+            display.setBrightness(new Display.Brightness(15, 15));
+            display.setGlowColorOverride(Color.WHITE);
+            display.setGlowing(true);
+            // Scale down slightly to avoid z-fighting if inside a block
+            Transformation transform = display.getTransformation();
+            transform.getScale().set(5.0f, 5.0f, 5.0f);
+            transform.getTranslation().set(-2.0f, -2.0f, -2.0f);
+            display.setTransformation(transform);
+            probes.add(display.getUniqueId());
+        }
     }
 
     // Helper to fade the previous active piece to gray and remove text
@@ -110,8 +146,7 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
         Transformation transform = display.getTransformation();
         transform.getScale().set(size.getX(), size.getY(), size.getZ());
         display.setTransformation(transform);
-        // Configuration
-        display.setPersistent(false); // CRITICAL: Do not save
+        display.setPersistent(false);
         display.addScoreboardTag("ionnerrus:debug_visualizer");
         display.setBrightness(new Display.Brightness(15, 15));
         if (isNewest) {
@@ -144,9 +179,14 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
         for (Set<UUID> set : sessionEntities.values()) {
             allEntities.addAll(set);
         }
+        // Collect probe entities for cleanup
+        for (Set<UUID> set : sessionProbeEntities.values()) {
+            allEntities.addAll(set);
+        }
         sessionEntities.clear();
+        sessionProbeEntities.clear();
         renderedPieceCounts.clear();
-        sessionHeads.clear(); // NEW: Clear head tracking
+        sessionHeads.clear();
         return scheduleRemoval(allEntities);
     }
 
@@ -154,12 +194,19 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
     public CompletableFuture<Void> cleanup(UUID sessionId) {
         // Remove the specific session set immediately.
         Set<UUID> entities = sessionEntities.remove(sessionId);
+        Set<UUID> probes = sessionProbeEntities.remove(sessionId);
         renderedPieceCounts.remove(sessionId);
-        sessionHeads.remove(sessionId); // NEW: Clear head tracking
-        if (entities == null) {
+        sessionHeads.remove(sessionId);
+        Set<UUID> toRemove = ConcurrentHashMap.newKeySet();
+        if (entities != null)
+            toRemove.addAll(entities);
+        if (probes != null)
+            toRemove.addAll(probes);
+
+        if (toRemove.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
-        return scheduleRemoval(entities);
+        return scheduleRemoval(toRemove);
     }
 
     private CompletableFuture<Void> scheduleRemoval(Set<UUID> entitiesToRemove) {
