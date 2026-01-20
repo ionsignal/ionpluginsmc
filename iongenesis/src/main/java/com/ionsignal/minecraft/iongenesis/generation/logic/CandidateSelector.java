@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.iongenesis.generation.logic;
 
-import com.ionsignal.minecraft.iongenesis.generation.JigsawPool;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawPool;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.PoolUsageTracker;
 
 import java.util.ArrayList;

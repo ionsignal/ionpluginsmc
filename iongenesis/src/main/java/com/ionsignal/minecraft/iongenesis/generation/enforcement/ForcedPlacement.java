@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.iongenesis.generation.enforcement;
 
-import com.ionsignal.minecraft.iongenesis.generation.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
 import com.ionsignal.minecraft.iongenesis.generation.logic.JigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;

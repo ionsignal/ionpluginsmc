@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.components;
 
 import com.dfsek.terra.api.Platform;
 

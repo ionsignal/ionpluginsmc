@@ -5,8 +5,7 @@ import com.dfsek.terra.api.config.ConfigFactory;
 import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.config.ConfigType;
 import com.dfsek.terra.api.util.reflection.TypeKey;
-
-import com.ionsignal.minecraft.iongenesis.generation.JigsawPool;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawPool;
 
 /**
  * ConfigType for registering jigsaw pools with Terra.

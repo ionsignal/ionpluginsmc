@@ -1,6 +1,12 @@
-package com.ionsignal.minecraft.iongenesis.generation;
+package com.ionsignal.minecraft.iongenesis.generation.api;
 
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
+import com.ionsignal.minecraft.iongenesis.generation.JigsawPlacementCache;
+import com.ionsignal.minecraft.iongenesis.generation.StructureBlueprint;
+import com.ionsignal.minecraft.iongenesis.generation.StructurePlanner;
+import com.ionsignal.minecraft.iongenesis.generation.builder.TerraWorldGenBuilder;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.engine.PlacementCacheKey;
 import com.ionsignal.minecraft.iongenesis.generation.oracle.TerraGeneratorOracle;
 import com.ionsignal.minecraft.iongenesis.generation.oracle.TerrainOracle;
 import com.ionsignal.minecraft.iongenesis.generation.placements.JigsawPlacement;

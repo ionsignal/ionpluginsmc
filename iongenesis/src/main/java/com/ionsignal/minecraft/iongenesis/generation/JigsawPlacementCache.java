@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.iongenesis.generation;
 
+import com.ionsignal.minecraft.iongenesis.generation.engine.PlacementCacheKey;
 import com.ionsignal.minecraft.iongenesis.generation.placements.JigsawPlacement;
 
 import java.util.concurrent.ConcurrentHashMap;

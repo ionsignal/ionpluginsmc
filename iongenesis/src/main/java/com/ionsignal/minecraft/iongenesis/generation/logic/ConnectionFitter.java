@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.iongenesis.generation.logic;
 
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
-import com.ionsignal.minecraft.iongenesis.generation.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PendingJigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;

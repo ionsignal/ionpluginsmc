@@ -6,7 +6,7 @@ import com.dfsek.terra.api.config.ConfigPack;
 import com.dfsek.terra.api.config.ConfigType;
 import com.dfsek.terra.api.structure.Structure;
 import com.dfsek.terra.api.util.reflection.TypeKey;
-import com.ionsignal.minecraft.iongenesis.generation.JigsawStructureFactory;
+import com.ionsignal.minecraft.iongenesis.generation.api.JigsawStructureFactory;
 
 public class JigsawStructureType implements ConfigType<JigsawStructureTemplate, Structure> {
     private static final TypeKey<Structure> JIGSAW_STRUCTURE_TYPE_KEY = new TypeKey<>() {
