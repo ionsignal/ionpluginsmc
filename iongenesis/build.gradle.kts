@@ -17,8 +17,7 @@ dependencies {
     // Terra (Compile-time only, provided at runtime)
     compileOnly(files("libs/terra-paper-7.0.0-BETA+75dddb2af.jar"))
     compileOnly(libs.terra.manifest.loader)
-    // Ensure we have access to the specific Terra implementation for NMS bridging if needed
-    
+
     // Seismic
     compileOnly(libs.seismic)
 

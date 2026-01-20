@@ -4,6 +4,7 @@ import com.ionsignal.minecraft.iongenesis.adapter.BlockStateRotator;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionStatus;
 import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
 import com.ionsignal.minecraft.iongenesis.util.PaletteParser;
 import com.ionsignal.minecraft.iongenesis.util.SpatialMath;
@@ -22,9 +23,11 @@ import java.util.logging.Logger;
 public class TerraWorldGenBuilder {
     private static final Logger LOGGER = Logger.getLogger(TerraWorldGenBuilder.class.getName());
     private final StructureBlueprint blueprint;
+    private final String sealerMaterial;
 
-    public TerraWorldGenBuilder(StructureBlueprint blueprint) {
+    public TerraWorldGenBuilder(StructureBlueprint blueprint, String sealerMaterial) {
         this.blueprint = blueprint;
+        this.sealerMaterial = sealerMaterial;
     }
 
     public void build(WritableWorld world, Platform platform) {
@@ -33,7 +36,7 @@ public class TerraWorldGenBuilder {
         ConnectionRegistry registry = blueprint.connectionRegistry();
         int placedBlocks = 0;
         for (PlacedJigsawPiece piece : blueprint.pieces()) {
-            placedBlocks += placePiece(piece, world, platform, registry);
+            placedBlocks += placePiece(piece, world, platform, registry, sealerMaterial);
         }
         LOGGER.fine("Builder placed " + placedBlocks + " blocks for structure " + blueprint.structureId());
     }
@@ -54,6 +57,18 @@ public class TerraWorldGenBuilder {
      * @return Number of blocks placed.
      */
     public static int placePiece(PlacedJigsawPiece piece, WritableWorld world, Platform platform, ConnectionRegistry registry) {
+        return placePiece(piece, world, platform, registry, "minecraft:cobblestone");
+    }
+
+    /**
+     * Extended placePiece method handling Sealer Material.
+     */
+    public static int placePiece(
+            PlacedJigsawPiece piece,
+            WritableWorld world,
+            Platform platform,
+            ConnectionRegistry registry,
+            String sealerMaterial) {
         int blocksPlaced = 0;
         NBTStructure.StructureData structureData = piece.structureData();
         // Place Physical Blocks
@@ -79,21 +94,31 @@ public class TerraWorldGenBuilder {
                 LOGGER.log(Level.WARNING, "Failed to place block in piece " + piece.structureId(), e);
             }
         }
-        // Place "Final State" for Consumed Connections (only if registry provided)
+        // Place "Final State" or "Sealer" for Connections (only if registry provided)
         if (registry != null) {
             for (TransformedJigsawBlock connection : piece.connections()) {
-                if (registry.isConsumed(connection.position())) {
-                    try {
-                        String finalStateStr = connection.info().finalState();
-                        BlockState finalBlockState = platform.getWorldHandle().createBlockState(finalStateStr);
-                        if (finalBlockState == null)
-                            continue;
-                        BlockState rotatedFinalState = BlockStateRotator.rotate(finalBlockState, piece.rotation(), platform);
-                        Vector3Int finalPos = connection.position();
-                        world.setBlockState(finalPos.getX(), finalPos.getY(), finalPos.getZ(), rotatedFinalState);
-                    } catch (Exception e) {
-                        LOGGER.log(Level.WARNING, "Failed to place final_state for connection", e);
+                // Switch on ConnectionStatus
+                ConnectionStatus status = registry.getStatus(connection.position());
+                if (status == ConnectionStatus.OPEN)
+                    continue;
+                try {
+                    String blockToPlaceStr = null;
+                    if (status == ConnectionStatus.CONSUMED) {
+                        blockToPlaceStr = connection.info().finalState();
+                    } else if (status == ConnectionStatus.SEALED) {
+                        blockToPlaceStr = sealerMaterial;
+                        // Note: Foundation logic for floating seals will be added in Phase 6
                     }
+                    if (blockToPlaceStr != null) {
+                        BlockState blockToPlace = platform.getWorldHandle().createBlockState(blockToPlaceStr);
+                        if (blockToPlace != null) {
+                            BlockState rotatedState = BlockStateRotator.rotate(blockToPlace, piece.rotation(), platform);
+                            Vector3Int finalPos = connection.position();
+                            world.setBlockState(finalPos.getX(), finalPos.getY(), finalPos.getZ(), rotatedState);
+                        }
+                    }
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Failed to place connection state (" + status + ")", e);
                 }
             }
         }

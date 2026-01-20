@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.iongenesis.generation;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViolation;
+import com.ionsignal.minecraft.iongenesis.generation.logic.TerrainTrend;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.GenerationStatistics;
@@ -24,8 +25,13 @@ public record StructureBlueprint(
         AABB totalBounds,
         List<ConstraintViolation> violations,
         GenerationStatistics statistics,
-        UUID sessionId // Added for debug session tracking
-) implements DebugStateSnapshot { // Implements DebugStateSnapshot
+        UUID sessionId,
+        ProbeResult latestProbe) implements DebugStateSnapshot {
+
+    // ProbeResult record to hold transient probe data
+    public record ProbeResult(Vector3Int position, TerrainTrend trend) {
+    }
+
     public StructureBlueprint {
         // Defensive copies for immutability
         if (pieces == null)
@@ -38,10 +44,7 @@ public record StructureBlueprint(
             violations = List.copyOf(violations); // Immutable copy
         if (connectionRegistry == null)
             connectionRegistry = new ConnectionRegistry();
-        // Note: The caller is responsible for passing a snapshot() of the registry if this is for
-        // debugging, but we can't enforce deep copy here easily without changing the constructor signature
-        // logic significantly. We rely on StructurePlanner to call registry.snapshot(). Auto-calculate
-        // bounds if not provided
+        // Auto-calculate bounds if not provided
         if (totalBounds == null) {
             if (pieces.isEmpty()) {
                 totalBounds = new AABB(origin, origin);
@@ -55,11 +58,19 @@ public record StructureBlueprint(
         }
     }
 
-    // Constructor for backward compatibility (non-debug usage)
+    // Added compatibility constructor for 8 args (used by Planner previously)
+    public StructureBlueprint(String structureId, Vector3Int origin, List<PlacedJigsawPiece> pieces,
+            ConnectionRegistry connectionRegistry, AABB totalBounds,
+            List<ConstraintViolation> violations, GenerationStatistics statistics,
+            UUID sessionId) {
+        this(structureId, origin, pieces, connectionRegistry, totalBounds, violations, statistics, sessionId, null);
+    }
+
+    // Constructor for backward compatibility (non-debug usage, 7 args)
     public StructureBlueprint(String structureId, Vector3Int origin, List<PlacedJigsawPiece> pieces,
             ConnectionRegistry connectionRegistry, AABB totalBounds,
             List<ConstraintViolation> violations, GenerationStatistics statistics) {
-        this(structureId, origin, pieces, connectionRegistry, totalBounds, violations, statistics, null);
+        this(structureId, origin, pieces, connectionRegistry, totalBounds, violations, statistics, null, null);
     }
 
     @Override

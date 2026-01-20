@@ -27,10 +27,11 @@ public class JigsawPool {
         int weight = 0;
         for (JigsawPoolTemplate.PoolElement element : template.getElements()) {
             WeightedElement weighted = new WeightedElement(
-                    element.getStructure(), // This now returns the normalized Registry ID
+                    element.getStructure(),
                     element.getWeight(),
                     element.getMinCount(),
-                    element.getMaxCount());
+                    element.getMaxCount(),
+                    element.getMetadata());
             elements.add(weighted);
             weight += element.getWeight();
         }
@@ -111,12 +112,16 @@ public class JigsawPool {
         final int weight;
         final int minCount;
         final int maxCount;
+        final int verticalDelta;
+        final String role;
 
-        WeightedElement(String structureId, int weight, int minCount, int maxCount) {
+        WeightedElement(String structureId, int weight, int minCount, int maxCount, JigsawPoolTemplate.MetadataTemplate metadata) {
             this.structureId = structureId;
             this.weight = weight;
             this.minCount = minCount;
             this.maxCount = maxCount;
+            this.verticalDelta = metadata.getVerticalDelta();
+            this.role = metadata.getRole();
         }
 
         public String getStructureId() {
@@ -133,6 +138,20 @@ public class JigsawPool {
 
         public int getMaxCount() {
             return maxCount;
+        }
+
+        public int getVerticalDelta() {
+            return verticalDelta;
+        }
+
+        /**
+         * Checks if this element is explicitly marked as a terminator.
+         * Used for terrain adaptation fallback strategies.
+         *
+         * @return true if metadata role is "terminator"
+         */
+        public boolean isTerminator() {
+            return "terminator".equalsIgnoreCase(role);
         }
     }
 }
