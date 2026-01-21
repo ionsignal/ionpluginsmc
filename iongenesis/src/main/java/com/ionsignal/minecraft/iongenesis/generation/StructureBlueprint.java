@@ -2,7 +2,7 @@ package com.ionsignal.minecraft.iongenesis.generation;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
 import com.ionsignal.minecraft.iongenesis.generation.enforcement.ConstraintViolation;
-import com.ionsignal.minecraft.iongenesis.generation.logic.TerrainTrend;
+import com.ionsignal.minecraft.iongenesis.generation.logic.TerrainContext;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.GenerationStatistics;
@@ -31,8 +31,9 @@ public record StructureBlueprint(
         UUID sessionId,
         ProbeResult latestProbe) implements DebugStateSnapshot {
 
-    // ProbeResult record to hold transient probe data
-    public record ProbeResult(Vector3Int position, TerrainTrend trend) {
+    public record ProbeResult(
+            List<Vector3Int> gridPoints,
+            TerrainContext context) {
     }
 
     public StructureBlueprint {

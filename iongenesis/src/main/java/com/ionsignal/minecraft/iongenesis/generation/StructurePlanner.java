@@ -11,7 +11,8 @@ import com.ionsignal.minecraft.iongenesis.generation.engine.PlanningEventListene
 import com.ionsignal.minecraft.iongenesis.generation.logic.CandidateSelector;
 import com.ionsignal.minecraft.iongenesis.generation.logic.ConnectionFitter;
 import com.ionsignal.minecraft.iongenesis.generation.logic.JigsawConnection;
-import com.ionsignal.minecraft.iongenesis.generation.logic.TerrainTrend;
+import com.ionsignal.minecraft.iongenesis.generation.logic.TerrainContext;
+import com.ionsignal.minecraft.iongenesis.generation.logic.TerrainTopologist;
 import com.ionsignal.minecraft.iongenesis.generation.oracle.CachedTerrainOracle;
 import com.ionsignal.minecraft.iongenesis.generation.oracle.TerrainOracle;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PendingJigsawConnection;
@@ -55,7 +56,6 @@ import java.util.stream.Collectors;
 public class StructurePlanner {
     private static final Logger LOGGER = Logger.getLogger(StructurePlanner.class.getName());
     private static final int MAX_OPS_PER_TICK = 100; // Safety valve to prevent main thread freeze
-    private static final int PROBE_PROJECTION_DISTANCE = 3;
 
     public enum State {
         INITIALIZING, GENERATING, ENFORCING, FINISHED
@@ -74,6 +74,7 @@ public class StructurePlanner {
     private final CandidateSelector candidateSelector;
     private final ConnectionFitter connectionFitter;
     private final ForcedPlacement forcedPlacement;
+    private final TerrainTopologist topologist;
 
     // Internal State
     private State state = State.INITIALIZING;
@@ -116,8 +117,9 @@ public class StructurePlanner {
 
         // Initialize Logic Delegates
         this.candidateSelector = new CandidateSelector(random, usageTracker);
-        this.connectionFitter = new ConnectionFitter(pack, random, collisionDetector, config);
+        this.connectionFitter = new ConnectionFitter(pack, random, collisionDetector, config, this.oracle);
         this.forcedPlacement = new ForcedPlacement(pack, seed);
+        this.topologist = new TerrainTopologist();
     }
 
     public StructureBlueprint generateFull(String startPoolId) {
@@ -180,7 +182,7 @@ public class StructurePlanner {
     public void initialize(String startPoolId) {
         generationStartTime = System.currentTimeMillis();
         capturedViolations.clear();
-        // Root Node Snapping
+        // Root Node Snapping - Use Global Scan
         Optional<Integer> surfaceYOpt = oracle.getSurfaceHeight(origin.getX(), origin.getZ());
         if (surfaceYOpt.isEmpty()) {
             LOGGER.warning("[Planner] Failed to detect terrain at origin " + origin + ". Aborting generation.");
@@ -248,12 +250,16 @@ public class StructurePlanner {
         if (fallbackPoolId != null && !"minecraft:empty".equals(fallbackPoolId)) {
             JigsawPool fallbackPool = poolRegistry.getPool(fallbackPoolId);
             if (fallbackPool != null) {
-                String candidateId = fallbackPool.selectRandomElement(random);
-                if (candidateId != null) {
+                // Fallback pool selection still uses random element ID for now,
+                // as fallback logic is simpler and doesn't need complex metadata filtering yet.
+                // We wrap it in a list for the fitter.
+                JigsawPool.WeightedElement candidateElement = fallbackPool.selectRandomWeightedElement(random);
+                if (candidateElement != null) {
+                    String candidateId = candidateElement.getStructureId();
                     NBTStructure.StructureData data = resolveStructureData(candidateId);
                     if (data != null) {
                         if (data.jigsawBlocks().isEmpty()) {
-                            PlacedJigsawPiece capPiece = connectionFitter.tryFit(pending, List.of(candidateId), fallbackPoolId);
+                            PlacedJigsawPiece capPiece = connectionFitter.tryFit(pending, List.of(candidateElement), fallbackPoolId);
                             if (capPiece != null) {
                                 addPiece(capPiece);
                                 connectionRegistry.markConsumed(pending.connection().position());
@@ -285,14 +291,16 @@ public class StructurePlanner {
             LOGGER.warning("Target pool not found: " + targetPoolId);
             return null;
         }
-        TerrainTrend trend = calculateTerrainTrend(pending);
-        List<String> candidateIds = candidateSelector.selectCandidates(pool, 10, trend);
-        if (candidateIds.isEmpty()) {
+        // Analyze terrain using Topologist
+        TerrainContext context = analyzeTerrain(pending);
+        // Pass Context to Selector
+        List<JigsawPool.WeightedElement> candidates = candidateSelector.selectCandidates(pool, 10, context);
+        if (candidates.isEmpty()) {
             LOGGER.warning("No candidates selected from pool: " + targetPoolId);
             return null;
         }
         // Fit Connection (Delegated)
-        PlacedJigsawPiece result = connectionFitter.tryFit(pending, candidateIds, pool.getId());
+        PlacedJigsawPiece result = connectionFitter.tryFit(pending, candidates, pool.getId());
         if (result != null) {
             successfulConnections++;
             usageTracker.recordPlacement(pool.getId(), result.structureId());
@@ -314,47 +322,24 @@ public class StructurePlanner {
         return result;
     }
 
-    private TerrainTrend calculateTerrainTrend(PendingJigsawConnection pending) {
+    // Replaced calculateTerrainTrend with analyzeTerrain
+    private TerrainContext analyzeTerrain(PendingJigsawConnection pending) {
         if ("none".equalsIgnoreCase(config.getTerrainAdaptation())) {
-            return TerrainTrend.FLAT;
+            return TerrainContext.flat(pending.connection().position().getY());
         }
-        TransformedJigsawBlock conn = pending.connection();
-        String orientation = conn.orientation();
-        String primaryDir = orientation.toLowerCase().split("_")[0];
-        int dx = 0;
-        int dz = 0;
-        switch (primaryDir) {
-            case "north" -> dz = -1;
-            case "south" -> dz = 1;
-            case "east" -> dx = 1;
-            case "west" -> dx = -1;
-        }
-        // Capture probe result for visualization
-        int probeX = conn.position().getX() + (dx * StructurePlanner.PROBE_PROJECTION_DISTANCE);
-        int probeZ = conn.position().getZ() + (dz * StructurePlanner.PROBE_PROJECTION_DISTANCE);
-        Optional<Integer> surfaceYOpt = oracle.getSurfaceHeight(probeX, probeZ);
-        TerrainTrend trend;
-        if (surfaceYOpt.isEmpty()) {
-            trend = TerrainTrend.FLAT;
-        } else {
-            int surfaceY = surfaceYOpt.get();
-            int connY = conn.position().getY();
-            int delta = surfaceY - connY;
-            if (delta > 0) {
-                trend = TerrainTrend.RISING;
-            } else if (delta < 0) {
-                trend = TerrainTrend.FALLING;
-            } else {
-                trend = TerrainTrend.FLAT;
-            }
-        }
-        LOGGER.info(String.format("[Terrain Probe] %s | Conn Y: %d | Surface Y: %s",
-                trend, conn.position().getY(), surfaceYOpt.map(Object::toString).orElse("N/A")));
-        // Store the result for the blueprint
-        this.lastProbeResult = new StructureBlueprint.ProbeResult(
-                Vector3Int.of(probeX, surfaceYOpt.orElse(conn.position().getY()), probeZ),
-                trend);
-        return trend;
+        // Delegate to Topologist
+        TerrainTopologist.TopologyResult result = topologist.analyze(
+                pending.connection().position(),
+                pending.connection().orientation(),
+                oracle);
+        // Capture for visualization
+        this.lastProbeResult = new StructureBlueprint.ProbeResult(result.gridPoints(), result.context());
+        LOGGER.info(String.format("[Terrain Probe] %s | Avg Y: %.2f | Obstructed: %b | Cliff: %b",
+                result.context().trend(),
+                result.context().averageY(),
+                result.context().isObstructed(),
+                result.context().isCliff()));
+        return result.context();
     }
 
     private PlacedJigsawPiece selectAndPlaceStartPiece(String startPoolId, Vector3Int startPos) {
@@ -457,7 +442,6 @@ public class StructurePlanner {
     }
 
     public StructureBlueprint getBlueprint() {
-        // Add defensive logging here
         if (pieces == null)
             LOGGER.severe("[Planner] Blueprint creation: pieces is NULL");
         if (capturedViolations == null)

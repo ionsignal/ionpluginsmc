@@ -1,7 +1,9 @@
 package com.ionsignal.minecraft.iongenesis.generation.logic;
 
 import com.ionsignal.minecraft.iongenesis.config.JigsawStructureTemplate;
+import com.ionsignal.minecraft.iongenesis.generation.components.JigsawPool;
 import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
+import com.ionsignal.minecraft.iongenesis.generation.oracle.TerrainOracle;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PendingJigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
@@ -39,33 +41,37 @@ public class ConnectionFitter {
     private final RandomGenerator random;
     private final CollisionDetector occupiedSpace;
     private final JigsawStructureTemplate config;
+    private final TerrainOracle oracle;
 
     public ConnectionFitter(
             ConfigPack pack,
             RandomGenerator random,
             CollisionDetector occupiedSpace,
-            JigsawStructureTemplate config) {
+            JigsawStructureTemplate config,
+            TerrainOracle oracle) {
         this.pack = pack;
         this.random = random;
         this.occupiedSpace = occupiedSpace;
         this.config = config;
+        this.oracle = oracle;
     }
 
     /**
      * Attempts to fit one of the candidate structures onto the pending connection.
-     * 
+     *
      * @param pending
      *            The open connection on the existing structure.
      * @param candidates
-     *            List of structure IDs to try.
+     *            List of structure elements to try.
      * @param poolId
      *            The ID of the pool these candidates belong to (for tracking).
      * @return The placed piece if successful, or null.
      */
-    public PlacedJigsawPiece tryFit(PendingJigsawConnection pending, List<String> candidates, String poolId) {
+    public PlacedJigsawPiece tryFit(PendingJigsawConnection pending, List<JigsawPool.WeightedElement> candidates, String poolId) {
         // Shuffle candidates to ensure variety
         JigsawUtils.shuffle(candidates, random);
-        for (String structureId : candidates) {
+        for (JigsawPool.WeightedElement candidate : candidates) {
+            String structureId = candidate.getStructureId(); // Extract ID
             NBTStructure.StructureData structureData = loadStructureData(structureId);
             if (structureData == null) {
                 LOGGER.warning("Failed to load structure data for candidate: " + structureId);
@@ -113,8 +119,13 @@ public class ConnectionFitter {
                                 poolId);
                         // Hybrid Look-Ahead checks only if enabled in config
                         if (config.getLookAheadDepth() > 0) {
-                            if (!checkFutureExits(candidatePiece, pending.connection())) {
+                            if (!checkFutureExitsCollision(candidatePiece, pending.connection())) {
                                 LOGGER.info("Rejected " + structureId + " due to Look-Ahead collision");
+                                continue;
+                            }
+                            // Terrain Validation
+                            if (!validateExitTerrain(candidatePiece, pending.connection(), candidate)) {
+                                LOGGER.info("Rejected " + structureId + " due to Invalid Terrain at Exits");
                                 continue;
                             }
                         }
@@ -128,7 +139,7 @@ public class ConnectionFitter {
         return null;
     }
 
-    private boolean checkFutureExits(PlacedJigsawPiece candidate, TransformedJigsawBlock entryConnection) {
+    private boolean checkFutureExitsCollision(PlacedJigsawPiece candidate, TransformedJigsawBlock entryConnection) {
         for (TransformedJigsawBlock exit : candidate.connections()) {
             // Skip the entry connection (don't look backwards) and use distance check for approximate equality
             // as positions might have tiny floating point diffs or exact integer matches
@@ -150,6 +161,45 @@ public class ConnectionFitter {
             if (candidate.getWorldBounds().intersects(ghostBox)) {
                 // Collision detected for a required exit
                 return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean validateExitTerrain(PlacedJigsawPiece candidate, TransformedJigsawBlock entryConnection,
+            JigsawPool.WeightedElement element) {
+        // If piece is floating, skip terrain checks
+        if (element.isFloating()) {
+            return true;
+        }
+        // If adaptation is disabled, skip check
+        if ("none".equalsIgnoreCase(config.getTerrainAdaptation())) {
+            return true;
+        }
+        int maxGap = config.getMaxTerrainGap();
+        // Search limit slightly larger than gap to find the surface if it exists
+        int searchLimit = maxGap + 2;
+        for (TransformedJigsawBlock exit : candidate.connections()) {
+            // Skip Entry Connection (Backwards)
+            if (exit.position().distance(DistanceFunction.EuclideanSq, entryConnection.position()) <= 1.0) {
+                continue;
+            }
+            // Skip Terminators (Empty targets don't need ground)
+            if ("minecraft:empty".equals(exit.info().target())) {
+                continue;
+            }
+            // Check Terrain
+            Vector3Int pos = exit.position();
+            // Use the "Walker" (findSurface) starting at the exit's Y level
+            Optional<Integer> surfaceY = oracle.findSurface(pos.getX(), pos.getY(), pos.getZ(), searchLimit);
+            if (surfaceY.isEmpty()) {
+                // Obstructed (Wall) or Void (Cliff > limit)
+                return false;
+            }
+            // Check Gap
+            int delta = Math.abs(surfaceY.get() - pos.getY());
+            if (delta > maxGap) {
+                return false; // Too high or too low
             }
         }
         return true;

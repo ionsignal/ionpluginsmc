@@ -38,6 +38,35 @@ public class CachedTerrainOracle implements TerrainOracle {
         return result;
     }
 
+    @Override
+    public Optional<Integer> findSurface(int x, int startY, int z, int verticalSearchLimit) {
+        long key = pack(x, z);
+        int cachedValue = cache.get(key);
+        // Hit - A cached value is absolute truth for (x, z)
+        if (cachedValue != CACHE_MISS) {
+            // If cached as "EMPTY" (Global Void), return empty.
+            if (cachedValue == RESULT_EMPTY) {
+                return Optional.empty();
+            }
+            // Check if the cached absolute height is within our local search limit.
+            // If the cached surface is 50 blocks away, findSurface should return Empty (Obstructed),
+            // even though we know where the surface is.
+            if (Math.abs(cachedValue - startY) <= verticalSearchLimit) {
+                return Optional.of(cachedValue);
+            } else {
+                // Cached global surface is out of range.
+                // We must bypass cache and calculate, but NOT update the global cache.
+            }
+        }
+        // Miss - Delegate to local search
+        Optional<Integer> result = delegate.findSurface(x, startY, z, verticalSearchLimit);
+        // The walker might find a cave floor or overhang (e.g., Y=20).
+        // If we cache (x,z)->20, a future call to getSurfaceHeight() (Global Scan)
+        // will return 20 instead of the real sky surface (e.g., Y=100).
+        // We only cache Global Scans.
+        return result;
+    }
+
     /**
      * Packs x and z coordinates into a long key.
      */
