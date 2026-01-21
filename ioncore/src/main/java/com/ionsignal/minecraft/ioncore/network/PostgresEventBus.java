@@ -2,10 +2,14 @@ package com.ionsignal.minecraft.ioncore.network;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
+
 import org.bukkit.Bukkit;
+
 import org.jetbrains.annotations.NotNull;
+
 import org.postgresql.PGConnection;
 import org.postgresql.PGNotification;
 
@@ -21,21 +25,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * The central hub for the PostgreSQL Event Bus architecture.
- * <p>
- * This class orchestrates:
- * <ul>
- *     <li><b>Inbound (Slow Lane):</b> Listening for {@code NOTIFY} events on a dedicated thread.</li>
- *     <li><b>Outbound (Fast Lane):</b> Broadcasting events via the connection pool.</li>
- * </ul>
- * <p>
- * <b>Thread Safety:</b>
- * <ul>
- *     <li>Inbound events are marshaled to the <b>Main Server Thread</b> before dispatch.</li>
- *     <li>Outbound I/O runs on a dedicated {@link ExecutorService} to avoid starving the common pool.</li>
- * </ul>
  */
 public final class PostgresEventBus {
-
     private final IonCore plugin;
     private final DatabaseManager databaseManager;
     private final NetworkCommandRegistrar commandRegistrar;
@@ -47,6 +38,7 @@ public final class PostgresEventBus {
     // Configuration (Cached on init to avoid async config access)
     private final String inboundChannel;
     private final String outboundChannel;
+
     private String jdbcUrl;
     private String listenerUsername;
     private String listenerPassword;
@@ -59,11 +51,9 @@ public final class PostgresEventBus {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
         this.commandRegistrar = new NetworkCommandRegistrar(plugin);
-        
         // Load channel names from config or default
         this.inboundChannel = plugin.getConfig().getString("database.channels.inbound", "ion_ingress");
         this.outboundChannel = plugin.getConfig().getString("database.channels.outbound", "ion_telemetry");
-
         // Initialize dedicated I/O executor
         this.ioExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread t = new Thread(r, "IonCore-EventBus-IO");
@@ -74,30 +64,25 @@ public final class PostgresEventBus {
 
     /**
      * Starts the Event Bus.
-     * <p>
-     * This starts the dedicated Listener Thread which holds a permanent connection
-     * to PostgreSQL to receive NOTIFY events.
      * 
-     * @throws IllegalStateException if database configuration is incomplete.
+     * @throws IllegalStateException
+     *             if database configuration is incomplete.
      */
     public void initialize() {
         if (running) {
             return;
         }
-        
-        // Cache credentials on Main Thread (Safety Fix #4)
-        this.jdbcUrl = plugin.getConfig().getString("database.jdbc-url");
-        this.listenerUsername = plugin.getConfig().getString("database.username");
-        this.listenerPassword = plugin.getConfig().getString("database.password");
-
+        // Retrieve resolved credentials from DatabaseManager
+        // This ensures the EventBus uses the same credentials (Env/Secrets/Config) as the Pool
+        this.jdbcUrl = databaseManager.getResolvedJdbcUrl();
+        this.listenerUsername = databaseManager.getResolvedUsername();
+        this.listenerPassword = databaseManager.getResolvedPassword();
         if (jdbcUrl == null || listenerUsername == null || listenerPassword == null) {
             throw new IllegalStateException(
-                "Database configuration incomplete. Required: database.jdbc-url, database.username, database.password");
+                    "Database configuration incomplete. DatabaseManager failed to resolve credentials.");
         }
-
         plugin.getLogger().info("Initializing PostgresEventBus...");
         plugin.getLogger().info("Channels -> Inbound: " + inboundChannel + " | Outbound: " + outboundChannel);
-        
         this.running = true;
         this.startListenerThread();
     }
@@ -115,7 +100,6 @@ public final class PostgresEventBus {
      */
     private void listenLoop() {
         plugin.getLogger().info("EventBus Listener Thread started.");
-
         while (running) {
             try {
                 runListenerConnection();
@@ -135,7 +119,6 @@ public final class PostgresEventBus {
                 break;
             }
         }
-        
         plugin.getLogger().info("EventBus Listener Thread terminated.");
     }
 
@@ -144,68 +127,53 @@ public final class PostgresEventBus {
      */
     private void runListenerConnection() throws SQLException, InterruptedException {
         try (Connection connection = DriverManager.getConnection(jdbcUrl, listenerUsername, listenerPassword);
-             Statement stmt = connection.createStatement()) {
-
-            // 1. Issue the LISTEN command
+                Statement stmt = connection.createStatement()) {
+            // Issue the LISTEN command
             stmt.execute("LISTEN " + inboundChannel);
             plugin.getLogger().info("Listening on channel: " + inboundChannel);
-
             // Unwrap to Postgres specific API
             PGConnection pgConn = connection.unwrap(PGConnection.class);
-
             while (running) {
-                // 2. Poll for notifications
+                // Poll for notifications
                 // Postgres JDBC 'getNotifications' is not blocking, so we must sleep.
                 PGNotification[] notifications = pgConn.getNotifications();
-
                 if (notifications != null) {
                     for (PGNotification notification : notifications) {
                         handleNotification(notification.getParameter());
                     }
                 }
-
-                // 3. Sleep to prevent CPU starvation
+                // Sleep to prevent CPU starvation
                 // Postgres JDBC 'getNotifications' is not blocking, so we must sleep.
-                Thread.sleep(50); 
+                Thread.sleep(50);
             }
         }
     }
 
     /**
      * Broadcasts an event to the PostgreSQL network asynchronously.
-     * <p>
-     * This method:
-     * 1. Wraps the payload in a standard envelope (type, timestamp, data).
-     * 2. Serializes it to JSON.
-     * 3. Borrows a connection from the Hikari pool.
-     * 4. Executes 'SELECT pg_notify(...)'
-     * 5. Returns the connection to the pool.
      *
-     * @param type    The event type (e.g., "AGENT_STATE", "LOG_ENTRY").
-     * @param payload The data object (will be serialized to JSON).
+     * @param type
+     *            The event type (e.g., "AGENT_STATE", "LOG_ENTRY").
+     * @param payload
+     *            The data object (will be serialized to JSON).
      */
     public void broadcast(@NotNull String type, @NotNull Object payload) {
-        if (!running) return;
-
-        // 1. Construct Envelope
+        if (!running)
+            return;
+        // Construct Envelope
         JsonObject envelope = new JsonObject();
         envelope.addProperty("type", type);
         envelope.addProperty("timestamp", System.currentTimeMillis());
-        
         // Serialize payload to JsonElement tree to avoid double-string-escaping issues
         envelope.add("payload", gson.toJsonTree(payload));
-
         final String jsonString = gson.toJson(envelope);
-
-        // 2. Run Async on Dedicated Executor (Critical Fix #2)
+        // Run Async on Dedicated Executor (Critical Fix #2)
         CompletableFuture.runAsync(() -> {
             try (Connection conn = databaseManager.getConnection();
-                 PreparedStatement ps = conn.prepareStatement("SELECT pg_notify(?, ?)")) {
-                
+                    PreparedStatement ps = conn.prepareStatement("SELECT pg_notify(?, ?)")) {
                 ps.setString(1, outboundChannel);
                 ps.setString(2, jsonString);
                 ps.execute();
-                
             } catch (SQLException e) {
                 plugin.getLogger().warning("Failed to broadcast event [" + type + "]: " + e.getMessage());
             }
@@ -218,20 +186,17 @@ public final class PostgresEventBus {
      * Expected Format: { "type": "COMMAND_NAME", "payload": { ... } }
      */
     private void handleNotification(String jsonPayload) {
-        if (jsonPayload == null || jsonPayload.isEmpty()) return;
-
+        if (jsonPayload == null || jsonPayload.isEmpty())
+            return;
         try {
             // Parse the envelope
             JsonObject root = gson.fromJson(jsonPayload, JsonObject.class);
-            
             if (!root.has("type")) {
                 plugin.getLogger().warning("Received malformed event (missing 'type'): " + jsonPayload);
                 return;
             }
-
             String type = root.get("type").getAsString();
             String data = root.has("payload") ? root.get("payload").toString() : "{}";
-
             // Dispatch to Registrar
             // CRITICAL FIX #1: Marshal to Main Thread
             // The listener thread is async. If the handler touches Bukkit API, it must be on the main thread.
@@ -243,7 +208,6 @@ public final class PostgresEventBus {
                     e.printStackTrace();
                 }
             });
-
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to parse inbound event: " + e.getMessage());
         }
@@ -254,7 +218,7 @@ public final class PostgresEventBus {
      */
     public void shutdown() {
         this.running = false;
-        
+
         // Shutdown I/O Executor
         ioExecutor.shutdown();
         try {
@@ -276,7 +240,7 @@ public final class PostgresEventBus {
                 Thread.currentThread().interrupt();
             }
         }
-        
+
         commandRegistrar.clear();
         plugin.getLogger().info("PostgresEventBus stopped.");
     }
@@ -287,14 +251,14 @@ public final class PostgresEventBus {
     public @NotNull NetworkCommandRegistrar getCommandRegistrar() {
         return commandRegistrar;
     }
-    
+
     /**
      * @return The database manager instance.
      */
     public @NotNull DatabaseManager getDatabaseManager() {
         return databaseManager;
     }
-    
+
     public boolean isRunning() {
         return running;
     }

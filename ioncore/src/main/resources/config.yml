@@ -1,10 +1,15 @@
 # IonCore Configuration
 # Database Configuration (PostgreSQL)
 # REQUIRED: Must be configured for the plugin to start.
+#
+# Credentials Resolution Order:
+# 1. Environment Variables (ION_DB_URL, ION_DB_USERNAME, ION_DB_PASSWORD)
+# 2. secrets.properties file in plugin folder
+# 3. config.yml (Below)
 database:
-  jdbc-url: "jdbc:postgresql://localhost:5432/runemind_db"
-  username: "runemind_admin"
-  password: "admin"
   pool-settings:
     maximum-pool-size: 5
     connection-timeout: 5000 # 5 seconds
+  channels:
+    inbound: "ion_ingress"
+    outbound: "ion_telemetry"
