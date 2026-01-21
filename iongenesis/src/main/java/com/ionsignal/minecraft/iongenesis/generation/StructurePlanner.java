@@ -203,7 +203,7 @@ public class StructurePlanner {
 
     /**
      * Processes the next connection in the queue.
-     * 
+     *
      * @return true if a piece was placed (visual change), false if skipped/failed.
      */
     private boolean processNextConnection() {
@@ -414,7 +414,7 @@ public class StructurePlanner {
 
     /**
      * Processes the next enforcement constraint.
-     * 
+     *
      * @return true if a forced placement occurred (visual change), false if satisfied or skipped.
      */
     private boolean processNextEnforcement() {
@@ -428,7 +428,7 @@ public class StructurePlanner {
         }
         if (enforcementStrategy == EnforcementStrategy.STRICT || enforcementStrategy == EnforcementStrategy.BEST_EFFORT) {
             ForcedPlacement.ForcedPlacementResult result = forcedPlacement.forcePlacementsForMinimum(
-                    constraint, currentCount, pieces, collisionDetector);
+                    constraint, currentCount, pieces, collisionDetector, connectionRegistry);
             if (!result.pieces().isEmpty()) {
                 for (PlacedJigsawPiece piece : result.pieces()) {
                     addPiece(piece);

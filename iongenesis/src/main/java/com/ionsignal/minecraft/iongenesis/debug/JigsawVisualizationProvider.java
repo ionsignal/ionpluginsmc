@@ -124,13 +124,6 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
             blockDisplay.setGlowing(false);
             blockDisplay.setGlowColorOverride(null);
         }
-        // Remove Text Display (Reduce clutter)
-        if (head.textDisplayId() != null) {
-            Entity textEntity = Bukkit.getEntity(head.textDisplayId());
-            if (textEntity != null && textEntity.isValid()) {
-                textEntity.remove();
-            }
-        }
     }
 
     private ActiveHead spawnPieceVisuals(World world, PlacedJigsawPiece piece, boolean isNewest, Set<UUID> tracker) {
@@ -154,17 +147,14 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
             display.setGlowing(true);
         }
         tracker.add(display.getUniqueId());
-        UUID textId = null;
-        if (isNewest) {
-            Location textLoc = loc.clone().add(size.getX() / 2.0, size.getY() + 1.5, size.getZ() / 2.0);
-            TextDisplay text = (TextDisplay) world.spawnEntity(textLoc, EntityType.TEXT_DISPLAY);
-            text.text(Component.text(piece.structureId() + "\n" + piece.sourcePoolId()));
-            text.setBillboard(Display.Billboard.CENTER);
-            text.setPersistent(false);
-            text.addScoreboardTag("ionnerrus:debug_visualizer");
-            tracker.add(text.getUniqueId());
-            textId = text.getUniqueId();
-        }
+        Location textLoc = loc.clone().add(size.getX() / 2.0, size.getY() + 1.5, size.getZ() / 2.0);
+        TextDisplay text = (TextDisplay) world.spawnEntity(textLoc, EntityType.TEXT_DISPLAY);
+        text.text(Component.text(piece.structureId() + "\n" + piece.sourcePoolId()));
+        text.setBillboard(Display.Billboard.CENTER);
+        text.setPersistent(false);
+        text.addScoreboardTag("ionnerrus:debug_visualizer");
+        tracker.add(text.getUniqueId());
+        UUID textId = text.getUniqueId();
         if (isNewest) {
             return new ActiveHead(display.getUniqueId(), textId);
         }
