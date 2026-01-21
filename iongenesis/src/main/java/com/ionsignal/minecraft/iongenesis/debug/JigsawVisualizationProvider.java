@@ -87,27 +87,59 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
         removeEntities(probes);
         probes.clear();
         StructureBlueprint.ProbeResult probe = state.latestProbe();
-        if (probe != null) {
-            Vector3Int pos = probe.position();
-            Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
-            BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
-            Material mat = switch (probe.trend()) {
-                case RISING -> Material.YELLOW_STAINED_GLASS;
-                case FALLING -> Material.RED_STAINED_GLASS;
-                case FLAT -> Material.BLUE_STAINED_GLASS;
-            };
-            display.setBlock(mat.createBlockData());
-            display.setPersistent(false);
-            display.addScoreboardTag("ionnerrus:debug_probe");
-            display.setBrightness(new Display.Brightness(15, 15));
-            display.setGlowColorOverride(Color.WHITE);
-            display.setGlowing(true);
-            // Scale down slightly to avoid z-fighting if inside a block
-            Transformation transform = display.getTransformation();
-            transform.getScale().set(5.0f, 5.0f, 5.0f);
-            transform.getTranslation().set(-2.0f, -2.0f, -2.0f);
-            display.setTransformation(transform);
-            probes.add(display.getUniqueId());
+        if (probe != null && probe.gridPoints() != null) {
+            // Determine Color based on Context
+            Material mat;
+            Color glowColor;
+            if (probe.context().isObstructed()) {
+                mat = Material.RED_STAINED_GLASS;
+                glowColor = Color.RED;
+            } else if (probe.context().isCliff()) {
+                mat = Material.ORANGE_STAINED_GLASS;
+                glowColor = Color.ORANGE;
+            } else {
+                mat = switch (probe.context().trend()) {
+                    case RISING -> Material.YELLOW_STAINED_GLASS;
+                    case FALLING -> Material.BLUE_STAINED_GLASS;
+                    case FLAT -> Material.LIME_STAINED_GLASS;
+                };
+                glowColor = Color.WHITE;
+            }
+            // Render Grid Points
+            for (Vector3Int pos : probe.gridPoints()) {
+                // The probe returns the Y of the solid block; we want to see the marker sitting on it.
+                Location loc = new Location(world, pos.getX(), pos.getY() + 1.0, pos.getZ());
+                BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
+                display.setBlock(mat.createBlockData());
+                display.setPersistent(false);
+                display.addScoreboardTag("ionnerrus:debug_probe");
+                display.setBrightness(new Display.Brightness(15, 15));
+                display.setGlowColorOverride(glowColor);
+                display.setGlowing(true);
+                // Scale down to 0.5 to look like survey markers
+                Transformation transform = display.getTransformation();
+                transform.getScale().set(0.5f, 0.5f, 0.5f);
+                transform.getTranslation().set(0.25f, 0.25f, 0.25f); // Center in block
+                display.setTransformation(transform);
+                probes.add(display.getUniqueId());
+            }
+            // Render Info Text at the first point (Anchor)
+            if (!probe.gridPoints().isEmpty()) {
+                Vector3Int anchor = probe.gridPoints().get(0);
+                // Ensures text floats cleanly above the marker block
+                Location textLoc = new Location(world, anchor.getX(), anchor.getY() + 2.5, anchor.getZ());
+                TextDisplay text = (TextDisplay) world.spawnEntity(textLoc, EntityType.TEXT_DISPLAY);
+                String info = String.format("%s\nAvg Y: %.1f", probe.context().trend(), probe.context().averageY());
+                if (probe.context().isObstructed())
+                    info = "OBSTRUCTED";
+                if (probe.context().isCliff())
+                    info = "CLIFF";
+                text.text(Component.text(info));
+                text.setBillboard(Display.Billboard.CENTER);
+                text.setPersistent(false);
+                text.addScoreboardTag("ionnerrus:debug_probe");
+                probes.add(text.getUniqueId());
+            }
         }
     }
 
@@ -192,7 +224,6 @@ public class JigsawVisualizationProvider implements VisualizationProvider<Struct
             toRemove.addAll(entities);
         if (probes != null)
             toRemove.addAll(probes);
-
         if (toRemove.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }

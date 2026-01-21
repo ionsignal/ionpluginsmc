@@ -26,51 +26,51 @@ public class CandidateSelector {
     }
 
     /**
-     * Selects a list of candidate structure IDs from a pool, respecting max usage counts.
+     * Selects a list of candidate structure elements from a pool, respecting max usage counts.
      * Defaults to FLAT terrain trend (no bias).
      *
-     * @param pool
-     *            The pool to select from.
-     * @param count
-     *            The desired number of candidates to try.
-     * @return A list of structure IDs (Registry Keys).
      */
-    public List<String> selectCandidates(JigsawPool pool, int count) {
-        return selectCandidates(pool, count, TerrainTrend.FLAT);
+    public List<JigsawPool.WeightedElement> selectCandidates(JigsawPool pool, int count) {
+        return selectCandidates(pool, count, TerrainContext.flat(0));
     }
 
     /**
-     * Selects a list of candidate structure IDs from a pool, respecting max usage counts
-     * and biasing towards pieces that match the terrain trend.
-     *
-     * @param pool
-     *            The pool to select from.
-     * @param count
-     *            The desired number of candidates to try.
-     * @param trend
-     *            The detected terrain trend ahead of the connection.
-     * @return A list of structure IDs (Registry Keys).
+     * Selects a list of candidate structure elements from a pool, respecting max usage counts
+     * and biasing towards pieces that match the terrain context.
      */
-    public List<String> selectCandidates(JigsawPool pool, int count, TerrainTrend trend) {
-        List<String> candidates = new ArrayList<>();
-        Set<String> selected = new HashSet<>();
+    public List<JigsawPool.WeightedElement> selectCandidates(JigsawPool pool, int count, TerrainContext context) {
+        List<JigsawPool.WeightedElement> candidates = new ArrayList<>();
+        Set<String> selectedIds = new HashSet<>();
         int attempts = 0;
         // Increased max attempts slightly to account for filtering retries
         int maxAttempts = count * 4;
-        // Pre-calculate trend-based exclusions
-        // We identify which pieces definitely DO NOT fit the current terrain trend.
-        Set<String> trendExclusions = new HashSet<>();
-        if (trend != TerrainTrend.FLAT) {
+        // Pre-calculate exclusions based on Context
+        Set<String> contextExclusions = new HashSet<>();
+        // Obstruction/Cliff Logic:
+        // If obstructed or cliff, we MUST use a terminator or specific adapter.
+        // We exclude EVERYTHING that isn't a terminator.
+        boolean forceTerminators = context.isObstructed() || context.isCliff();
+        // Slope Logic:
+        // Only apply if NOT forcing terminators
+        if (!forceTerminators && context.trend() != TerrainTrend.FLAT) {
             for (JigsawPool.WeightedElement element : pool.getElements()) {
                 int delta = element.getVerticalDelta();
                 // If Rising, exclude pieces that go down or stay flat
-                // Rising needs > 0. Falling needs < 0
-                if (trend == TerrainTrend.RISING && delta <= 0) {
-                    trendExclusions.add(element.getStructureId());
-                } else if (trend == TerrainTrend.FALLING && delta >= 0) {
-                    trendExclusions.add(element.getStructureId());
+                if (context.trend() == TerrainTrend.RISING && delta <= 0) {
+                    contextExclusions.add(element.getStructureId());
+                } else if (context.trend() == TerrainTrend.FALLING && delta >= 0) {
+                    contextExclusions.add(element.getStructureId());
                 }
             }
+        }
+        // If forcing terminators, populate exclusions with all NON-terminators
+        if (forceTerminators) {
+            for (JigsawPool.WeightedElement element : pool.getElements()) {
+                if (!element.isTerminator()) {
+                    contextExclusions.add(element.getStructureId());
+                }
+            }
+            LOGGER.info("[Terrain] Forcing terminators due to Obstruction/Cliff");
         }
         boolean fallbackTriggered = false;
         while (candidates.size() < count && attempts++ < maxAttempts) {
@@ -78,69 +78,61 @@ public class CandidateSelector {
             // Add Usage Constraints (Max Count)
             for (JigsawPool.WeightedElement element : pool.getElements()) {
                 int currentCount = usageTracker.getCount(pool.getId(), element.getStructureId());
-                int pendingCount = (int) candidates.stream().filter(c -> c.equals(element.getStructureId())).count();
-
+                // Count how many of this ID we have already selected in this batch
+                int pendingCount = (int) candidates.stream().filter(c -> c.getStructureId().equals(element.getStructureId())).count();
                 if (currentCount + pendingCount >= element.getMaxCount()) {
                     currentExclusions.add(element.getStructureId());
                 }
             }
-            // Add Trend Constraints (unless we already fell back)
+            // Add Context Constraints (unless we already fell back)
             if (!fallbackTriggered) {
-                currentExclusions.addAll(trendExclusions);
+                currentExclusions.addAll(contextExclusions);
             }
             // Try selection
-            String id = pool.selectRandomElementWithExclusions(random, currentExclusions);
-            // If selection failed (e.g. all remaining weights are 0), check for fallback strategies
+            JigsawPool.WeightedElement element = pool.selectRandomWeightedElementWithExclusions(random, currentExclusions);
+            String id = element != null ? element.getStructureId() : null;
+            // If selection failed
             if (id == null) {
-                // Check if the failure was caused by Trend Exclusions blocking everything
-                // (i.e., we have pieces remaining, but they were filtered out by the trend logic)
-                if (!fallbackTriggered && !trendExclusions.isEmpty()) {
-                    // Strategy: Terminator Priority
-                    // Identify valid terminators (that are NOT excluded by usage limits)
-                    Set<String> validTerminators = new HashSet<>();
-                    for (JigsawPool.WeightedElement element : pool.getElements()) {
-                        if (element.isTerminator()) {
-                            // Re-check usage limits for this specific element
-                            int currentCount = usageTracker.getCount(pool.getId(), element.getStructureId());
-                            int pendingCount = (int) candidates.stream().filter(c -> c.equals(element.getStructureId())).count();
-                            if (currentCount + pendingCount < element.getMaxCount()) {
-                                validTerminators.add(element.getStructureId());
-                            }
+                // If we were forcing terminators (Obstruction/Cliff) and failed, we are in trouble.
+                // We likely have no terminators left (max count) or none in pool.
+                // We should try to fallback to standard selection (maybe a small piece fits?)
+                // OR return empty to let the Planner handle the seal.
+                if (forceTerminators && !fallbackTriggered) {
+                    LOGGER.info("[Terrain] Forced terminator selection failed. Falling back to standard pool.");
+                    fallbackTriggered = true;
+                    continue;
+                }
+                // If we were filtering for slope (Rising/Falling) and failed
+                if (!forceTerminators && !fallbackTriggered && !contextExclusions.isEmpty()) {
+                    // Try terminators first (Cap the slope)
+                    Set<String> terminatorOnlyExclusions = new HashSet<>();
+                    for (JigsawPool.WeightedElement e : pool.getElements()) {
+                        // Exclude non-terminators AND maxed-out pieces
+                        int currentCount = usageTracker.getCount(pool.getId(), e.getStructureId());
+                        if (!e.isTerminator() || currentCount >= e.getMaxCount()) {
+                            terminatorOnlyExclusions.add(e.getStructureId());
                         }
                     }
-                    if (!validTerminators.isEmpty()) {
-                        // Force selection from terminators only
-                        // We construct an exclusion set that bans everything EXCEPT our valid terminators
-                        Set<String> terminatorOnlyExclusions = new HashSet<>();
-                        for (JigsawPool.WeightedElement element : pool.getElements()) {
-                            if (!validTerminators.contains(element.getStructureId())) {
-                                terminatorOnlyExclusions.add(element.getStructureId());
-                            }
-                        }
-                        // Attempt selection again with the terminator-only set
-                        id = pool.selectRandomElementWithExclusions(random, terminatorOnlyExclusions);
-                        if (id != null) {
-                            LOGGER.info("[Terrain] Selected Cap '" + id + "' due to " + trend + " terrain.");
-                            // Proceed to add this ID to candidates
-                        }
-                    }
-                    // If we still don't have an ID (no terminators found or selection failed), fall back to standard
-                    // weights
-                    if (id == null) {
-                        LOGGER.info("[Terrain] Forced placement required (No caps found for " + trend
-                                + " terrain). Falling back to standard weights.");
+                    element = pool.selectRandomWeightedElementWithExclusions(random, terminatorOnlyExclusions);
+                    id = element != null ? element.getStructureId() : null;
+
+                    if (id != null) {
+                        LOGGER.info("[Terrain] Selected Cap '" + id + "' for " + context.trend() + " terrain.");
+                    } else {
+                        // No caps available, fallback to standard weights
+                        LOGGER.info("[Terrain] No caps found for " + context.trend() + ". Falling back.");
                         fallbackTriggered = true;
-                        continue; // Retry loop immediately without trend exclusions
+                        continue;
                     }
                 } else {
-                    // Truly exhausted (max counts reached for everything, or pool is empty)
+                    // Truly exhausted
                     break;
                 }
             }
-            // Add selected ID to candidates
-            if (id != null && !selected.contains(id)) {
-                candidates.add(id);
-                selected.add(id);
+            // Add selected Element to candidates
+            if (element != null && !selectedIds.contains(id)) {
+                candidates.add(element);
+                selectedIds.add(id);
             }
         }
         return candidates;

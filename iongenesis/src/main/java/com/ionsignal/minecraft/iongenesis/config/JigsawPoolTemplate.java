@@ -87,12 +87,20 @@ public class JigsawPoolTemplate implements AbstractableTemplate {
         @Value("role")
         private String role = "default";
 
+        @Default
+        @Value("floating")
+        private boolean floating = false;
+
         public int getVerticalDelta() {
             return verticalDelta;
         }
 
         public String getRole() {
             return role;
+        }
+
+        public boolean isFloating() {
+            return floating;
         }
 
         @Override

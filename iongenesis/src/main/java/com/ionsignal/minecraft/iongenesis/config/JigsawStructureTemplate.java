@@ -49,6 +49,10 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
     @Value("y-level")
     private @Meta int yLevel = 0;
 
+    @Default
+    @Value("max-terrain-gap")
+    private @Meta int maxTerrainGap = 2;
+
     @Override
     public String getID() {
         return id;
@@ -96,5 +100,9 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
 
     public int getYLevel() {
         return yLevel;
+    }
+
+    public int getMaxTerrainGap() {
+        return maxTerrainGap;
     }
 }

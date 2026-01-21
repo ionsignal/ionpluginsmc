@@ -17,4 +17,13 @@ public class FlatOracle implements TerrainOracle {
     public Optional<Integer> getSurfaceHeight(int x, int z) {
         return Optional.of(height);
     }
+
+    @Override
+    public Optional<Integer> findSurface(int x, int startY, int z, int verticalSearchLimit) {
+        // Return the flat height only if it is within the search limit
+        if (Math.abs(height - startY) <= verticalSearchLimit) {
+            return Optional.of(height);
+        }
+        return Optional.empty();
+    }
 }

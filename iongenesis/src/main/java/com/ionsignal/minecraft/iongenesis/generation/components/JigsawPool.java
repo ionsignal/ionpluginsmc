@@ -42,6 +42,14 @@ public class JigsawPool {
      * Selects a random structure ID from this pool based on weights.
      */
     public String selectRandomElement(RandomGenerator random) {
+        WeightedElement element = selectRandomWeightedElement(random);
+        return element != null ? element.structureId : null;
+    }
+
+    /**
+     * Selects a random WeightedElement from this pool based on weights.
+     */
+    public WeightedElement selectRandomWeightedElement(RandomGenerator random) {
         if (elements.isEmpty() || totalWeight == 0) {
             return null;
         }
@@ -50,13 +58,21 @@ public class JigsawPool {
         for (WeightedElement element : elements) {
             current += element.weight;
             if (current > target) {
-                return element.structureId; // Returns Registry ID
+                return element;
             }
         }
-        return elements.get(elements.size() - 1).structureId;
+        return elements.get(elements.size() - 1);
     }
 
     public String selectRandomElementWithExclusions(RandomGenerator random, Set<String> excludedFiles) {
+        WeightedElement element = selectRandomWeightedElementWithExclusions(random, excludedFiles);
+        return element != null ? element.structureId : null;
+    }
+
+    /**
+     * Selects a random WeightedElement with exclusions.
+     */
+    public WeightedElement selectRandomWeightedElementWithExclusions(RandomGenerator random, Set<String> excludedFiles) {
         if (elements.isEmpty() || totalWeight == 0) {
             return null;
         }
@@ -75,13 +91,12 @@ public class JigsawPool {
             }
             current += element.weight;
             if (current > target) {
-                return element.structureId;
+                return element;
             }
         }
         return elements.stream()
                 .filter(e -> !excludedFiles.contains(e.structureId))
                 .findFirst()
-                .map(e -> e.structureId)
                 .orElse(null);
     }
 
@@ -114,6 +129,7 @@ public class JigsawPool {
         final int maxCount;
         final int verticalDelta;
         final String role;
+        final boolean floating;
 
         WeightedElement(String structureId, int weight, int minCount, int maxCount, JigsawPoolTemplate.MetadataTemplate metadata) {
             this.structureId = structureId;
@@ -122,6 +138,7 @@ public class JigsawPool {
             this.maxCount = maxCount;
             this.verticalDelta = metadata.getVerticalDelta();
             this.role = metadata.getRole();
+            this.floating = metadata.isFloating();
         }
 
         public String getStructureId() {
@@ -152,6 +169,13 @@ public class JigsawPool {
          */
         public boolean isTerminator() {
             return "terminator".equalsIgnoreCase(role);
+        }
+
+        /**
+         * Checks if this element is meant to float (aerial/bridge).
+         */
+        public boolean isFloating() {
+            return floating;
         }
     }
 }

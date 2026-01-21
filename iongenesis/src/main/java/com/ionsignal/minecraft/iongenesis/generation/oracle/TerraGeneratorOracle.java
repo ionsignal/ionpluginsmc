@@ -118,34 +118,8 @@ public class TerraGeneratorOracle implements TerrainOracle {
             Object sampler3D = getChunkSamplerHandle.invoke(samplerProvider, cx, cz, world, biomeProvider);
             // Raycast down
             for (int y = searchCeiling; y >= searchFloor; y--) {
-                // Sample Density
-                // invoke: sampler3D.sample(localX, y, localZ)
-                double density = (double) sampleHandle.invoke(sampler3D, localX, y, localZ);
-                if (density > 0) {
-                    // Check Carving (Caves)
-                    // We need the biome at this specific block to get its carving settings
-                    Biome biome = biomeProvider.getBiome(x, y, z, seed);
-                    Object noiseProps = biome.getContext().get(noisePropertiesKey);
-                    // invoke: noiseProps.carving()
-                    Object carvingSampler = carvingSamplerHandle.invoke(noiseProps);
-                    // invoke: carvingSampler.getSample(seed, x, y, z)
-                    // Note: Carving sampler uses absolute coordinates
-                    double carverSample = (double) getSampleHandle.invoke(carvingSampler, seed, (double) x, (double) y, (double) z);
-                    if (carverSample <= 0) {
-                        // Solid ground found (Density > 0 AND Not Carved)
-                        return Optional.of(y);
-                    }
-                    // It is a cave (Air), continue searching down.
-                } else {
-                    // Check Sea Level
-                    // If density <= 0, it might be water if below sea level
-                    Biome biome = biomeProvider.getBiome(x, y, z, seed);
-                    Object paletteInfo = biome.getContext().get(paletteInfoPropertyKey);
-                    // invoke: paletteInfo.seaLevel()
-                    int seaLevel = (int) seaLevelHandle.invoke(paletteInfo);
-                    if (y <= seaLevel) {
-                        return Optional.of(y);
-                    }
+                if (isSolid(sampler3D, x, y, z, localX, localZ, seed)) {
+                    return Optional.of(y);
                 }
             }
         } catch (Throwable e) {
@@ -154,7 +128,84 @@ public class TerraGeneratorOracle implements TerrainOracle {
             LOGGER.log(Level.SEVERE, "TerraGeneratorOracle reflection failed at runtime. Disabling terrain adaptation.", e);
             return Optional.empty();
         }
-
         return Optional.empty();
+    }
+
+    @Override
+    public Optional<Integer> findSurface(int x, int startY, int z, int verticalSearchLimit) {
+        if (!valid)
+            return Optional.empty();
+        try {
+            long seed = world.getSeed();
+            int cx = x >> 4;
+            int cz = z >> 4;
+            int localX = Math.floorMod(x, 16);
+            int localZ = Math.floorMod(z, 16);
+            // Get the Sampler3D for this chunk
+            Object sampler3D = getChunkSamplerHandle.invoke(samplerProvider, cx, cz, world, biomeProvider);
+            // Check initial state
+            boolean startSolid = isSolid(sampler3D, x, startY, z, localX, localZ, seed);
+            if (startSolid) {
+                // We are inside ground (Buried). Search UP for air.
+                for (int y = startY + 1; y <= startY + verticalSearchLimit; y++) {
+                    if (y > searchCeiling)
+                        break;
+                    if (!isSolid(sampler3D, x, y, z, localX, localZ, seed)) {
+                        // Found air at y. Surface is y-1.
+                        return Optional.of(y - 1);
+                    }
+                }
+            } else {
+                // We are in air (Floating). Search DOWN for ground.
+                for (int y = startY - 1; y >= startY - verticalSearchLimit; y--) {
+                    if (y < searchFloor)
+                        break;
+                    if (isSolid(sampler3D, x, y, z, localX, localZ, seed)) {
+                        // Found solid at y. Surface is y.
+                        return Optional.of(y);
+                    }
+                }
+            }
+        } catch (Throwable e) {
+            valid = false;
+            LOGGER.log(Level.SEVERE, "TerraGeneratorOracle reflection failed at runtime (findSurface).", e);
+            return Optional.empty();
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Helper method to check if a specific coordinate is considered "Solid" (Ground or Water).
+     * Encapsulates reflection logic for density, carving, and sea level.
+     */
+    private boolean isSolid(Object sampler3D, int x, int y, int z, int localX, int localZ, long seed) throws Throwable {
+        // Sample Density
+        // invoke: sampler3D.sample(localX, y, localZ)
+        double density = (double) sampleHandle.invoke(sampler3D, localX, y, localZ);
+        if (density > 0) {
+            // Check Carving (Caves)
+            // We need the biome at this specific block to get its carving settings
+            Biome biome = biomeProvider.getBiome(x, y, z, seed);
+            Object noiseProps = biome.getContext().get(noisePropertiesKey);
+            // invoke: noiseProps.carving()
+            Object carvingSampler = carvingSamplerHandle.invoke(noiseProps);
+            // invoke: carvingSampler.getSample(seed, x, y, z)
+            // Note: Carving sampler uses absolute coordinates
+            double carverSample = (double) getSampleHandle.invoke(carvingSampler, seed, (double) x, (double) y, (double) z);
+            if (carverSample <= 0) {
+                // Solid ground found (Density > 0 AND Not Carved)
+                return true;
+            }
+            // It is a cave (Air)
+            return false;
+        } else {
+            // Check Sea Level
+            // If density <= 0, it might be water if below sea level
+            Biome biome = biomeProvider.getBiome(x, y, z, seed);
+            Object paletteInfo = biome.getContext().get(paletteInfoPropertyKey);
+            // invoke: paletteInfo.seaLevel()
+            int seaLevel = (int) seaLevelHandle.invoke(paletteInfo);
+            return y <= seaLevel;
+        }
     }
 }
