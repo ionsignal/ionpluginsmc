@@ -9,7 +9,6 @@ import com.ionsignal.minecraft.iongenesis.generation.components.JigsawProvider;
 import com.ionsignal.minecraft.iongenesis.generation.engine.PlacementCacheKey;
 import com.ionsignal.minecraft.iongenesis.generation.oracle.TerraGeneratorOracle;
 import com.ionsignal.minecraft.iongenesis.generation.oracle.TerrainOracle;
-import com.ionsignal.minecraft.iongenesis.generation.placements.JigsawPlacement;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.iongenesis.model.structure.NBTStructure;
@@ -49,13 +48,13 @@ public class JigsawStructure implements Structure {
     public boolean generate(Vector3Int location, WritableWorld world, RandomGenerator random, Rotation terraRotation) {
         try (SystemContext ignored = new SystemContext()) {
             boolean isWorldgenContext = (world instanceof ProtoWorld);
-            JigsawPlacement placement;
+            StructureBlueprint blueprint;
             // Plan / Retrieve Blueprint
             if (isWorldgenContext) {
                 PlacementCacheKey cacheKey = PlacementCacheKey.from(config.getID(), pack, location, world.getSeed());
                 TerrainOracle oracle = new TerraGeneratorOracle(world.getGenerator(), world, world.getBiomeProvider());
-                placement = JigsawPlacementCache.getInstance().getOrGenerate(
-                        cacheKey, () -> generateFullPlacement(
+                blueprint = JigsawPlacementCache.getInstance().getOrGenerate(
+                        cacheKey, () -> generateFullBlueprint(
                                 location,
                                 cacheKey.getStructureSeed(),
                                 random,
@@ -65,10 +64,10 @@ public class JigsawStructure implements Structure {
                 long structureSeed = location.getX() ^ ((long) location.getZ() << 32) ^ world.getSeed();
                 RandomGenerator manualRandom = RandomGeneratorFactory.of("Xoroshiro128PlusPlus").create(structureSeed);
                 TerrainOracle oracle = new TerraGeneratorOracle(world.getGenerator(), world, world.getBiomeProvider());
-                placement = generateFullPlacement(location, structureSeed, manualRandom, oracle);
+                blueprint = generateFullBlueprint(location, structureSeed, manualRandom, oracle); // Renamed method call
                 LOGGER.fine(String.format("[MANUAL] Generated fresh placement for '%s'", config.getID()));
             }
-            if (placement == null || placement.isEmpty()) {
+            if (blueprint == null || blueprint.isEmpty()) {
                 return false;
             }
             // Build (Physical Placement)
@@ -78,14 +77,14 @@ public class JigsawStructure implements Structure {
             // Check intersection (Optimization to avoid instantiating builder if not needed)
             int centerChunkX = location.getX() >> 4;
             int centerChunkZ = location.getZ() >> 4;
-            if (placement.getPiecesInChunk(centerChunkX, centerChunkZ).findAny().isEmpty()) {
+            if (blueprint.getPiecesInChunk(centerChunkX, centerChunkZ).findAny().isEmpty()) {
                 // Check adjacent chunks if structure is large?
                 // Current logic in original code checked radius 1.
                 // Let's trust the Builder to handle logic or keep simple check here.
                 boolean intersectsRegion = false;
                 for (int dx = -1; dx <= 1; dx++) {
                     for (int dz = -1; dz <= 1; dz++) {
-                        if (placement.totalBounds().intersectsChunkRegion(centerChunkX + dx, centerChunkZ + dz)) {
+                        if (blueprint.totalBounds().intersectsChunkRegion(centerChunkX + dx, centerChunkZ + dz)) {
                             intersectsRegion = true;
                             break;
                         }
@@ -97,7 +96,8 @@ public class JigsawStructure implements Structure {
                     return false;
             }
             // Pass the sealer material from config to the builder
-            TerraWorldGenBuilder builder = new TerraWorldGenBuilder(placement.blueprint(), config.getSealerMaterial());
+            // Passed blueprint directly, removed .blueprint() accessor
+            TerraWorldGenBuilder builder = new TerraWorldGenBuilder(blueprint, config.getSealerMaterial());
             builder.build(world, platform);
             return true;
         } catch (Exception e) {
@@ -106,26 +106,25 @@ public class JigsawStructure implements Structure {
         }
     }
 
-    private JigsawPlacement generateFullPlacement(Vector3Int origin, long structureSeed, RandomGenerator random, TerrainOracle oracle) {
+    private StructureBlueprint generateFullBlueprint(Vector3Int origin, long structureSeed, RandomGenerator random, TerrainOracle oracle) {
         try {
             // Simple Placement (Single Piece)
             if (config.getStartPool() == null || config.getStartPool().isEmpty() || "minecraft:empty".equals(config.getStartPool())) {
-                return generateSimplePlacement(origin, structureSeed);
+                return generateSimpleBlueprint(origin, structureSeed);
             }
             // Complex Placement (Jigsaw Planner)
             StructurePlanner planner = new StructurePlanner(pack, config, origin, random, structureSeed, null, null, oracle);
-            StructureBlueprint blueprint = planner.generateFull(config.getStartPool());
-            return new JigsawPlacement(blueprint);
+            return planner.generateFull(config.getStartPool()); // Return blueprint directly
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Failed to generate jigsaw placement", e);
-            return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
+            return StructureBlueprint.empty(origin, config.getID(), new ConnectionRegistry());
         }
     }
 
-    private JigsawPlacement generateSimplePlacement(Vector3Int origin, long structureSeed) {
-        // Logic mostly unchanged, adapted to return JigsawPlacement wrapping Blueprint
+    private StructureBlueprint generateSimpleBlueprint(Vector3Int origin, long structureSeed) {
+        // Logic adapted to return StructureBlueprint directly
         if (config.getStructure() == null || config.getStructure().isEmpty()) {
-            return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
+            return StructureBlueprint.empty(origin, config.getID(), new ConnectionRegistry());
         }
         Optional<Structure> structureOpt = ResourceResolver.resolve(pack.getRegistry(Structure.class), config.getStructure(),
                 pack.getRegistryKey().getID());
@@ -134,14 +133,17 @@ public class JigsawStructure implements Structure {
             structureData = provider.getStructureData();
         }
         if (structureData == null)
-            return JigsawPlacement.empty(origin, config.getID(), new ConnectionRegistry());
+            return StructureBlueprint.empty(origin, config.getID(), new ConnectionRegistry());
         RandomGenerator random = RandomGeneratorFactory.of("Xoroshiro128PlusPlus").create(structureSeed);
         Rotation rotation = Rotation.values()[random.nextInt(Rotation.values().length)];
         PlacedJigsawPiece singlePiece = PlacedJigsawPiece.createStartPiece(config.getStructure(), origin, rotation, structureData,
                 Collections.emptyList(), null);
-        StructureBlueprint blueprint = new StructureBlueprint(config.getID(), origin, List.of(singlePiece), new ConnectionRegistry(), null,
-                null, null);
-        return new JigsawPlacement(blueprint);
+        return new StructureBlueprint(
+                config.getID(),
+                origin,
+                List.of(singlePiece),
+                new ConnectionRegistry(),
+                null, null, null);
     }
 
     public JigsawStructureTemplate getConfig() {

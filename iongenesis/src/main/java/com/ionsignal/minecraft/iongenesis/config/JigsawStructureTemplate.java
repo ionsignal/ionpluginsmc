@@ -34,10 +34,6 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
     private @Meta String enforcementStrategy = "best_effort";
 
     @Default
-    @Value("generation-strategy")
-    private @Meta String generationStrategy = "simple";
-
-    @Default
     @Value("fallback-pool")
     private @Meta String fallbackPool = "minecraft:empty";
 
@@ -84,10 +80,6 @@ public class JigsawStructureTemplate implements AbstractableTemplate {
 
     public String getEnforcementStrategy() {
         return enforcementStrategy;
-    }
-
-    public String getGenerationStrategy() {
-        return generationStrategy;
     }
 
     public String getFallbackPool() {

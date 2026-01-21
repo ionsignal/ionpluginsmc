@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.iongenesis.generation.logic.JigsawConnection;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacedJigsawPiece;
 import com.ionsignal.minecraft.iongenesis.generation.placements.TransformedJigsawBlock;
 import com.ionsignal.minecraft.iongenesis.generation.placements.PlacementTransform;
+import com.ionsignal.minecraft.iongenesis.generation.tracking.ConnectionRegistry;
 import com.ionsignal.minecraft.iongenesis.generation.tracking.UsageConstraints;
 import com.ionsignal.minecraft.iongenesis.model.geometry.AABB;
 import com.ionsignal.minecraft.iongenesis.model.geometry.CollisionDetector;
@@ -64,7 +65,8 @@ public class ForcedPlacement {
             UsageConstraints constraint,
             int currentCount,
             List<PlacedJigsawPiece> existingPieces,
-            CollisionDetector occupiedSpace) {
+            CollisionDetector occupiedSpace,
+            ConnectionRegistry registry) {
         List<PlacedJigsawPiece> forcedPieces = new ArrayList<>();
         List<ConnectionUsage> consumedConnections = new ArrayList<>();
         int needed = constraint.minCount() - currentCount;
@@ -84,7 +86,8 @@ public class ForcedPlacement {
         }
         List<ConnectionCandidate> candidates = findAvailableConnections(
                 existingPieces,
-                structureData);
+                structureData,
+                registry);
         if (candidates.isEmpty()) {
             LOGGER.warning("Cannot force-place: no available connection points");
             return new ForcedPlacementResult(forcedPieces, consumedConnections);
@@ -133,10 +136,15 @@ public class ForcedPlacement {
 
     private List<ConnectionCandidate> findAvailableConnections(
             List<PlacedJigsawPiece> pieces,
-            NBTStructure.StructureData requiredStructure) {
+            NBTStructure.StructureData requiredStructure,
+            ConnectionRegistry registry) {
         List<ConnectionCandidate> candidates = new ArrayList<>();
         for (PlacedJigsawPiece piece : pieces) {
             for (TransformedJigsawBlock connection : piece.connections()) {
+                // Filter out connections that are already consumed or sealed
+                if (registry.isConsumed(connection.position())) {
+                    continue;
+                }
                 JigsawData.JigsawBlock parentJigsaw = connection.toJigsawBlock();
                 for (JigsawData.JigsawBlock childJigsaw : requiredStructure.jigsawBlocks()) {
                     if (JigsawConnection.canConnect(parentJigsaw, childJigsaw)) {
