@@ -77,6 +77,11 @@ public class ServiceContainer {
 
     public static ServiceContainer initialize(IonNerrus plugin) {
         plugin.getLogger().info("Initializing service container...");
+        // Ensure IonCore is actually running and healthy before proceeding.
+        if (!plugin.getServer().getPluginManager().isPluginEnabled("IonCore")) {
+            throw new ServiceInitializationException(
+                    "CRITICAL: IonCore is missing or failed to enable. IonNerrus cannot start.");
+        }
         try {
             // Layer 1: Configuration
             PluginConfig config = new PluginConfig(plugin.getConfig());

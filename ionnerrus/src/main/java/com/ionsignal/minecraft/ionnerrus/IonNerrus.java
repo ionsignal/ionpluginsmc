@@ -34,6 +34,13 @@ public class IonNerrus extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // Ensure IonCore is actually running and healthy before proceeding.
+
+        if (!getServer().getPluginManager().isPluginEnabled("IonCore")) {
+            getLogger().severe("CRITICAL: IonCore is missing or failed to enable. IonNerrus cannot start.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         // Singleton
         IonNerrus.instance = this;
         // Logging level configuration
