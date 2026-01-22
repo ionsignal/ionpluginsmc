@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
+import com.ionsignal.minecraft.ioncore.database.EntitySyncRepository;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
@@ -20,6 +21,7 @@ public final class ServiceContainer {
 
     // Network & Data Services
     private DatabaseManager databaseManager;
+    private EntitySyncRepository entitySyncRepository;
     private PostgresEventBus eventBus;
     private TelemetryManager telemetryManager;
 
@@ -37,16 +39,18 @@ public final class ServiceContainer {
     public void initialize() {
         plugin.getLogger().info("Initializing Core Services...");
         try {
-            // Database Infrastructure (The Hardware)
+            // Database Init (Vert.x)
             this.databaseManager = new DatabaseManager(plugin);
             this.databaseManager.initialize();
-            // Event Bus (The Network)
+            // Repositories (Encapsulated Data Access)
+            this.entitySyncRepository = new EntitySyncRepository(databaseManager);
+            // Event Bus (Vert.x)
             this.eventBus = new PostgresEventBus(plugin, databaseManager);
             this.eventBus.initialize();
-            // Telemetry (The Application Layer)
+            // Telemetry
             this.telemetryManager = new TelemetryManager(plugin);
             this.telemetryManager.setEventBus(eventBus);
-            // Debug & Visualization (Restored)
+            // Debugger Visualizations
             this.visualizationRegistry = new VisualizationProviderRegistry();
             this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);
             // Start the Visualization Heartbeat (1 tick interval)
@@ -70,10 +74,10 @@ public final class ServiceContainer {
         if (eventBus != null) {
             eventBus.shutdown();
         }
+        // Repository is stateless (besides Pool ref), so no specific shutdown needed
         if (databaseManager != null) {
             databaseManager.shutdown();
         }
-        // Clear debug sessions if necessary
         if (debugRegistry != null) {
             debugRegistry.clear();
         }
@@ -83,6 +87,12 @@ public final class ServiceContainer {
         if (databaseManager == null)
             throw new IllegalStateException("DatabaseManager not initialized");
         return databaseManager;
+    }
+
+    public @NotNull EntitySyncRepository getEntitySyncRepository() {
+        if (entitySyncRepository == null)
+            throw new IllegalStateException("EntitySyncRepository not initialized");
+        return entitySyncRepository;
     }
 
     public @NotNull PostgresEventBus getEventBus() {
@@ -100,9 +110,8 @@ public final class ServiceContainer {
     public @NotNull DebugSessionRegistry getDebugRegistry() {
         // These might be accessed early, so we ensure they exist if init failed partially
         if (debugRegistry == null) {
-            if (visualizationRegistry == null) {
+            if (visualizationRegistry == null)
                 visualizationRegistry = new VisualizationProviderRegistry();
-            }
             debugRegistry = new DebugSessionRegistry(visualizationRegistry);
         }
         return debugRegistry;
