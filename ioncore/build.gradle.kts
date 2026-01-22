@@ -23,39 +23,34 @@ val devJar by configurations.creating {
 }
 
 dependencies {
-    // Core Dependencies (Shadowed)
-    implementation(libs.postgresql)
-    implementation(libs.hikaricp)
+    implementation(libs.vertx.core)
+    implementation(libs.vertx.pg.client)
     implementation(libs.gson)
-    
-    // Optional: Service Discovery (Shadowed)
+
     implementation(libs.classgraph)
 
-    // API Dependencies (Exposed)
     compileOnly(libs.adventure.api)
 }
 
 tasks {
-    // The standard jar task produces a dev JAR with Mojang mappings
     jar {
         archiveClassifier.set("mojmap")
     }
 
-    // Configure Shadow Jar
     shadowJar {
-        // Use empty classifier for the final server-ready jar
-        archiveClassifier.set("") 
-        mergeServiceFiles()
+        archiveClassifier.set("")
+
+        mergeServiceFiles() // Required for Vert.x ServiceLoader
+
+        // Relocations for Vert.x 5 / Netty Hell Mitigation
+        relocate("io.vertx", "com.ionsignal.minecraft.ioncore.lib.vertx")
+        relocate("io.netty", "com.ionsignal.minecraft.ioncore.lib.netty")
+        relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ioncore.lib.jackson")
+        relocate("com.ongres", "com.ionsignal.minecraft.ioncore.lib.ongres")
         
-        // Relocate dependencies to avoid conflicts
-        // These match the libraries defined in libs.versions.toml
-        relocate("com.zaxxer.hikari", "com.ionsignal.minecraft.ioncore.lib.hikari")
-        relocate("org.postgresql", "com.ionsignal.minecraft.ioncore.lib.postgresql")
-        relocate("okio", "com.ionsignal.minecraft.ioncore.lib.okio")
         relocate("com.google.gson", "com.ionsignal.minecraft.ioncore.lib.gson")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ioncore.lib.classgraph")
-        
-        // Exclude junk files
+
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")
@@ -69,14 +64,12 @@ tasks {
             expand(props)
         }
     }
-    
-    // Ensure shadowJar runs when building
+
     assemble {
         dependsOn(shadowJar)
     }
 }
 
-// Expose the Mojang-mapped JAR as the primary artifact for the 'devJar' configuration
 artifacts {
     add(devJar.name, tasks.jar)
 }

@@ -20,6 +20,7 @@ gson = "2.13.2"
 adventure = "4.26.1"
 postgresql = "42.7.8"
 hikaricp = "7.0.2"
+vertx = "5.0.7"
 
 # Cloud (Added for Terra Addon)
 cloud = "2.0.0"
@@ -57,3 +58,7 @@ gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 adventure-api = { group = "net.kyori", name = "adventure-api", version.ref = "adventure" }
 postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql" }
 hikaricp = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikaricp" }
+
+# Vert.x
+vertx-core = { group = "io.vertx", name = "vertx-core", version.ref = "vertx" }
+vertx-pg-client = { group = "io.vertx", name = "vertx-pg-client", version.ref = "vertx" }
