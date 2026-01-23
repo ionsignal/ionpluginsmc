@@ -32,7 +32,7 @@ public final class PostgresEventBus {
         this.databaseManager = databaseManager;
         this.commandRegistrar = new NetworkCommandRegistrar(plugin);
         this.inboundChannel = plugin.getConfig().getString("database.channels.inbound", "ion_ingress");
-        this.outboundChannel = plugin.getConfig().getString("database.channels.outbound", "ion_telemetry");
+        this.outboundChannel = plugin.getConfig().getString("database.channels.outbound", "ion_egress");
     }
 
     public void initialize() {

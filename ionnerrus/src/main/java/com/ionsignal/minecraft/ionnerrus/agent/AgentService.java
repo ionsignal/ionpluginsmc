@@ -1,16 +1,12 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
-import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
-import com.ionsignal.minecraft.ionnerrus.network.AgentTelemetrySource;
-import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.network.schema.Incoming;
-import com.ionsignal.minecraft.ionnerrus.network.schema.Outgoing;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -19,7 +15,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
-import org.bukkit.scheduler.BukkitTask;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -32,7 +27,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class AgentService {
-    public static final Boolean TELEMETRY_ENABLED = true;
     public static final String NERRUS_AGENT_METADATA = "ionnerrus_agent";
 
     private final IonNerrus plugin;
@@ -40,41 +34,18 @@ public class AgentService {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
-    private final NetworkBroadcaster broadcaster;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
 
-    private BukkitTask telemetryTask;
-
-    public AgentService(IonNerrus plugin, NerrusManager nerrusManager, GoalRegistry goalRegistry, GoalFactory goalFactory,
-            LLMService llmService, NetworkBroadcaster broadcaster) {
+    public AgentService(IonNerrus plugin,
+            NerrusManager nerrusManager,
+            GoalRegistry goalRegistry,
+            GoalFactory goalFactory,
+            LLMService llmService) {
         this.plugin = plugin;
         this.personaRegistry = nerrusManager.getRegistry();
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-        this.broadcaster = broadcaster;
-        if (TELEMETRY_ENABLED) {
-            startTelemetryLoop();
-        }
-    }
-
-    private void startTelemetryLoop() {
-        this.telemetryTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!Bukkit.getPluginManager().isPluginEnabled("IonCore"))
-                return;
-            for (NerrusAgent agent : agents.values()) {
-                if (agent.getPersona().isSpawned()) {
-                    try {
-                        Outgoing.AgentTelemetry payload = AgentTelemetrySource.createPayload(agent);
-                        if (payload != null) {
-                            IonCore.getInstance().getTelemetryManager().sendTelemetry("AGENT_TELEMETRY", payload);
-                        }
-                    } catch (Exception e) {
-                        // Suppress telemetry errors
-                    }
-                }
-            }
-        }, 20L, 20L);
     }
 
     /**
@@ -106,8 +77,8 @@ public class AgentService {
                 plugin.getLogger().info("Agent configuration has 'skin' object but 'value' is empty. Using default skin.");
             }
         }
-        final SkinData finalSkin = skinData;
         // Ensure spawning happens on the main thread
+        final SkinData finalSkin = skinData;
         if (Bukkit.isPrimaryThread()) {
             finalizeSpawn(agent, location, finalSkin);
         } else {
@@ -118,7 +89,7 @@ public class AgentService {
 
     /**
      * Legacy spawn method.
-     * 
+     *
      * @deprecated Use {@link #spawnAgent(Incoming.SpawnPayload, Incoming.AgentSyncPayload, Location)}
      *             to ensure
      *             synchronization with the Web Dashboard.
@@ -139,7 +110,8 @@ public class AgentService {
     private NerrusAgent createAgentBase(String name) {
         Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name, Optional.empty());
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
-        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService, broadcaster);
+        // Removed broadcaster from NerrusAgent constructor
+        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
         return agent;
     }
@@ -214,11 +186,9 @@ public class AgentService {
 
     public void shutdown() {
         plugin.getLogger().info("Shutting down AgentService...");
-        if (telemetryTask != null) {
-            telemetryTask.cancel();
-        }
         if (!agents.isEmpty()) {
-            plugin.getLogger().warning("AgentService.shutdown() found " + agents.size() + " remaining agents - this shouldn't happen!");
+            plugin.getLogger().warning("AgentService.shutdown() found " + agents.size() +
+                    " remaining agents - this shouldn't happen!");
             despawnAll();
         }
     }

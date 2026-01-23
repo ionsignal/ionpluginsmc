@@ -12,4 +12,4 @@ database:
     connection-timeout: 5000 # 5 seconds
   channels:
     inbound: "ion_ingress"
-    outbound: "ion_telemetry"
+    outbound: "ion_egress"

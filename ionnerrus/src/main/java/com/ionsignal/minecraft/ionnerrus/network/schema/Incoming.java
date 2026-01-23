@@ -1,9 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.network.schema;
 
 import com.google.gson.annotations.SerializedName;
+
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -16,17 +16,11 @@ public final class Incoming {
     /**
      * Represents the authoritative JSON blob stored in the 'persona_manifests' table.
      */
-    public record AgentSyncPayload(
-            String id,
-            String name,
-
-            @SerializedName("skin") Skin skin) {
+    public record AgentSyncPayload(String id, String name, @SerializedName("skin") Skin skin) {
         public record Skin(
                 String type,
-
                 @SerializedName(value = "value", alternate = {
                         "texture", "skinValue" }) String value,
-
                 @SerializedName(value = "signature", alternate = { "skinSignature" }) String signature) {
         }
     }
@@ -54,11 +48,5 @@ public final class Incoming {
      */
     public record DespawnPayload(
             UUID agentId) {
-    }
-
-    public record RefreshConfigPayload(
-            UUID definitionId,
-            @Nullable String instanceId,
-            List<String> flags) {
     }
 }
