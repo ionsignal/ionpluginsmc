@@ -18,10 +18,9 @@ import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
+
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -63,7 +62,6 @@ public class AgentService {
         this.telemetryTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (!Bukkit.getPluginManager().isPluginEnabled("IonCore"))
                 return;
-            
             for (NerrusAgent agent : agents.values()) {
                 if (agent.getPersona().isSpawned()) {
                     try {
@@ -79,46 +77,62 @@ public class AgentService {
         }, 20L, 20L);
     }
 
+    /**
+     * Spawns an agent based on the configuration received from the Web Dashboard via PostgreSQL.
+     * This is the primary method for the new architecture.
+     *
+     * @param signalPayload
+     *            The spawn command details (Location, Owner, Definition ID).
+     * @param configPayload
+     *            The synced agent configuration (Skin, Name) from 'persona_manifests'.
+     * @param location
+     *            The resolved Bukkit location.
+     * @return The spawned agent instance.
+     */
     public NerrusAgent spawnAgent(Incoming.SpawnPayload signalPayload, Incoming.AgentSyncPayload configPayload, Location location) {
         NerrusAgent agent = createAgentBase(signalPayload.name());
-        
+        // Link the Web Definition ID to the Runtime Persona
         agent.getPersona().setDefinitionId(signalPayload.definitionId());
-
-        // Map from new Skin record structure
+        // Map Skin Data
         SkinData skinData = null;
         if (configPayload.skin() != null) {
             String texture = configPayload.skin().value();
             String signature = configPayload.skin().signature();
-            
+            // Only apply skin if texture value is present
             if (texture != null && !texture.isBlank()) {
                 skinData = new SkinData(texture, signature);
             } else {
-                plugin.getLogger().warning("Agent configuration has 'skin' object but 'value' is empty.");
+                // This is valid for default skins (STEVE/ALEX), so we log info, not warning
+                plugin.getLogger().info("Agent configuration has 'skin' object but 'value' is empty. Using default skin.");
             }
         }
-
         final SkinData finalSkin = skinData;
-        
+        // Ensure spawning happens on the main thread
         if (Bukkit.isPrimaryThread()) {
-            finalizeSpawn(agent, location, finalSkin, configPayload.inventory());
+            finalizeSpawn(agent, location, finalSkin);
         } else {
-            plugin.getMainThreadExecutor().execute(() -> finalizeSpawn(agent, location, finalSkin, configPayload.inventory()));
+            plugin.getMainThreadExecutor().execute(() -> finalizeSpawn(agent, location, finalSkin));
         }
         return agent;
     }
 
+    /**
+     * Legacy spawn method.
+     * 
+     * @deprecated Use {@link #spawnAgent(Incoming.SpawnPayload, Incoming.AgentSyncPayload, Location)}
+     *             to ensure
+     *             synchronization with the Web Dashboard.
+     */
+    @Deprecated
     public NerrusAgent spawnAgent(String name, Location location, @Nullable String skinNameToFetch) {
         NerrusAgent agent = createAgentBase(name);
-        
         String lookupName = (skinNameToFetch != null && !skinNameToFetch.isEmpty()) ? skinNameToFetch : name;
-
         NerrusManager.getInstance().getSkinCache().fetchSkin(lookupName).thenAcceptAsync(skinData -> {
             if (skinData == null) {
                 plugin.getLogger().warning("Could not fetch skin for '" + lookupName + "'. Spawning with default skin.");
             }
-            finalizeSpawn(agent, location, skinData, null);
+            finalizeSpawn(agent, location, skinData);
         }, plugin.getMainThreadExecutor());
-
         return agent;
     }
 
@@ -130,7 +144,7 @@ public class AgentService {
         return agent;
     }
 
-    private void finalizeSpawn(NerrusAgent agent, Location location, @Nullable SkinData skinData, @Nullable List<Incoming.AgentSyncPayload.InventoryItem> starterItems) {
+    private void finalizeSpawn(NerrusAgent agent, Location location, @Nullable SkinData skinData) {
         Persona persona = agent.getPersona();
         if (!agents.containsKey(persona.getUniqueId())) {
             return;
@@ -140,11 +154,6 @@ public class AgentService {
         }
         try {
             persona.spawn(location);
-            
-            if (starterItems != null && !starterItems.isEmpty()) {
-                populateInventory(persona, starterItems);
-            }
-
             agent.start();
             plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
             Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
@@ -155,24 +164,9 @@ public class AgentService {
         }
     }
 
-    private void populateInventory(Persona persona, List<Incoming.AgentSyncPayload.InventoryItem> items) {
-        var inventory = persona.getInventory();
-        if (inventory == null) return;
-
-        inventory.clear();
-        for (Incoming.AgentSyncPayload.InventoryItem item : items) {
-            try {
-                Material mat = Material.valueOf(item.material().toUpperCase());
-                ItemStack stack = new ItemStack(mat, item.amount());
-                inventory.addItem(stack);
-            } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Invalid material in starter inventory: " + item.material());
-            }
-        }
-    }
-
     public void updateAgentSkin(NerrusAgent agent, Incoming.AgentSyncPayload.Skin skin) {
-        if (skin == null || skin.value() == null) return;
+        if (skin == null || skin.value() == null)
+            return;
         SkinData skinData = new SkinData(skin.value(), skin.signature());
         agent.getPersona().setSkin(skinData);
         plugin.getLogger().info("Updated skin for agent: " + agent.getName());
