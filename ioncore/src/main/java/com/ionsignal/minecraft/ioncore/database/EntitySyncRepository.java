@@ -8,7 +8,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Repository for accessing 'game_entity_sync' data.
+ * Repository for accessing 'persona_manifests' data.
  */
 public class EntitySyncRepository {
     private final DatabaseManager databaseManager;
@@ -27,8 +27,7 @@ public class EntitySyncRepository {
      */
     public CompletableFuture<Optional<String>> fetchPayload(UUID entityId) {
         CompletableFuture<Optional<String>> future = new CompletableFuture<>();
-        // Use PostgreSQL specific parameter syntax ($1)
-        String query = "SELECT payload FROM game_entity_sync WHERE id = $1";
+        String query = "SELECT payload FROM persona_manifests WHERE id = $1";
         databaseManager.getPgPool()
                 .preparedQuery(query)
                 .execute(Tuple.of(entityId))
@@ -37,8 +36,8 @@ public class EntitySyncRepository {
                         var rows = ar.result();
                         if (rows.size() > 0) {
                             Row row = rows.iterator().next();
-                            String payload = row.getString("payload");
-                            // Treat null or blank payloads as "Not Found" to prevent downstream NPEs
+                            Object payloadObj = row.getValue("payload");
+                            String payload = payloadObj != null ? payloadObj.toString() : null;
                             if (payload != null && !payload.isBlank()) {
                                 future.complete(Optional.of(payload));
                             } else {
