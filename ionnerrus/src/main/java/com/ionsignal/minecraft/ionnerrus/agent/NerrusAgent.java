@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
@@ -51,7 +50,6 @@ public class NerrusAgent {
     private final LLMService llmService;
     private final SensorySystem sensorySystem;
     private final AutonomyEngine autonomyEngine;
-    private final NetworkBroadcaster broadcaster;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
     private final Deque<GoalContext> goalStack = new ConcurrentLinkedDeque<>();
     private final LinkedList<String> actionHistory = new LinkedList<>();
@@ -86,14 +84,12 @@ public class NerrusAgent {
         }
     }
 
-    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService,
-            NetworkBroadcaster broadcaster) {
+    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.persona = persona;
         this.plugin = plugin;
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-        this.broadcaster = broadcaster;
         this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
@@ -371,14 +367,6 @@ public class NerrusAgent {
 
     private void handleGoalCompletion(GoalResult result) {
         String completedGoalName = currentContext.goal().getClass().getSimpleName();
-        // Broadcast Goal Result
-        if (broadcaster != null) {
-            String status = (result instanceof GoalResult.Success) ? "COMPLETED" : "FAILED";
-            String message = result.message();
-            broadcaster.broadcastGoalEvent(this, status, completedGoalName, message);
-            // Also trigger inventory update as goals often change inventory
-            broadcaster.broadcastInventory(this);
-        }
         plugin.getLogger().info(String.format("[%s] Handling completion of %s with result: %s", getName(), completedGoalName,
                 result.getClass().getSimpleName()));
         switch (result) {
@@ -533,11 +521,11 @@ public class NerrusAgent {
 
     /**
      * Posts a message to the current goal's mailbox from an async operation.
-     * 
+     *
      * The message is queued ONLY if the provided ExecutionToken matches the currently active
      * goal context. This prevents stale async callbacks (from cancelled tasks) from corrupting
      * the state of a new, unrelated goal.
-     * 
+     *
      * @param token
      *            The execution token bound to the operation producing this message.
      * @param payload
@@ -573,7 +561,7 @@ public class NerrusAgent {
 
     /**
      * Records a memory of a completed action, maintaining a fixed-size history.
-     * 
+     *
      * @param memory
      *            A string describing the action's outcome.
      */
@@ -587,7 +575,7 @@ public class NerrusAgent {
     /**
      * Gets the simple class name of the next message in the queue providing safe access to message
      * queue state for debug visualization.
-     * 
+     *
      * @return The simple class name of the next message, or null if queue is empty.
      */
     public String getNextMessageType() {
@@ -597,7 +585,7 @@ public class NerrusAgent {
 
     /**
      * Retrieves the agent's recent action history.
-     * 
+     *
      * @return An unmodifiable list of the last few action outcomes.
      */
     public List<String> getActionHistory() {
@@ -606,9 +594,9 @@ public class NerrusAgent {
 
     /**
      * Gets the size of the current goal's mailbox for debug visualization.
-     * 
+     *
      * WARNING: size() on ConcurrentLinkedQueue is O(n), suitable for debugging but not for hot paths.
-     * 
+     *
      * @return The number of pending messages in the goal mailbox, or 0 if no goal is active.
      */
     public int getGoalMailboxSize() {

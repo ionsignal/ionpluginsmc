@@ -12,7 +12,6 @@ import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkEventListener;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
-import com.ionsignal.minecraft.ionnerrus.network.NetworkBroadcaster;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
@@ -44,9 +43,6 @@ public class ServiceContainer {
     private final HudManager hudManager;
     private final CraftEngineService craftEngineService;
 
-    // Networking
-    private final NetworkBroadcaster networkBroadcaster;
-
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
             PluginConfig config,
@@ -58,8 +54,7 @@ public class ServiceContainer {
             AgentService agentService,
             ChatBubbleService chatBubbleService,
             HudManager hudManager,
-            CraftEngineService craftEngineService,
-            NetworkBroadcaster networkBroadcaster) {
+            CraftEngineService craftEngineService) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -72,7 +67,6 @@ public class ServiceContainer {
         this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
-        this.networkBroadcaster = networkBroadcaster;
     }
 
     public static ServiceContainer initialize(IonNerrus plugin) {
@@ -103,11 +97,13 @@ public class ServiceContainer {
             HudManager hudManager = initializeHudManager(plugin);
             CraftEngineService craftEngineService = initializeCraftEngine(plugin);
             // Layer 5.5: Network Broadcaster & IonCore Integration
-            NetworkBroadcaster networkBroadcaster = null;
-            boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
-            if (isIonCoreEnabled) {
-                networkBroadcaster = new NetworkBroadcaster(plugin);
-            }
+            //
+            // NetworkBroadcaster networkBroadcaster = null;
+            // boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
+            // if (isIonCoreEnabled) {
+            // networkBroadcaster = new NetworkBroadcaster(plugin);
+            // }
+            //
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
@@ -116,11 +112,11 @@ public class ServiceContainer {
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
-                    llmService,
-                    networkBroadcaster); // Inject Broadcaster (can be null)
+                    llmService);
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             // Layer 7: Network Bootstrap (Wiring)
+            boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
             if (isIonCoreEnabled) {
                 initializeNetworkIntegration(plugin, agentService);
             } else {
@@ -139,8 +135,7 @@ public class ServiceContainer {
                     agentService,
                     chatBubbleService,
                     hudManager,
-                    craftEngineService,
-                    networkBroadcaster);
+                    craftEngineService);
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
@@ -320,11 +315,7 @@ public class ServiceContainer {
      * @return HudManager instance, or null if unavailable
      */
     public HudManager getHudManager() {
-        return hudManager; // NOTE: Can be null
-    }
-
-    public NetworkBroadcaster getNetworkBroadcaster() {
-        return networkBroadcaster;
+        return hudManager;
     }
 
     public boolean isHudAvailable() {
