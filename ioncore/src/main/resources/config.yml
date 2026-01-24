@@ -11,5 +11,5 @@ database:
     maximum-pool-size: 5
     connection-timeout: 5000 # 5 seconds
   channels:
-    inbound: "ion_ingress"
-    outbound: "ion_egress"
+    commands: "ion_commands"
+    events: "ion_events"

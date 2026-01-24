@@ -20,8 +20,8 @@ public final class PostgresEventBus {
     private final NetworkCommandRegistrar commandRegistrar;
     private final Gson gson = new Gson();
 
-    private final String inboundChannel;
-    private final String outboundChannel;
+    private final String commandChannel;
+    private final String eventChannel;
 
     private PgConnection listenerConnection;
     private boolean running = false;
@@ -31,8 +31,10 @@ public final class PostgresEventBus {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
         this.commandRegistrar = new NetworkCommandRegistrar(plugin);
-        this.inboundChannel = plugin.getConfig().getString("database.channels.inbound", "ion_ingress");
-        this.outboundChannel = plugin.getConfig().getString("database.channels.outbound", "ion_egress");
+        this.commandChannel = plugin.getConfig().getString("database.channels.commands",
+                plugin.getConfig().getString("database.channels.inbound", "ion_commands"));
+        this.eventChannel = plugin.getConfig().getString("database.channels.events",
+                plugin.getConfig().getString("database.channels.outbound", "ion_events"));
     }
 
     public void initialize() {
@@ -40,7 +42,7 @@ public final class PostgresEventBus {
             return;
         this.running = true;
         plugin.getLogger().info("Initializing PostgresEventBus (Vert.x 5.0)...");
-        plugin.getLogger().info("Channels -> Inbound: " + inboundChannel + " | Outbound: " + outboundChannel);
+        plugin.getLogger().info("Channels -> Commands: " + commandChannel + " | Events: " + eventChannel);
         connectListener();
     }
 
@@ -57,13 +59,12 @@ public final class PostgresEventBus {
                     conn.exceptionHandler(e -> handleClose("Exception: " + e.getMessage()));
                     // Setup Notification Handler
                     conn.notificationHandler(notification -> {
-                        if (!notification.getChannel().equals(inboundChannel))
+                        if (!notification.getChannel().equals(commandChannel))
                             return;
                         // Bridge to Main Thread
                         Bukkit.getScheduler().runTask(plugin, () -> handleNotification(notification.getPayload()));
                     });
-                    // Issue LISTEN Command
-                    conn.query("LISTEN " + inboundChannel).execute()
+                    conn.query("LISTEN " + commandChannel).execute()
                             .onFailure(e -> {
                                 plugin.getLogger().warning("Failed to issue LISTEN command: " + e.getMessage());
                                 conn.close();
@@ -102,7 +103,7 @@ public final class PostgresEventBus {
         String jsonString = gson.toJson(envelope);
         databaseManager.getPgPool()
                 .preparedQuery("SELECT pg_notify($1, $2)")
-                .execute(Tuple.of(outboundChannel, jsonString))
+                .execute(Tuple.of(eventChannel, jsonString))
                 .onFailure(e -> plugin.getLogger().warning("Failed to broadcast event [" + type + "]: " + e.getMessage()));
     }
 
