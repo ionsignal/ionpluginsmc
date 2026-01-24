@@ -3,7 +3,6 @@ package com.ionsignal.minecraft.ioncore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.listeners.EventListener;
-import com.ionsignal.minecraft.ioncore.telemetry.TelemetryManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
@@ -66,12 +65,6 @@ public class IonCore extends JavaPlugin {
     public static VisualizationProviderRegistry getVisualizationRegistry() {
         ensureInitialized();
         return instance.serviceContainer.getVisualizationRegistry();
-    }
-
-    public TelemetryManager getTelemetryManager() {
-        if (serviceContainer == null)
-            return null;
-        return serviceContainer.getTelemetryManager();
     }
 
     private static void ensureInitialized() {

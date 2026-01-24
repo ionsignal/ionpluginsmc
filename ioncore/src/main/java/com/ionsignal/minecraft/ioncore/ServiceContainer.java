@@ -6,7 +6,6 @@ import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
-import com.ionsignal.minecraft.ioncore.telemetry.TelemetryManager;
 
 import org.bukkit.scheduler.BukkitTask;
 
@@ -16,14 +15,12 @@ import org.jetbrains.annotations.NotNull;
  * Dependency Injection Root for IonCore.
  */
 public final class ServiceContainer {
-
     private final IonCore plugin;
 
     // Network & Data Services
     private DatabaseManager databaseManager;
     private EntitySyncRepository entitySyncRepository;
     private PostgresEventBus eventBus;
-    private TelemetryManager telemetryManager;
 
     // Debug & Visualization Services
     private DebugSessionRegistry debugRegistry;
@@ -47,9 +44,6 @@ public final class ServiceContainer {
             // Event Bus (Vert.x)
             this.eventBus = new PostgresEventBus(plugin, databaseManager);
             this.eventBus.initialize();
-            // Telemetry
-            this.telemetryManager = new TelemetryManager(plugin);
-            this.telemetryManager.setEventBus(eventBus);
             // Debugger Visualizations
             this.visualizationRegistry = new VisualizationProviderRegistry();
             this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);
@@ -99,12 +93,6 @@ public final class ServiceContainer {
         if (eventBus == null)
             throw new IllegalStateException("EventBus not initialized");
         return eventBus;
-    }
-
-    public @NotNull TelemetryManager getTelemetryManager() {
-        if (telemetryManager == null)
-            throw new IllegalStateException("TelemetryManager not initialized");
-        return telemetryManager;
     }
 
     public @NotNull DebugSessionRegistry getDebugRegistry() {
