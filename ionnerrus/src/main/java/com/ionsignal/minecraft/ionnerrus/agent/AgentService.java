@@ -58,6 +58,7 @@ public class AgentService {
      *            The synced agent configuration (Skin, Name) from 'persona_manifests'.
      * @param location
      *            The resolved Bukkit location.
+     * 
      * @return The spawned agent instance.
      */
     public NerrusAgent spawnAgent(Incoming.SpawnPayload signalPayload, Incoming.AgentSyncPayload configPayload, Location location) {
@@ -87,14 +88,6 @@ public class AgentService {
         return agent;
     }
 
-    /**
-     * Legacy spawn method.
-     *
-     * @deprecated Use {@link #spawnAgent(Incoming.SpawnPayload, Incoming.AgentSyncPayload, Location)}
-     *             to ensure
-     *             synchronization with the Web Dashboard.
-     */
-    @Deprecated
     public NerrusAgent spawnAgent(String name, Location location, @Nullable String skinNameToFetch) {
         NerrusAgent agent = createAgentBase(name);
         String lookupName = (skinNameToFetch != null && !skinNameToFetch.isEmpty()) ? skinNameToFetch : name;
