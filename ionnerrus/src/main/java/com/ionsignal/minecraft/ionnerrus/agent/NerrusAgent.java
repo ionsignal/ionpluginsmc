@@ -59,8 +59,6 @@ public class NerrusAgent {
     private ReActDirector currentDirector = null;
     private GoalContext currentContext = null;
 
-    private volatile boolean isBusyWithDirective = false;
-
     /**
      * An immutable record to hold the state of a single goal on the stack. where each goal gets its own
      * isolated message queue and execution controller.
@@ -246,7 +244,6 @@ public class NerrusAgent {
     }
 
     private void handleSetBusyWithDirective(boolean isBusy) {
-        this.isBusyWithDirective = isBusy;
         if (!isBusy) {
             this.currentDirector = null;
         }
@@ -460,10 +457,6 @@ public class NerrusAgent {
         }
     }
 
-    public boolean isBusyWithDirective() {
-        return isBusyWithDirective;
-    }
-
     public Persona getPersona() {
         return persona;
     }
@@ -483,20 +476,6 @@ public class NerrusAgent {
 
     public SensorySystem getSensorySystem() {
         return sensorySystem;
-    }
-
-    public String getActivityDescription() {
-        if (!isBusyWithDirective) {
-            return "Idle.";
-        }
-        Goal goal = getCurrentGoal();
-        if (goal != null) {
-            String stackStr = goalStack.stream()
-                    .map(ctx -> ctx.goal().getClass().getSimpleName())
-                    .collect(Collectors.joining(" -> "));
-            return String.format("Working on goal: %s (Stack: [%s])", goal.getClass().getSimpleName(), stackStr);
-        }
-        return "Thinking about the next step.";
     }
 
     public void speak(String message) {
