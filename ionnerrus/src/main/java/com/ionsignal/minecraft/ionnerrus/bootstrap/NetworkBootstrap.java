@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
-import com.ionsignal.minecraft.ioncore.database.EntitySyncRepository;
+import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ioncore.network.NetworkCommandRegistrar;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
@@ -18,19 +18,21 @@ import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 
 public class NetworkBootstrap {
+    public static final String COLLECTION_PERSONA_MANIFESTS = "persona_manifests";
+
     private final IonNerrus plugin;
     private final AgentService agentService;
-    private final EntitySyncRepository repository;
+    private final DocumentStore documentStore;
     private final NetworkCommandRegistrar commandRegistrar;
     private final Gson gson;
 
     public NetworkBootstrap(IonNerrus plugin,
             AgentService agentService,
-            EntitySyncRepository repository,
+            DocumentStore documentStore,
             NetworkCommandRegistrar commandRegistrar) {
         this.plugin = plugin;
         this.agentService = agentService;
-        this.repository = repository;
+        this.documentStore = documentStore;
         this.commandRegistrar = commandRegistrar;
         this.gson = new Gson();
     }
@@ -43,25 +45,22 @@ public class NetworkBootstrap {
     }
 
     private CompletableFuture<Incoming.AgentSyncPayload> fetchAgentSyncPayload(UUID definitionId) {
-        // Refactored to use EntitySyncRepository.
-        // This removes raw SQL and Vert.x types from this class, fixing the Leaky Abstraction.
-        return repository.fetchPayload(definitionId).thenApply(optPayload -> {
-            if (optPayload.isEmpty()) {
-                plugin.getLogger().warning("[DB Fetch] Definition ID " + definitionId + " not found or payload empty.");
-                return null;
-            }
-            String jsonBlob = optPayload.get();
-            // Debug logging to verify JSON structure
-            plugin.getLogger().info("[DB Fetch] JSON for " + definitionId + ": " + jsonBlob);
-            try {
-                return gson.fromJson(jsonBlob, Incoming.AgentSyncPayload.class);
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "JSON Parse Error for Definition ID " + definitionId, e);
-                // We return null here to satisfy the Function<String, Payload> signature safely
-                // The consumer checks for null.
-                return null;
-            }
-        });
+        return documentStore.fetchDocument(COLLECTION_PERSONA_MANIFESTS, definitionId)
+                .thenApply(optPayload -> {
+                    if (optPayload.isEmpty()) {
+                        plugin.getLogger().warning("[DB Fetch] Definition ID " + definitionId + " not found or payload empty.");
+                        return null;
+                    }
+                    String jsonBlob = optPayload.get();
+                    // Debug logging to verify JSON structure
+                    plugin.getLogger().info("[DB Fetch] JSON for " + definitionId + ": " + jsonBlob);
+                    try {
+                        return gson.fromJson(jsonBlob, Incoming.AgentSyncPayload.class);
+                    } catch (Exception e) {
+                        plugin.getLogger().log(Level.SEVERE, "JSON Parse Error for Definition ID " + definitionId, e);
+                        return null;
+                    }
+                });
     }
 
     private void handleSpawnAgent(String jsonPayload) {

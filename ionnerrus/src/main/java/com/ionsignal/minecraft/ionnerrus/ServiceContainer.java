@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus;
 
+import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
@@ -118,7 +119,7 @@ public class ServiceContainer {
             // Layer 7: Network Bootstrap (Wiring)
             boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
             if (isIonCoreEnabled) {
-                initializeNetworkIntegration(plugin, agentService);
+                initializeNetworking(plugin, agentService);
             } else {
                 plugin.getLogger().info("IonCore not found. Running in standalone offline mode.");
             }
@@ -144,21 +145,23 @@ public class ServiceContainer {
         }
     }
 
-    private static void initializeNetworkIntegration(IonNerrus plugin, AgentService agentService) {
+    private static void initializeNetworking(IonNerrus plugin, AgentService agentService) {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
             // Resolve IonCore Dependencies ONCE at the boundary
             var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
-            var repository = coreContainer.getEntitySyncRepository();
+            // Get DocumentStore instead of EntitySyncRepository
+            DocumentStore documentStore = coreContainer.getDocumentStore();
             var commandRegistrar = coreContainer.getEventBus().getCommandRegistrar();
+            // Register the collection (Allow-List)
+            documentStore.registerCollection(NetworkBootstrap.COLLECTION_PERSONA_MANIFESTS);
+            plugin.getLogger().info("Registered document collection: " + NetworkBootstrap.COLLECTION_PERSONA_MANIFESTS);
             // Bootstrap (Commands from Web) - Inject dependencies
-            NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService, repository, commandRegistrar);
+            NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService, documentStore, commandRegistrar);
             netBootstrap.registerAll();
             // Listener (Events to Web)
-            // ENABLED: Registering NetworkEventListener to broadcast AGENT_SPAWNED events
             plugin.getServer().getPluginManager().registerEvents(new NetworkEventListener(), plugin);
             plugin.getLogger().info("Network Integration: Listeners registered.");
-
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
             e.printStackTrace();
