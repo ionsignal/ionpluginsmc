@@ -1,7 +1,8 @@
 package com.ionsignal.minecraft.ioncore;
 
+import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
-import com.ionsignal.minecraft.ioncore.database.EntitySyncRepository;
+import com.ionsignal.minecraft.ioncore.database.impl.PostgresDocumentStore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
@@ -19,7 +20,7 @@ public final class ServiceContainer {
 
     // Network & Data Services
     private DatabaseManager databaseManager;
-    private EntitySyncRepository entitySyncRepository;
+    private DocumentStore documentStore;
     private PostgresEventBus eventBus;
 
     // Debug & Visualization Services
@@ -36,12 +37,12 @@ public final class ServiceContainer {
     public void initialize() {
         plugin.getLogger().info("Initializing Core Services...");
         try {
-            // Database Init (Vert.x)
+            // Database Init
             this.databaseManager = new DatabaseManager(plugin);
             this.databaseManager.initialize();
-            // Repositories (Encapsulated Data Access)
-            this.entitySyncRepository = new EntitySyncRepository(databaseManager);
-            // Event Bus (Vert.x)
+            // Initialize generic DocumentStore
+            this.documentStore = new PostgresDocumentStore(databaseManager);
+            // Event Bus
             this.eventBus = new PostgresEventBus(plugin, databaseManager);
             this.eventBus.initialize();
             // Debugger Visualizations
@@ -83,10 +84,10 @@ public final class ServiceContainer {
         return databaseManager;
     }
 
-    public @NotNull EntitySyncRepository getEntitySyncRepository() {
-        if (entitySyncRepository == null)
-            throw new IllegalStateException("EntitySyncRepository not initialized");
-        return entitySyncRepository;
+    public @NotNull DocumentStore getDocumentStore() {
+        if (documentStore == null)
+            throw new IllegalStateException("DocumentStore not initialized");
+        return documentStore;
     }
 
     public @NotNull PostgresEventBus getEventBus() {
