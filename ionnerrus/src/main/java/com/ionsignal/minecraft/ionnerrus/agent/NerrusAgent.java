@@ -498,6 +498,17 @@ public class NerrusAgent {
                 .collect(Collectors.toList());
     }
 
+    public String getActivityDescription() {
+        Goal goal = getCurrentGoal();
+        if (goal != null) {
+            String stackStr = goalStack.stream()
+                    .map(ctx -> ctx.goal().getClass().getSimpleName())
+                    .collect(Collectors.joining(" -> "));
+            return String.format("Working on goal: %s (Stack: [%s])", goal.getClass().getSimpleName(), stackStr);
+        }
+        return "No current goal.";
+    }
+
     /**
      * Posts a message to the current goal's mailbox from an async operation.
      *
