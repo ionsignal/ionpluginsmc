@@ -64,7 +64,6 @@ public class NetworkBootstrap {
     }
 
     private void handleSpawnAgent(String jsonPayload) {
-        // Pure Logic / JSON Parsing (Safe on Async)
         Incoming.SpawnPayload signalPayload;
         try {
             signalPayload = gson.fromJson(jsonPayload, Incoming.SpawnPayload.class);
@@ -111,7 +110,6 @@ public class NetworkBootstrap {
                         })
                         .findFirst()
                         .orElse(null);
-
                 if (agent != null) {
                     plugin.getLogger().info("Network Command: Despawning agent " + agent.getName());
                     agentService.removeAgent(agent.getName());
