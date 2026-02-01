@@ -16,7 +16,10 @@ public final class Incoming {
     /**
      * Represents the authoritative JSON blob stored in the 'persona_manifests' table.
      */
-    public record AgentSyncPayload(String id, String name, @SerializedName("skin") Skin skin) {
+    public record AgentSyncPayload(
+            String id,
+            String name,
+            @SerializedName("skin") Skin skin) {
         public record Skin(
                 String type,
                 @SerializedName(value = "value", alternate = {

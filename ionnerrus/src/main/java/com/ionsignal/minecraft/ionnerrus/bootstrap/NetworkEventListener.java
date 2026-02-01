@@ -31,23 +31,18 @@ public class NetworkEventListener implements Listener {
 
     private Outgoing.AgentState mapToState(NerrusAgent agent, String status) {
         Location loc = agent.getPersona().getLocation();
-        
-        // Resolve Volatile ID or Fallback to Nil
-        UUID defId = agent.getPersona().getDefinitionId();
-        if (defId == null) {
-            defId = NIL_UUID;
+        UUID definitionId = agent.getPersona().getDefinitionId();
+        if (definitionId == null) {
+            definitionId = NIL_UUID;
         }
-
         return new Outgoing.AgentState(
-            agent.getPersona().getUniqueId(),
-            defId,
-            agent.getName(),
-            status,
-            new Shared.LocationData(
-                loc.getWorld().getName(),
-                loc.getX(), loc.getY(), loc.getZ(),
-                loc.getYaw(), loc.getPitch()
-            )
-        );
+                agent.getPersona().getUniqueId(),
+                definitionId,
+                agent.getName(),
+                status,
+                new Shared.LocationData(
+                        loc.getWorld().getName(),
+                        loc.getX(), loc.getY(), loc.getZ(),
+                        loc.getYaw(), loc.getPitch()));
     }
 }
