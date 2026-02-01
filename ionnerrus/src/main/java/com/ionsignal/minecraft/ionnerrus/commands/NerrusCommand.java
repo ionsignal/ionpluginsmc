@@ -12,7 +12,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParam
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
-import com.ionsignal.minecraft.ionnerrus.util.DebugPath;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
