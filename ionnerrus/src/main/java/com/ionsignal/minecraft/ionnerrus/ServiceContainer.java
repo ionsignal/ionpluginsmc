@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
+import com.ionsignal.minecraft.ioncore.auth.IdentityService; // Imported from IonCore
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
@@ -44,6 +45,9 @@ public class ServiceContainer {
     private final HudManager hudManager;
     private final CraftEngineService craftEngineService;
 
+    // Auth Service (From IonCore)
+    private final IdentityService identityService;
+
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
             PluginConfig config,
@@ -55,7 +59,8 @@ public class ServiceContainer {
             AgentService agentService,
             ChatBubbleService chatBubbleService,
             HudManager hudManager,
-            CraftEngineService craftEngineService) {
+            CraftEngineService craftEngineService,
+            IdentityService identityService) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -68,6 +73,7 @@ public class ServiceContainer {
         this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
+        this.identityService = identityService;
     }
 
     public static ServiceContainer initialize(IonNerrus plugin) {
@@ -97,14 +103,11 @@ public class ServiceContainer {
             ChatBubbleService chatBubbleService = initializeChatBubbles(plugin);
             HudManager hudManager = initializeHudManager(plugin);
             CraftEngineService craftEngineService = initializeCraftEngine(plugin);
-            // Layer 5.5: Network Broadcaster & IonCore Integration
-            //
-            // NetworkBroadcaster networkBroadcaster = null;
-            // boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
-            // if (isIonCoreEnabled) {
-            // networkBroadcaster = new NetworkBroadcaster(plugin);
-            // }
-            //
+
+            // Layer 5.5: Retrieve Identity Service from IonCore
+            var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
+            IdentityService identityService = coreContainer.getIdentityService();
+
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
@@ -136,7 +139,8 @@ public class ServiceContainer {
                     agentService,
                     chatBubbleService,
                     hudManager,
-                    craftEngineService);
+                    craftEngineService,
+                    identityService);
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
@@ -325,9 +329,10 @@ public class ServiceContainer {
         return hudManager != null;
     }
 
-    /**
-     * Shuts down all services in reverse dependency order.
-     */
+    public IdentityService getIdentityService() {
+        return identityService;
+    }
+
     public void shutdown() {
         plugin.getLogger().info("Shutting down service container...");
         // Layer 6: High-level services first

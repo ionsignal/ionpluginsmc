@@ -13,3 +13,8 @@ database:
   channels:
     commands: "ion_commands"
     events: "ion_events"
+
+# Web Configuration
+# Used for account linking and dashboard integration.
+web:
+  url: "https://localhost:3002"
