@@ -1,11 +1,13 @@
 package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.database.impl.PostgresDocumentStore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
+import com.ionsignal.minecraft.ioncore.listeners.IdentityListener;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
 import org.bukkit.scheduler.BukkitTask;
@@ -22,6 +24,7 @@ public final class ServiceContainer {
     private DatabaseManager databaseManager;
     private DocumentStore documentStore;
     private PostgresEventBus eventBus;
+    private IdentityService identityService; // Added
 
     // Debug & Visualization Services
     private DebugSessionRegistry debugRegistry;
@@ -42,15 +45,27 @@ public final class ServiceContainer {
             this.databaseManager.initialize();
             // Initialize generic DocumentStore
             this.documentStore = new PostgresDocumentStore(databaseManager);
+
+            // Identity Service (Phase 2)
+            this.identityService = new IdentityService(plugin, databaseManager);
+
             // Event Bus
             this.eventBus = new PostgresEventBus(plugin, databaseManager);
+            // Register Identity Handlers
+            this.eventBus.getCommandRegistrar().registerHandler("PLAYER_LINKED", identityService::handleExternalLinkEvent);
             this.eventBus.initialize();
+
             // Debugger Visualizations
             this.visualizationRegistry = new VisualizationProviderRegistry();
             this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);
             // Start the Visualization Heartbeat (1 tick interval)
             DebugVisualizationTask task = new DebugVisualizationTask(debugRegistry, visualizationRegistry);
             this.visualizationTask = task.runTaskTimer(plugin, 1L, 1L);
+
+            // Register Listeners
+            // Note: EventListener handles Debug cleanup, IdentityListener handles Auth
+            plugin.getServer().getPluginManager().registerEvents(new IdentityListener(identityService), plugin);
+
             plugin.getLogger().info("Core Services initialized successfully.");
         } catch (Exception e) {
             plugin.getLogger().severe("CRITICAL: Failed to initialize Core Services.");
@@ -94,6 +109,12 @@ public final class ServiceContainer {
         if (eventBus == null)
             throw new IllegalStateException("EventBus not initialized");
         return eventBus;
+    }
+
+    public @NotNull IdentityService getIdentityService() {
+        if (identityService == null)
+            throw new IllegalStateException("IdentityService not initialized");
+        return identityService;
     }
 
     public @NotNull DebugSessionRegistry getDebugRegistry() {

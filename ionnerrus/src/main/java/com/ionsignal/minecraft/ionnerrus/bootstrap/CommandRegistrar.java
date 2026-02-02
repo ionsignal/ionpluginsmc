@@ -9,6 +9,8 @@ import com.ionsignal.minecraft.ionnerrus.commands.NerrusCognitiveDebugCommand;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCommand;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusDebugCommand;
 
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
+
 import org.bukkit.command.PluginCommand;
 
 import java.util.Objects;
@@ -23,14 +25,21 @@ public class CommandRegistrar {
     private final BlockTagManager blockTagManager;
     private final GoalFactory goalFactory;
     private final GoalRegistry goalRegistry;
+    private final IdentityService identityService;
 
-    public CommandRegistrar(IonNerrus plugin, AgentService agentService, BlockTagManager blockTagManager, GoalFactory goalFactory,
-            GoalRegistry goalRegistry) {
+    public CommandRegistrar(
+            IonNerrus plugin,
+            AgentService agentService,
+            BlockTagManager blockTagManager,
+            GoalFactory goalFactory,
+            GoalRegistry goalRegistry,
+            IdentityService identityService) {
         this.plugin = plugin;
         this.agentService = agentService;
         this.blockTagManager = blockTagManager;
         this.goalFactory = goalFactory;
         this.goalRegistry = goalRegistry;
+        this.identityService = identityService;
     }
 
     /**
@@ -38,7 +47,7 @@ public class CommandRegistrar {
      */
     public void registerAll() {
         // /nerrus command
-        NerrusCommand nerrusCommand = new NerrusCommand(plugin, agentService, blockTagManager, goalFactory, goalRegistry);
+        NerrusCommand nerrusCommand = new NerrusCommand(plugin, agentService, blockTagManager, goalFactory, goalRegistry, identityService);
         PluginCommand nerrusCmd = plugin.getCommand("nerrus");
         Objects.requireNonNull(nerrusCmd, "The 'nerrus' command is not registered in plugin.yml");
         nerrusCmd.setExecutor(nerrusCommand);
