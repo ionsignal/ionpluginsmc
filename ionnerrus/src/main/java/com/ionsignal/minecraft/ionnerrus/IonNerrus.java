@@ -30,6 +30,7 @@ public class IonNerrus extends JavaPlugin {
 
     // Added service container
     private ServiceContainer services;
+    private CommandRegistrar commandRegistrar;
     private ComponentLogger componentLogger;
 
     @Override
@@ -69,12 +70,13 @@ public class IonNerrus extends JavaPlugin {
         }
         // Register commands
         try {
-            CommandRegistrar commandRegistrar = new CommandRegistrar(
+            commandRegistrar = new CommandRegistrar(
                     this,
                     services.getAgentService(),
                     services.getBlockTagManager(),
                     services.getGoalFactory(),
-                    services.getGoalRegistry());
+                    services.getGoalRegistry(),
+                    services.getIdentityService());
             commandRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register commands: " + e.getMessage());
@@ -148,13 +150,9 @@ public class IonNerrus extends JavaPlugin {
         }
         // Unregister commands (critical - prevents command execution after disable)
         try {
-            CommandRegistrar commandRegistrar = new CommandRegistrar(
-                    this,
-                    services.getAgentService(),
-                    services.getBlockTagManager(),
-                    services.getGoalFactory(),
-                    services.getGoalRegistry());
-            commandRegistrar.unregisterAll();
+            if (this.commandRegistrar != null) {
+                commandRegistrar.unregisterAll();
+            }
         } catch (Exception e) {
             getLogger().severe("Error unregistering commands: " + e.getMessage());
             e.printStackTrace();

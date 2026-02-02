@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ioncore;
 
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.listeners.EventListener;
@@ -50,6 +51,11 @@ public class IonCore extends JavaPlugin {
 
     public ServiceContainer getServiceContainer() {
         return serviceContainer;
+    }
+
+    public IdentityService getIdentityService() {
+        ensureInitialized();
+        return serviceContainer.getIdentityService();
     }
 
     // --- Legacy / Static Bridge Accessors ---
