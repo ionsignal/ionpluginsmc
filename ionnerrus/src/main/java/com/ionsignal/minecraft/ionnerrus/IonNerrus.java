@@ -33,6 +33,11 @@ public class IonNerrus extends JavaPlugin {
     private CommandRegistrar commandRegistrar;
     private ComponentLogger componentLogger;
 
+    // Lifecycle components
+    private IntegrationBootstrap integrationBootstrap;
+    private ListenerRegistrar listenerRegistrar;
+    private RecipeModifier recipeModifier;
+
     @Override
     public void onEnable() {
         // Singleton
@@ -63,8 +68,9 @@ public class IonNerrus extends JavaPlugin {
         }
         // External integrations
         try {
-            IntegrationBootstrap integrationBootstrap = new IntegrationBootstrap(this);
-            integrationBootstrap.initializeIonCoreIntegration();
+            // Assign to field to preserve state for cleanup
+            this.integrationBootstrap = new IntegrationBootstrap(this);
+            this.integrationBootstrap.initializeIonCoreIntegration();
         } catch (Exception e) {
             getLogger().warning("Non-critical integration failure: " + e.getMessage());
         }
@@ -86,12 +92,13 @@ public class IonNerrus extends JavaPlugin {
         }
         // Register event listeners
         try {
-            ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
+            // Assign to field to preserve state for cleanup
+            this.listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
                     services.getChatBubbleService(),
                     services.getHudManager());
-            listenerRegistrar.registerAll();
+            this.listenerRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register listeners: " + e.getMessage());
             e.printStackTrace();
@@ -101,9 +108,10 @@ public class IonNerrus extends JavaPlugin {
         // Apply recipe modifications
         // Now receives config from container
         try {
-            RecipeModifier recipeModifier = new RecipeModifier(this, services.getConfig());
+            // Assign to field to preserve state for cleanup
+            this.recipeModifier = new RecipeModifier(this, services.getConfig());
             Bukkit.getScheduler().runTaskLater(this,
-                    recipeModifier::disableNonWoodRecipesIfConfigured, 1L);
+                    this.recipeModifier::disableNonWoodRecipesIfConfigured, 1L);
         } catch (Exception e) {
             getLogger().warning("Recipe modification failed (non-critical): " + e.getMessage());
         }
@@ -131,19 +139,19 @@ public class IonNerrus extends JavaPlugin {
         }
         // Stop recipe modifications (non-critical, best-effort)
         try {
-            RecipeModifier recipeModifier = new RecipeModifier(this, services.getConfig());
-            recipeModifier.cleanup();
+            // Use stored instance with null check
+            if (this.recipeModifier != null) {
+                this.recipeModifier.cleanup();
+            }
         } catch (Exception e) {
             getLogger().warning("Error during recipe cleanup: " + e.getMessage());
         }
         // Unregister event listeners (critical - prevents NPEs on next events)
         try {
-            ListenerRegistrar listenerRegistrar = new ListenerRegistrar(
-                    this,
-                    services.getNerrusManager(),
-                    services.getChatBubbleService(),
-                    services.getHudManager());
-            listenerRegistrar.unregisterAll();
+            // Use stored instance with null check
+            if (this.listenerRegistrar != null) {
+                this.listenerRegistrar.unregisterAll();
+            }
         } catch (Exception e) {
             getLogger().severe("Error unregistering listeners: " + e.getMessage());
             e.printStackTrace();
@@ -151,7 +159,7 @@ public class IonNerrus extends JavaPlugin {
         // Unregister commands (critical - prevents command execution after disable)
         try {
             if (this.commandRegistrar != null) {
-                commandRegistrar.unregisterAll();
+                this.commandRegistrar.unregisterAll();
             }
         } catch (Exception e) {
             getLogger().severe("Error unregistering commands: " + e.getMessage());
@@ -159,8 +167,10 @@ public class IonNerrus extends JavaPlugin {
         }
         // Clean up external integrations (non-critical, best-effort)
         try {
-            IntegrationBootstrap integrationBootstrap = new IntegrationBootstrap(this);
-            integrationBootstrap.cleanup();
+            // Use stored instance with null check
+            if (this.integrationBootstrap != null) {
+                this.integrationBootstrap.cleanup();
+            }
         } catch (Exception e) {
             getLogger().warning("Error cleaning up integrations: " + e.getMessage());
         }
@@ -197,6 +207,11 @@ public class IonNerrus extends JavaPlugin {
         // Clear static references to prevent memory leaks (AFTER grace period)
         instance = null;
         services = null;
+        // Explicitly clear lifecycle fields
+        this.integrationBootstrap = null;
+        this.listenerRegistrar = null;
+        this.recipeModifier = null;
+        this.commandRegistrar = null;
         getLogger().info("IonNerrus has been disabled successfully.");
     }
 
