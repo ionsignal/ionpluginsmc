@@ -103,11 +103,11 @@ public class ServiceContainer {
             ChatBubbleService chatBubbleService = initializeChatBubbles(plugin);
             HudManager hudManager = initializeHudManager(plugin);
             CraftEngineService craftEngineService = initializeCraftEngine(plugin);
-
             // Layer 5.5: Retrieve Identity Service from IonCore
             var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
             IdentityService identityService = coreContainer.getIdentityService();
-
+            // Retrieve EventBus for AgentService injection
+            var eventBus = coreContainer.getEventBus();
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
@@ -116,7 +116,8 @@ public class ServiceContainer {
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
-                    llmService);
+                    llmService,
+                    eventBus);
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             // Layer 7: Network Bootstrap (Wiring)

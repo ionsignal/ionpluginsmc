@@ -1,24 +1,27 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {
-		"java.configuration.updateBuildConfiguration": "automatic",
-		"java.format.settings.url": "eclipse-formatter.xml",
-		"java.compile.nullAnalysis.mode": "automatic",
-		"java.import.gradle.enabled": true,
-        "java.import.gradle.wrapper.enabled": true,
-		"[java]": {
-			// Use redhat as the formatter.
-			"editor.defaultFormatter": "redhat.java",
-			// Stop VSCode from trying to guess the indentation style.
-			"editor.detectIndentation": false,
-			// Tell the editor to insert a tab character when you press the Tab key.
-			"editor.insertSpaces": true,
-			// Ensure the visual width of a tab character matches your project's 4-space standard.
-			"editor.tabSize": 4
-		}
-	}
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "../../other/openai"
+    }
+  ],
+  "settings": {
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.format.settings.url": "eclipse-formatter.xml",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.import.gradle.enabled": true,
+    "java.import.gradle.wrapper.enabled": true,
+    "[java]": {
+      // Use redhat as the formatter.
+      "editor.defaultFormatter": "redhat.java",
+      // Stop VSCode from trying to guess the indentation style.
+      "editor.detectIndentation": false,
+      // Tell the editor to insert a tab character when you press the Tab key.
+      "editor.insertSpaces": true,
+      // Ensure the visual width of a tab character matches your project's 4-space standard.
+      "editor.tabSize": 4,
+    },
+  },
 }

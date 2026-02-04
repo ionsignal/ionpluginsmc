@@ -11,7 +11,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveDebugState;
 
-import io.github.sashirestela.openai.domain.chat.ChatMessage;
+// import io.github.sashirestela.openai.domain.chat.ChatMessage;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -139,16 +139,16 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
                             Component.text("Last Tool: " + (state.lastToolCall() != null ? state.lastToolCall() : "None"),
                                     NamedTextColor.GRAY));
                     player.sendMessage(Component.text("--- Messages ---", NamedTextColor.YELLOW));
-                    int msgNum = 1;
-                    for (ChatMessage msg : state.conversationHistory()) {
-                        String role = msg.getClass().getSimpleName().replace("Message", "");
-                        String content = getMessageContent(msg);
-                        if (content.length() > 100) {
-                            content = content.substring(0, 100) + "...";
-                        }
-                        player.sendMessage(Component.text(msgNum + ". " + role + ": " + content, NamedTextColor.WHITE));
-                        msgNum++;
-                    }
+                    // int msgNum = 1;
+                    // for (ChatMessage msg : state.conversationHistory()) {
+                    // String role = msg.getClass().getSimpleName().replace("Message", "");
+                    // String content = getMessageContent(msg);
+                    // if (content.length() > 100) {
+                    // content = content.substring(0, 100) + "...";
+                    // }
+                    // player.sendMessage(Component.text(msgNum + ". " + role + ": " + content, NamedTextColor.WHITE));
+                    // msgNum++;
+                    // }
                 },
                 () -> player.sendMessage(Component.text("No active cognitive debug session.", NamedTextColor.RED)));
     }
@@ -156,26 +156,26 @@ public class NerrusCognitiveDebugCommand implements CommandExecutor, TabComplete
     /**
      * Extracts content from different message types.
      */
-    private String getMessageContent(ChatMessage msg) {
-        return switch (msg) {
-            case ChatMessage.SystemMessage sm -> sm.getContent();
-            case ChatMessage.UserMessage um -> um.getContent().toString();
-            case ChatMessage.AssistantMessage am -> am.getContent().toString();
-            case ChatMessage.ToolMessage tm -> tm.getContent();
-            case ChatMessage.ResponseMessage rm -> {
-                String content = rm.getContent();
-                if (content == null || content.isBlank()) {
-                    var toolCalls = rm.getToolCalls();
-                    if (toolCalls != null && !toolCalls.isEmpty()) {
-                        yield "[Tool Call: " + toolCalls.get(0).getFunction().getName() + "]";
-                    }
-                    yield "[no content]";
-                }
-                yield content;
-            }
-            default -> "[unsupported message type]";
-        };
-    }
+    // private String getMessageContent(ChatMessage msg) {
+    // return switch (msg) {
+    // case ChatMessage.SystemMessage sm -> sm.getContent();
+    // case ChatMessage.UserMessage um -> um.getContent().toString();
+    // case ChatMessage.AssistantMessage am -> am.getContent().toString();
+    // case ChatMessage.ToolMessage tm -> tm.getContent();
+    // case ChatMessage.ResponseMessage rm -> {
+    // String content = rm.getContent();
+    // if (content == null || content.isBlank()) {
+    // var toolCalls = rm.getToolCalls();
+    // if (toolCalls != null && !toolCalls.isEmpty()) {
+    // yield "[Tool Call: " + toolCalls.get(0).getFunction().getName() + "]";
+    // }
+    // yield "[no content]";
+    // }
+    // yield content;
+    // }
+    // default -> "[unsupported message type]";
+    // };
+    // }
 
     @Override
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias,

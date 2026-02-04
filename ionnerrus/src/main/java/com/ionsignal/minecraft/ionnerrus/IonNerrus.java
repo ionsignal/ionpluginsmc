@@ -12,13 +12,11 @@ import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadInfo;
-import java.lang.management.ThreadMXBean;
-import java.util.concurrent.Executor;
-
 import org.apache.logging.log4j.core.config.Configurator;
 import org.apache.logging.log4j.Level;
+
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 
@@ -130,8 +128,8 @@ public class IonNerrus extends JavaPlugin {
         if (services.getAgentService() != null) {
             getLogger().info("Despawning all agents before shutdown...");
             try {
-                services.getAgentService().despawnAll();
-                getLogger().info("All agents despawned successfully.");
+                services.getAgentService().despawnAll().get(3, TimeUnit.SECONDS);
+                getLogger().info("All agents despawned and synced successfully.");
             } catch (Exception e) {
                 getLogger().severe("Error during agent despawn: " + e.getMessage());
                 e.printStackTrace();
@@ -181,29 +179,6 @@ public class IonNerrus extends JavaPlugin {
             getLogger().severe("Error during service container shutdown: " + e.getMessage());
             e.printStackTrace();
         }
-        // Give async operations time to complete and conduct a best-effort wait since we can't block
-        // onDisable() indefinitely
-        try {
-            Thread.sleep(500); // 500ms grace period for async cleanup
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        // Log remaining non-daemon threads to verify cleanup
-        if (getLogger().isLoggable(java.util.logging.Level.FINE)) {
-            ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
-            ThreadInfo[] threads = threadBean.dumpAllThreads(false, false);
-            long nonDaemonCount = 0;
-            for (ThreadInfo thread : threads) {
-                Thread t = findThreadById(thread.getThreadId());
-                if (t != null && !t.isDaemon() && t.getName().contains("LLM")) {
-                    getLogger().fine("Non-daemon thread still alive: " + t.getName());
-                    nonDaemonCount++;
-                }
-            }
-            if (nonDaemonCount > 0) {
-                getLogger().warning("Found " + nonDaemonCount + " LLM-related non-daemon threads still running");
-            }
-        }
         // Clear static references to prevent memory leaks (AFTER grace period)
         instance = null;
         services = null;
@@ -213,18 +188,6 @@ public class IonNerrus extends JavaPlugin {
         this.recipeModifier = null;
         this.commandRegistrar = null;
         getLogger().info("IonNerrus has been disabled successfully.");
-    }
-
-    /**
-     * Helper method to find a thread by ID (for debugging).
-     */
-    private Thread findThreadById(long threadId) {
-        for (Thread t : Thread.getAllStackTraces().keySet()) {
-            if (t.threadId() == threadId) {
-                return t;
-            }
-        }
-        return null;
     }
 
     /**

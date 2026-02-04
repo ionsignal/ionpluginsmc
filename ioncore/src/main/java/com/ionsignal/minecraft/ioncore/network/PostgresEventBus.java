@@ -12,6 +12,8 @@ import org.bukkit.Bukkit;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
+import java.util.concurrent.CompletableFuture;
+
 import org.jetbrains.annotations.NotNull;
 
 public final class PostgresEventBus {
@@ -93,9 +95,10 @@ public final class PostgresEventBus {
         });
     }
 
-    public void broadcast(@NotNull String type, @NotNull Object payload) {
+    public CompletableFuture<Void> broadcast(@NotNull String type, @NotNull Object payload) {
         if (!running)
-            return;
+            return CompletableFuture.completedFuture(null);
+        CompletableFuture<Void> future = new CompletableFuture<>();
         JsonObject envelope = new JsonObject();
         envelope.addProperty("type", type);
         envelope.addProperty("timestamp", System.currentTimeMillis());
@@ -104,7 +107,12 @@ public final class PostgresEventBus {
         databaseManager.getPgPool()
                 .preparedQuery("SELECT pg_notify($1, $2)")
                 .execute(Tuple.of(eventChannel, jsonString))
-                .onFailure(e -> plugin.getLogger().warning("Failed to broadcast event [" + type + "]: " + e.getMessage()));
+                .onSuccess(rows -> future.complete(null))
+                .onFailure(e -> {
+                    plugin.getLogger().warning("Failed to broadcast event [" + type + "]: " + e.getMessage());
+                    future.completeExceptionally(e);
+                });
+        return future;
     }
 
     private void handleNotification(String jsonPayload) {
