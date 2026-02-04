@@ -2,7 +2,6 @@ package com.ionsignal.minecraft.ionnerrus.agent.llm;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveDebugState;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -12,20 +11,26 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.github.sashirestela.openai.common.tool.Tool;
-import io.github.sashirestela.openai.common.tool.ToolCall;
-import io.github.sashirestela.openai.common.tool.ToolChoiceOption;
-import io.github.sashirestela.openai.domain.chat.ChatMessage;
-import io.github.sashirestela.openai.domain.chat.ChatRequest;
+import com.openai.models.chat.completions.ChatCompletion;
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionDeveloperMessageParam;
+import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
+import com.openai.models.chat.completions.ChatCompletionTool;
+import com.openai.models.chat.completions.ChatCompletionToolChoiceOption;
+import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
+import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -35,11 +40,14 @@ public class ReActDirector {
     private final LLMService llmService;
     private final GoalFactory goalFactory;
     private final GoalRegistry goalRegistry;
-    private final List<ChatMessage> conversationHistory;
-    private final List<Tool> availableTools;
+
+    private final List<ChatCompletionMessageParam> conversationHistory;
+    private final List<ChatCompletionTool> availableTools;
+
     private final AgentContext agentContext;
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final NerrusAgent agent;
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private volatile boolean isCancelled = false;
 
@@ -64,7 +72,7 @@ public class ReActDirector {
         return directive;
     }
 
-    public List<ChatMessage> getConversationHistory() {
+    public List<ChatCompletionMessageParam> getConversationHistory() {
         return conversationHistory;
     }
 
@@ -82,8 +90,6 @@ public class ReActDirector {
 
     public void cancel() {
         this.isCancelled = true;
-        // This is the key to interrupting the whenComplete block.
-        // It triggers the CancellationException handler.
         this.agent.assignGoal(null, null);
     }
 
@@ -92,10 +98,15 @@ public class ReActDirector {
         this.requester = requester;
         agent.setBusyWithDirective(true);
         String systemPrompt = agentContext.buildSystemPrompt(directive, requester);
-        conversationHistory.add(ChatMessage.SystemMessage.of(systemPrompt));
-        conversationHistory.add(ChatMessage.UserMessage.of(directive));
+        conversationHistory.add(ChatCompletionMessageParam.ofDeveloper(
+                ChatCompletionDeveloperMessageParam.builder()
+                        .content(ChatCompletionDeveloperMessageParam.Content.ofText(systemPrompt))
+                        .build()));
+        conversationHistory.add(ChatCompletionMessageParam.ofUser(
+                ChatCompletionUserMessageParam.builder()
+                        .content(ChatCompletionUserMessageParam.Content.ofText(directive))
+                        .build()));
         agent.speak("Okay, I'll work on that.");
-        // Start the first cognitive step on the main thread.
         Bukkit.getScheduler().runTask(plugin, this::cognitiveStep);
     }
 
@@ -103,110 +114,130 @@ public class ReActDirector {
         if (isCancelled) {
             return;
         }
-
-        // PHASE 4 ADDITION START: Increment step counter for debugging
         cognitiveStepCount++;
-        // PHASE 4 ADDITION END
-
-        // PHASE 4 ADDITION START: Check for active debug session and pause if present
-        Optional<com.ionsignal.minecraft.ioncore.debug.DebugSession<CognitiveDebugState>> sessionOpt = com.ionsignal.minecraft.ioncore.IonCore
-                .getDebugRegistry()
-                .getActiveSession(agent.getPersona().getUniqueId(), CognitiveDebugState.class);
-
+        // PHASE 4 ADDITION: Debug state logic commented out for migration
+        /*
+         * Optional<com.ionsignal.minecraft.ioncore.debug.DebugSession<CognitiveDebugState>> sessionOpt =
+         * com.ionsignal.minecraft.ioncore.IonCore
+         * .getDebugRegistry()
+         * .getActiveSession(agent.getPersona().getUniqueId(), CognitiveDebugState.class);
+         * 
+         * CompletableFuture<Void> pauseFuture = CompletableFuture.completedFuture(null);
+         * 
+         * if (sessionOpt.isPresent()) {
+         * com.ionsignal.minecraft.ioncore.debug.DebugSession<CognitiveDebugState> session =
+         * sessionOpt.get();
+         * CognitiveDebugState snapshot = CognitiveDebugState.snapshot(this, agent);
+         * session.setState(snapshot);
+         * session.markVisualizationDirty();
+         * pauseFuture = session.getController()
+         * .map(controller -> controller.pauseAsync(
+         * "Cognitive Step " + cognitiveStepCount,
+         * "Preparing LLM request..."))
+         * .orElse(CompletableFuture.completedFuture(null));
+         * }
+         */
+        // Placeholder for pauseFuture since debug logic is commented out
         CompletableFuture<Void> pauseFuture = CompletableFuture.completedFuture(null);
-
-        if (sessionOpt.isPresent()) {
-            com.ionsignal.minecraft.ioncore.debug.DebugSession<CognitiveDebugState> session = sessionOpt.get();
-
-            // Update state snapshot before pausing
-            CognitiveDebugState snapshot = CognitiveDebugState.snapshot(this, agent);
-            session.setState(snapshot);
-            session.markVisualizationDirty();
-
-            // Get controller and pause if present (returns CompletableFuture)
-            pauseFuture = session.getController()
-                    .map(controller -> controller.pauseAsync(
-                            "Cognitive Step " + cognitiveStepCount,
-                            "Preparing LLM request..."))
-                    .orElse(CompletableFuture.completedFuture(null));
-        }
-        // PHASE 4 ADDITION END
-
-        // PHASE 4 CHANGE: Chain pause future before LLM request
         pauseFuture.thenCompose(v -> {
-            // Update system prompt (existing logic)
             String systemPrompt = agentContext.buildSystemPrompt(this.directive, this.requester);
-            conversationHistory.set(0, ChatMessage.SystemMessage.of(systemPrompt));
-
-            // Build LLM request (existing logic)
-            ChatRequest request = ChatRequest.builder()
+            conversationHistory.set(0, ChatCompletionMessageParam.ofDeveloper(
+                    ChatCompletionDeveloperMessageParam.builder()
+                            .content(ChatCompletionDeveloperMessageParam.Content.ofText(systemPrompt))
+                            .build()));
+            // Build ChatCompletionCreateParams
+            ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
                     .model(llmService.getModelName())
                     .messages(conversationHistory)
                     .tools(availableTools)
-                    .toolChoice(ToolChoiceOption.AUTO)
+                    .toolChoice(ChatCompletionToolChoiceOption.ofAuto(ChatCompletionToolChoiceOption.Auto.AUTO))
                     .parallelToolCalls(false)
                     .build();
-
-            // PHASE 4 ADDITION START: Log request for debugging (optional)
             try {
                 plugin.getLogger().info("--- LLM Request (Step " + cognitiveStepCount + ") ---");
-                plugin.getLogger().info(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request));
-            } catch (JsonProcessingException e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to serialize request for logging", e);
+                plugin.getLogger().info(params.toString());
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.SEVERE, "Failed to log request", e);
             }
-            // PHASE 4 ADDITION END
-
-            return llmService.getNextToolCall(request);
-        }).whenCompleteAsync((chat, throwable) -> {
+            return llmService.getNextToolCall(params);
+        }).whenCompleteAsync((completion, throwable) -> {
             if (isCancelled) {
                 return;
             }
-
             if (throwable != null) {
                 plugin.getLogger().log(Level.SEVERE, "LLM call failed in cognitive step.", throwable);
                 agent.speak("I'm having trouble thinking right now.");
                 agent.setBusyWithDirective(false);
                 return;
             }
-
-            // Process LLM response (existing logic)
-            ChatMessage.ResponseMessage responseMessage = chat.firstMessage();
-            conversationHistory.add(responseMessage);
-            List<ToolCall> toolCalls = responseMessage.getToolCalls();
-
-            if (toolCalls == null || toolCalls.isEmpty()) {
-                // No tool call, finish directive
-                String finalMessage = chat.firstContent();
-                if (finalMessage != null && !finalMessage.isBlank()) {
-                    agent.speak(finalMessage);
-                } else {
-                    agent.speak("I'm finished with the task.");
-                }
-                plugin.getLogger().info("ReActDirector finished: LLM provided a final text response.");
+            // Process ChatCompletion response
+            if (completion.choices().isEmpty()) {
+                plugin.getLogger().warning("LLM returned no choices.");
+                return;
+            }
+            ChatCompletion.Choice choice = completion.choices().get(0);
+            // Refusal-First Logic:
+            // Check if model refused the request (Safety/Policy)
+            if (choice.message().refusal().isPresent()) {
+                String refusal = choice.message().refusal().get();
+                plugin.getLogger().warning("LLM Refusal: " + refusal);
+                agent.speak("I can't do that. " + refusal);
                 agent.setBusyWithDirective(false);
                 return;
             }
-
-            // PHASE 4 ADDITION START: Track last tool call for debugging
-            ToolCall toolCall = toolCalls.get(0);
-            this.lastToolCall = toolCall.getFunction().getName();
-            this.lastToolResult = null; // Will be updated in handleToolCall
-            // PHASE 4 ADDITION END
-
-            handleToolCall(toolCall);
+            // Check for tool calls
+            if (choice.message().toolCalls().isPresent() && !choice.message().toolCalls().get().isEmpty()) {
+                List<ChatCompletionMessageToolCall> toolCalls = choice.message().toolCalls().get();
+                ChatCompletionMessageToolCall toolCallToExecute;
+                // History Sanitization: Handle parallel calls if model ignores parallelToolCalls(false)
+                if (toolCalls.size() > 1) {
+                    plugin.getLogger().warning("Sanitizing parallel tool calls. Dropped " + (toolCalls.size() - 1) + " calls.");
+                    toolCallToExecute = toolCalls.get(0);
+                    // Create synthetic message containing ONLY the first tool call
+                    ChatCompletionAssistantMessageParam syntheticMsg = ChatCompletionAssistantMessageParam.builder()
+                            .content(choice.message().content().orElse("")) // Safe optional access
+                            .toolCalls(List.of(toolCallToExecute))
+                            .build();
+                    conversationHistory.add(ChatCompletionMessageParam.ofAssistant(syntheticMsg));
+                } else {
+                    // Standard path: 1 tool call
+                    toolCallToExecute = toolCalls.get(0);
+                    conversationHistory.add(ChatCompletionMessageParam.ofAssistant(choice.message().toParam()));
+                }
+                if (toolCallToExecute.function().isPresent()) {
+                    this.lastToolCall = toolCallToExecute.function().get().function().name();
+                }
+                this.lastToolResult = null;
+                handleToolCall(toolCallToExecute);
+            } else {
+                // No tool call, check for content
+                // Add original message to history
+                conversationHistory.add(ChatCompletionMessageParam.ofAssistant(choice.message().toParam()));
+                String finalMessage = choice.message().content().orElse("I'm finished with the task.");
+                agent.speak(finalMessage);
+                plugin.getLogger().info("ReActDirector finished: LLM provided a final text response.");
+                agent.setBusyWithDirective(false);
+            }
         }, plugin.getMainThreadExecutor());
     }
 
-    private void handleToolCall(ToolCall toolCall) {
+    private void handleToolCall(ChatCompletionMessageToolCall toolCall) {
         if (isCancelled) {
             return;
         }
-        String toolName = toolCall.getFunction().getName();
-        String argumentsJson = toolCall.getFunction().getArguments();
+        // Extract function details
+        if (!toolCall.function().isPresent()) {
+            plugin.getLogger().warning("Received tool call without function data.");
+            return;
+        }
+        ChatCompletionMessageFunctionToolCall functionTool = toolCall.function().get();
+        String toolName = functionTool.function().name();
+        String argumentsJson = functionTool.function().arguments();
+        String callId = functionTool.id();
         ToolDefinition toolDef = goalRegistry.get(toolName);
         plugin.getLogger().info("LLM requested tool: " + toolName + " with args: " + argumentsJson);
         if (toolDef == null) {
-            reportErrorToLLM("Error: Unknown tool '" + toolName + "'.", toolCall);
+            reportErrorToLLM("Error: Unknown tool '" + toolName + "'.", callId);
             return;
         }
         try {
@@ -236,14 +267,12 @@ public class ReActDirector {
                         agent.setBusyWithDirective(false);
                         return;
                     }
-                    // It's a different, unexpected exception. Log it and report failure to the LLM.
                     plugin.getLogger().log(Level.SEVERE, "Goal future completed exceptionally.", throwable);
                     String failureMemory = String.format("[FAILURE] %s: An unexpected error occurred: %s", toolName.toUpperCase(),
                             throwable.getMessage());
                     agent.recordAction(failureMemory);
                     String resultMessage = "FAILURE: An unexpected error occurred in the agent's goal execution: " + throwable.getMessage();
-                    ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
-                    conversationHistory.add(toolMessage);
+                    addToolResultMessage(resultMessage, callId);
                     this.lastToolResult = resultMessage;
                     cognitiveStep();
                     return;
@@ -253,26 +282,32 @@ public class ReActDirector {
                 String memory = String.format("[%s] %s: %s", status, toolName.toUpperCase(), goalResult.message());
                 agent.recordAction(memory);
                 plugin.getLogger().info("Goal '" + toolName + "' finished with result: " + resultMessage);
-                ChatMessage toolMessage = ChatMessage.ToolMessage.of(resultMessage, toolCall.getId());
-                conversationHistory.add(toolMessage);
+                addToolResultMessage(resultMessage, callId);
                 cognitiveStep();
             }, plugin.getMainThreadExecutor());
         } catch (JsonProcessingException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to parse tool arguments from LLM.", e);
-            reportErrorToLLM("Error: Invalid arguments provided. " + e.getMessage(), toolCall);
+            reportErrorToLLM("Error: Invalid arguments provided. " + e.getMessage(), callId);
         } catch (IllegalArgumentException e) {
             plugin.getLogger().log(Level.WARNING, "Failed to create goal: " + e.getMessage());
-            reportErrorToLLM("Error: " + e.getMessage(), toolCall);
+            reportErrorToLLM("Error: " + e.getMessage(), callId);
         }
     }
 
-    private void reportErrorToLLM(String errorMessage, ToolCall toolCall) {
+    private void reportErrorToLLM(String errorMessage, String toolCallId) {
         if (isCancelled) {
             return;
         }
-        ChatMessage toolMessage = ChatMessage.ToolMessage.of(errorMessage, toolCall.getId());
-        conversationHistory.add(toolMessage);
+        addToolResultMessage(errorMessage, toolCallId);
         this.lastToolResult = errorMessage;
         cognitiveStep();
+    }
+
+    private void addToolResultMessage(String content, String toolCallId) {
+        conversationHistory.add(ChatCompletionMessageParam.ofTool(
+                ChatCompletionToolMessageParam.builder()
+                        .content(ChatCompletionToolMessageParam.Content.ofText(content))
+                        .toolCallId(toolCallId)
+                        .build()));
     }
 }

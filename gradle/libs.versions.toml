@@ -11,9 +11,10 @@ seismic = "2.5.7"
 bluenbt = "3.5.0"
 
 # IonNerrus
-simple-openai = "3.22.2"
+openai-java = "4.17.0"
 okhttp = "5.3.2"
 classgraph = "4.8.184"
+victools = "4.38.0"
 
 # IonCore (New additions)
 gson = "2.13.2"
@@ -49,9 +50,11 @@ cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud"
 bluenbt = { group = "de.bluecolored", name = "bluenbt", version.ref = "bluenbt" }
 
 # IonNerrus & IonCore Shared
-simple-openai = { group = "io.github.sashirestela", name = "simple-openai", version.ref = "simple-openai" }
+openai-java = { group = "com.openai", name = "openai-java", version.ref = "openai-java" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 classgraph = { group = "io.github.classgraph", name = "classgraph", version.ref = "classgraph" }
+jsonschema-generator = { group = "com.github.victools", name = "jsonschema-generator", version.ref = "victools" }
+jsonschema-module-jackson = { group = "com.github.victools", name = "jsonschema-module-jackson", version.ref = "victools" }
 
 # IonCore Specific
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }

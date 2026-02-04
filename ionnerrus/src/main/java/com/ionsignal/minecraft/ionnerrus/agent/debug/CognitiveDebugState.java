@@ -1,7 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.agent.debug;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
-import io.github.sashirestela.openai.domain.chat.ChatMessage;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -13,7 +17,7 @@ public record CognitiveDebugState(
         UUID agentId,
         String agentName,
         String currentDirective,
-        List<ChatMessage> conversationHistory,
+        List<ChatCompletionMessageParam> conversationHistory,
         String lastToolCall,
         String lastToolResult,
         int cognitiveStepCount) implements DebugStateSnapshot {
@@ -31,8 +35,8 @@ public record CognitiveDebugState(
      * MUST be called on the main thread to avoid race conditions.
      */
     public static CognitiveDebugState snapshot(
-            com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector director,
-            com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent agent) {
+            ReActDirector director,
+            NerrusAgent agent) {
         return new CognitiveDebugState(
                 agent.getPersona().getUniqueId(),
                 agent.getName(),

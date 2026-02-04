@@ -11,13 +11,16 @@ paperweight.reobfArtifactConfiguration.set(
 )
 
 dependencies {
-    // IonCore 
+    // IonCore
     compileOnly(project(":ioncore", configuration = "devJar"))
     // Add your dependencies here
     // LLM and HTTP dependencies (will be shaded)
-    implementation(libs.simple.openai)
+    implementation(libs.openai.java)
     implementation(libs.okhttp)
     implementation(libs.classgraph)
+    // JSON Schema Generation
+    implementation(libs.jsonschema.generator)
+    implementation(libs.jsonschema.module.jackson)
     // CraftEngine
     compileOnly(files("libs/craft-engine-paper-plugin-0.0.64.jar"))
     // FancyHolograms
@@ -33,14 +36,15 @@ tasks {
     // Shadow task shades dependencies into the JAR
     shadowJar {
         archiveClassifier.set("") // No classifier for the final artifact
-        
+
         // Relocate dependencies to avoid conflicts
         relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ionnerrus.lib.classgraph")
         relocate("com.squareup.okhttp3", "com.ionsignal.minecraft.ionnerrus.lib.okhttp3")
-        relocate("io.github.sashirestela.openai", "com.ionsignal.minecraft.ionnerrus.lib.openai")
+        relocate("com.openai", "com.ionsignal.minecraft.ionnerrus.lib.openai_java")
         relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ionnerrus.lib.jackson")
-        
+        relocate("com.github.victools", "com.ionsignal.minecraft.ionnerrus.lib.victools")
+
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")

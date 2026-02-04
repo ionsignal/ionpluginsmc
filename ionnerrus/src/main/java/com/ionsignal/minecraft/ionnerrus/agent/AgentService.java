@@ -11,6 +11,10 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
+import com.ionsignal.minecraft.ionnerrus.network.schema.Outgoing;
+import com.ionsignal.minecraft.ionnerrus.network.schema.Shared;
+
+import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -25,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public class AgentService {
     public static final String NERRUS_AGENT_METADATA = "ionnerrus_agent";
@@ -34,18 +39,21 @@ public class AgentService {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
+    private final PostgresEventBus eventBus;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
 
     public AgentService(IonNerrus plugin,
             NerrusManager nerrusManager,
             GoalRegistry goalRegistry,
             GoalFactory goalFactory,
-            LLMService llmService) {
+            LLMService llmService,
+            PostgresEventBus eventBus) {
         this.plugin = plugin;
         this.personaRegistry = nerrusManager.getRegistry();
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+        this.eventBus = eventBus;
     }
 
     /**
@@ -160,13 +168,25 @@ public class AgentService {
         return agents.values();
     }
 
-    public void despawnAll() {
+    public CompletableFuture<Void> despawnAll() {
         if (agents.isEmpty()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
         plugin.getLogger().info("Despawning " + agents.size() + " agent(s)...");
+        List<CompletableFuture<Void>> shutdownFutures = new ArrayList<>();
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
+            // Trigger Async DB Update (Explicitly broadcast DESPAWNED state)
+            // We do this manually here because we are bypassing the EventListener to capture the Future
+            if (eventBus != null) {
+                Outgoing.AgentState state = mapToDespawnState(agent);
+                shutdownFutures.add(eventBus.broadcast("AGENT_REMOVED", state)
+                        .exceptionally(ex -> {
+                            plugin.getLogger().warning("Failed to broadcast despawn for " + agent.getName());
+                            return null;
+                        }));
+            }
+            // Remove from World (Sync)
             try {
                 personaRegistry.deregister(agent.getPersona());
             } catch (Exception e) {
@@ -175,6 +195,24 @@ public class AgentService {
         }
         agents.clear();
         plugin.getLogger().info("Despawned all Nerrus agents.");
+        // Return a future that completes when all DB packets are sent
+        return CompletableFuture.allOf(shutdownFutures.toArray(new CompletableFuture[0]));
+    }
+
+    private Outgoing.AgentState mapToDespawnState(NerrusAgent agent) {
+        Location loc = agent.getPersona().getLocation();
+        UUID definitionId = agent.getPersona().getDefinitionId();
+        if (definitionId == null)
+            definitionId = UUID.fromString("00000000-0000-0000-0000-000000000000");
+        return new Outgoing.AgentState(
+                agent.getPersona().getUniqueId(),
+                definitionId,
+                agent.getName(),
+                "DESPAWNED",
+                new Shared.LocationData(
+                        loc.getWorld().getName(),
+                        loc.getX(), loc.getY(), loc.getZ(),
+                        loc.getYaw(), loc.getPitch()));
     }
 
     public void shutdown() {
