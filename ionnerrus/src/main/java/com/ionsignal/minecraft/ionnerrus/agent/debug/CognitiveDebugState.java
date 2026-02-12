@@ -20,7 +20,8 @@ public record CognitiveDebugState(
         List<ChatCompletionMessageParam> conversationHistory,
         String lastToolCall,
         String lastToolResult,
-        int cognitiveStepCount) implements DebugStateSnapshot {
+        int cognitiveStepCount,
+        String pendingRequestSummary) implements DebugStateSnapshot {
 
     /**
      * Implement DebugStateSnapshot marker interface
@@ -33,17 +34,27 @@ public record CognitiveDebugState(
     /**
      * Creates a snapshot from a live ReActDirector.
      * MUST be called on the main thread to avoid race conditions.
+     *
+     * @param director
+     *            The director instance.
+     * @param agent
+     *            The agent instance.
+     * @param pendingRequestSummary
+     *            A summary of the next LLM request, or null if not applicable.
      */
     public static CognitiveDebugState snapshot(
             ReActDirector director,
-            NerrusAgent agent) {
+            NerrusAgent agent,
+            String pendingRequestSummary) {
+        List<ChatCompletionMessageParam> conversationHistory = List.copyOf(director.getConversationHistory());
         return new CognitiveDebugState(
                 agent.getPersona().getUniqueId(),
                 agent.getName(),
                 director.getDirective(),
-                List.copyOf(director.getConversationHistory()),
+                conversationHistory,
                 director.getLastToolCall(),
                 director.getLastToolResult(),
-                director.getCognitiveStepCount());
+                director.getCognitiveStepCount(),
+                pendingRequestSummary);
     }
 }
