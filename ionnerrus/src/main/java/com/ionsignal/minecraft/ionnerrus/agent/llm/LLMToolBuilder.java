@@ -42,6 +42,9 @@ public class LLMToolBuilder {
                         .with(Option.FORBIDDEN_ADDITIONAL_PROPERTIES_BY_DEFAULT)
                         // Ensure enums are serialized as their string values
                         .with(Option.FLATTENED_ENUMS_FROM_TOSTRING);
+        // Force all fields to be "required" in the schema, complying with OpenAI Strict Mode
+        configBuilder.forFields()
+                .withRequiredCheck(field -> true);
         generator = new SchemaGenerator(configBuilder.build());
     }
 

@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.agent.llm;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveDebugState;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -9,6 +10,10 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FailObjectiveParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+
+import com.ionsignal.minecraft.ioncore.IonCore;
+import com.ionsignal.minecraft.ioncore.debug.DebugSession;
+import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -31,6 +36,7 @@ import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -90,6 +96,14 @@ public class ReActDirector {
 
     public void cancel() {
         this.isCancelled = true;
+        // Ensure any pending debug pause is cancelled
+        try {
+            IonCore.getDebugRegistry()
+                    .getActiveSession(agent.getPersona().getUniqueId())
+                    .flatMap(DebugSession::getController)
+                    .ifPresent(ExecutionController::cancel);
+        } catch (Exception ignored) {
+        }
         this.agent.assignGoal(null, null);
     }
 
@@ -115,56 +129,64 @@ public class ReActDirector {
             return;
         }
         cognitiveStepCount++;
-        // PHASE 4 ADDITION: Debug state logic commented out for migration
-        /*
-         * Optional<com.ionsignal.minecraft.ioncore.debug.DebugSession<CognitiveDebugState>> sessionOpt =
-         * com.ionsignal.minecraft.ioncore.IonCore
-         * .getDebugRegistry()
-         * .getActiveSession(agent.getPersona().getUniqueId(), CognitiveDebugState.class);
-         * 
-         * CompletableFuture<Void> pauseFuture = CompletableFuture.completedFuture(null);
-         * 
-         * if (sessionOpt.isPresent()) {
-         * com.ionsignal.minecraft.ioncore.debug.DebugSession<CognitiveDebugState> session =
-         * sessionOpt.get();
-         * CognitiveDebugState snapshot = CognitiveDebugState.snapshot(this, agent);
-         * session.setState(snapshot);
-         * session.markVisualizationDirty();
-         * pauseFuture = session.getController()
-         * .map(controller -> controller.pauseAsync(
-         * "Cognitive Step " + cognitiveStepCount,
-         * "Preparing LLM request..."))
-         * .orElse(CompletableFuture.completedFuture(null));
-         * }
-         */
-        // Placeholder for pauseFuture since debug logic is commented out
+        // Context Gathering & Prompt Construction (Main Thread)
+        // We do this synchronously to ensure thread safety with Bukkit API
+        String systemPrompt = agentContext.buildSystemPrompt(this.directive, this.requester);
+        conversationHistory.set(0, ChatCompletionMessageParam.ofDeveloper(
+                ChatCompletionDeveloperMessageParam.builder()
+                        .content(ChatCompletionDeveloperMessageParam.Content.ofText(systemPrompt))
+                        .build()));
+        ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+                .model(llmService.getModelName())
+                .messages(conversationHistory)
+                .tools(availableTools)
+                .toolChoice(ChatCompletionToolChoiceOption.ofAuto(ChatCompletionToolChoiceOption.Auto.AUTO))
+                .parallelToolCalls(false)
+                .build();
+        // Debug Interception (Main Thread)
         CompletableFuture<Void> pauseFuture = CompletableFuture.completedFuture(null);
-        pauseFuture.thenCompose(v -> {
-            String systemPrompt = agentContext.buildSystemPrompt(this.directive, this.requester);
-            conversationHistory.set(0, ChatCompletionMessageParam.ofDeveloper(
-                    ChatCompletionDeveloperMessageParam.builder()
-                            .content(ChatCompletionDeveloperMessageParam.Content.ofText(systemPrompt))
-                            .build()));
-            // Build ChatCompletionCreateParams
-            ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
-                    .model(llmService.getModelName())
-                    .messages(conversationHistory)
-                    .tools(availableTools)
-                    .toolChoice(ChatCompletionToolChoiceOption.ofAuto(ChatCompletionToolChoiceOption.Auto.AUTO))
-                    .parallelToolCalls(false)
-                    .build();
+        try {
+            Optional<DebugSession<CognitiveDebugState>> sessionOpt = IonCore.getDebugRegistry()
+                    .getActiveSession(agent.getPersona().getUniqueId(), CognitiveDebugState.class);
+            if (sessionOpt.isPresent()) {
+                DebugSession<CognitiveDebugState> session = sessionOpt.get();
+                // Create snapshot with the pending request summary
+                String requestSummary = "Sending " + params.messages().size() + " messages. Tools: " + availableTools.size();
+                CognitiveDebugState snapshot = CognitiveDebugState.snapshot(this, agent, requestSummary);
+                session.setState(snapshot);
+                session.markVisualizationDirty();
+                pauseFuture = session.getController()
+                        .map(controller -> controller.pauseAsync(
+                                "Cognitive Step " + cognitiveStepCount,
+                                "Preparing LLM request..."))
+                        .orElse(CompletableFuture.completedFuture(null));
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error during debug session check", e);
+        }
+        // Execution Chain
+        pauseFuture.thenComposeAsync(v -> {
+            // Async Boundary: Offload Thread
+            // Check cancellation immediately after pause resumes
+            if (isCancelled) {
+                return CompletableFuture.failedFuture(new CancellationException("Director cancelled"));
+            }
             try {
                 plugin.getLogger().info("--- LLM Request (Step " + cognitiveStepCount + ") ---");
-                plugin.getLogger().info(params.toString());
+                // Use the params constructed on the main thread
+                return llmService.getNextToolCall(params);
             } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Failed to log request", e);
+                return CompletableFuture.failedFuture(e);
             }
-            return llmService.getNextToolCall(params);
-        }).whenCompleteAsync((completion, throwable) -> {
+        }, plugin.getOffloadThreadExecutor()).whenCompleteAsync((completion, throwable) -> {
+            // Response Handling: Main Thread
             if (isCancelled) {
                 return;
             }
             if (throwable != null) {
+                if (throwable instanceof CancellationException) {
+                    return;
+                }
                 plugin.getLogger().log(Level.SEVERE, "LLM call failed in cognitive step.", throwable);
                 agent.speak("I'm having trouble thinking right now.");
                 agent.setBusyWithDirective(false);
