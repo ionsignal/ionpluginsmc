@@ -34,7 +34,6 @@ import com.google.common.collect.LinkedHashMultimap;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
-import java.util.Optional;
 
 public class Persona {
     private final UUID uuid;
@@ -43,11 +42,13 @@ public class Persona {
     private final MetadataStorage metadata;
 
     private String name;
-    
-    // TRANSIENT: This ID is held in memory. It will be lost on restart.
+
     @Nullable
-    private UUID definitionId; 
-    
+    private UUID definitionId;
+
+    @Nullable
+    private UUID ownerId;
+
     private PersonaEntity personaEntity;
     private PhysicalBody physicalBody;
     private Location lastLocation;
@@ -68,6 +69,27 @@ public class Persona {
     @Nullable
     public UUID getDefinitionId() {
         return definitionId;
+    }
+
+    /**
+     * Sets the owner ID for this persona.
+     * This ID corresponds to the User UUID in the web database.
+     *
+     * @param ownerId
+     *            The UUID of the owner.
+     */
+    public void setOwnerId(@Nullable UUID ownerId) {
+        this.ownerId = ownerId;
+    }
+
+    /**
+     * Gets the owner ID for this persona.
+     *
+     * @return The UUID of the owner, or null if not set (e.g. system agent).
+     */
+    @Nullable
+    public UUID getOwnerId() {
+        return ownerId;
     }
 
     @SuppressWarnings("null")
@@ -250,14 +272,14 @@ public class Persona {
         if (skin != null && skin.texture() != null && !skin.texture().isEmpty()) {
             // Build mutable map first
             Multimap<String, Property> properties = LinkedHashMultimap.create();
-            
+
             // FIX: Ensure signature is handled correctly (null check)
             if (skin.signature() != null && !skin.signature().isEmpty()) {
                 properties.put("textures", new Property("textures", skin.texture(), skin.signature()));
             } else {
                 properties.put("textures", new Property("textures", skin.texture()));
             }
-            
+
             // Create immutable PropertyMap
             PropertyMap propertyMap = new PropertyMap(properties);
             // Construct profile
