@@ -11,8 +11,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
-import com.ionsignal.minecraft.ionnerrus.network.schema.Outgoing;
-import com.ionsignal.minecraft.ionnerrus.network.schema.Shared;
 
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
@@ -73,6 +71,8 @@ public class AgentService {
         NerrusAgent agent = createAgentBase(signalPayload.name());
         // Link the Web Definition ID to the Runtime Persona
         agent.getPersona().setDefinitionId(signalPayload.definitionId());
+        // Link the Owner ID for event routing (Strict Envelope compliance)
+        agent.getPersona().setOwnerId(signalPayload.ownerId());
         // Map Skin Data
         SkinData skinData = null;
         if (configPayload.skin() != null) {
@@ -179,8 +179,13 @@ public class AgentService {
             // Trigger Async DB Update (Explicitly broadcast DESPAWNED state)
             // We do this manually here because we are bypassing the EventListener to capture the Future
             if (eventBus != null) {
-                Outgoing.AgentState state = mapToDespawnState(agent);
-                shutdownFutures.add(eventBus.broadcast("AGENT_REMOVED", state)
+                // Use dynamic map to ensure ownerId is included for Node.js routing
+                Map<String, Object> state = mapToDespawnState(agent);
+                // Determine recipient for the event (Strict Envelope compliance)
+                UUID ownerId = agent.getPersona().getOwnerId();
+                String recipientId = ownerId != null ? ownerId.toString() : "*";
+                // Pass recipientId to broadcast (3-arg signature)
+                shutdownFutures.add(eventBus.broadcast("AGENT_REMOVED", recipientId, state)
                         .exceptionally(ex -> {
                             plugin.getLogger().warning("Failed to broadcast despawn for " + agent.getName());
                             return null;
@@ -199,20 +204,26 @@ public class AgentService {
         return CompletableFuture.allOf(shutdownFutures.toArray(new CompletableFuture[0]));
     }
 
-    private Outgoing.AgentState mapToDespawnState(NerrusAgent agent) {
+    private Map<String, Object> mapToDespawnState(NerrusAgent agent) {
         Location loc = agent.getPersona().getLocation();
         UUID definitionId = agent.getPersona().getDefinitionId();
         if (definitionId == null)
             definitionId = UUID.fromString("00000000-0000-0000-0000-000000000000");
-        return new Outgoing.AgentState(
-                agent.getPersona().getUniqueId(),
-                definitionId,
-                agent.getName(),
-                "DESPAWNED",
-                new Shared.LocationData(
-                        loc.getWorld().getName(),
-                        loc.getX(), loc.getY(), loc.getZ(),
-                        loc.getYaw(), loc.getPitch()));
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", agent.getPersona().getUniqueId());
+        map.put("definitionId", definitionId);
+        map.put("ownerId", agent.getPersona().getOwnerId());
+        map.put("name", agent.getName());
+        map.put("status", "DESPAWNED");
+        Map<String, Object> locData = new HashMap<>();
+        locData.put("world", loc.getWorld().getName());
+        locData.put("x", loc.getX());
+        locData.put("y", loc.getY());
+        locData.put("z", loc.getZ());
+        locData.put("yaw", loc.getYaw());
+        locData.put("pitch", loc.getPitch());
+        map.put("location", locData);
+        return map;
     }
 
     public void shutdown() {
