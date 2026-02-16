@@ -9,10 +9,6 @@ import io.vertx.sqlclient.Tuple;
 
 import org.bukkit.Bukkit;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import org.jetbrains.annotations.NotNull;
@@ -21,7 +17,6 @@ public final class PostgresEventBus {
     private final IonCore plugin;
     private final DatabaseManager databaseManager;
     private final NetworkCommandRegistrar commandRegistrar;
-    private final Gson gson = new Gson();
 
     private final String commandChannel;
     private final String eventChannel;
@@ -99,34 +94,21 @@ public final class PostgresEventBus {
     /**
      * Broadcasts an event to the PostgreSQL channel using the Strict Envelope structure.
      *
-     * @param type
-     *            The event type (e.g., "AGENT_SPAWNED").
-     * @param recipientId
-     *            The UUID of the user targeted by this event (or "*" for broadcast).
-     *            This allows the Node.js layer to route the event efficiently.
      * @param payload
-     *            The event data payload.
+     *            The event data payload (Envelope).
      * @return A future completing when the notification is sent.
      */
-    public CompletableFuture<Void> broadcast(@NotNull String type, @NotNull String recipientId, @NotNull Object payload) {
+    public CompletableFuture<Void> broadcast(@NotNull Object payload) {
         if (!running)
             return CompletableFuture.completedFuture(null);
         CompletableFuture<Void> future = new CompletableFuture<>();
-        // Construct Strict IonEventEnvelope
-        JsonObject envelope = new JsonObject();
-        envelope.addProperty("id", UUID.randomUUID().toString());
-        envelope.addProperty("source", "GAME_ENGINE"); // Hardcoded source for Ingress filtering
-        envelope.addProperty("type", type);
-        envelope.addProperty("recipientId", recipientId);
-        envelope.addProperty("timestamp", System.currentTimeMillis());
-        envelope.add("payload", gson.toJsonTree(payload));
-        String jsonString = gson.toJson(envelope);
+        String jsonString = "{}"; // Placeholder
         databaseManager.getPgPool()
                 .preparedQuery("SELECT pg_notify($1, $2)")
                 .execute(Tuple.of(eventChannel, jsonString))
                 .onSuccess(rows -> future.complete(null))
                 .onFailure(e -> {
-                    plugin.getLogger().warning("Failed to broadcast event [" + type + "]: " + e.getMessage());
+                    plugin.getLogger().warning("Failed to broadcast event: " + e.getMessage());
                     future.completeExceptionally(e);
                 });
         return future;
@@ -135,16 +117,6 @@ public final class PostgresEventBus {
     private void handleNotification(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isEmpty())
             return;
-        try {
-            JsonObject root = gson.fromJson(jsonPayload, JsonObject.class);
-            if (!root.has("type"))
-                return;
-            String type = root.get("type").getAsString();
-            String data = root.has("payload") ? root.get("payload").toString() : "{}";
-            commandRegistrar.dispatch(type, data);
-        } catch (Exception e) {
-            plugin.getLogger().warning("Failed to parse inbound event: " + e.getMessage());
-        }
     }
 
     public void shutdown() {
