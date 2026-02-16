@@ -6,7 +6,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
-import com.ionsignal.minecraft.ionnerrus.network.schema.Incoming;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -54,48 +53,6 @@ public class AgentService {
         this.eventBus = eventBus;
     }
 
-    /**
-     * Spawns an agent based on the configuration received from the Web Dashboard via PostgreSQL.
-     * This is the primary method for the new architecture.
-     *
-     * @param signalPayload
-     *            The spawn command details (Location, Owner, Definition ID).
-     * @param configPayload
-     *            The synced agent configuration (Skin, Name) from 'persona_manifests'.
-     * @param location
-     *            The resolved Bukkit location.
-     * 
-     * @return The spawned agent instance.
-     */
-    public NerrusAgent spawnAgent(Incoming.SpawnPayload signalPayload, Incoming.AgentSyncPayload configPayload, Location location) {
-        NerrusAgent agent = createAgentBase(signalPayload.name());
-        // Link the Web Definition ID to the Runtime Persona
-        agent.getPersona().setDefinitionId(signalPayload.definitionId());
-        // Link the Owner ID for event routing (Strict Envelope compliance)
-        agent.getPersona().setOwnerId(signalPayload.ownerId());
-        // Map Skin Data
-        SkinData skinData = null;
-        if (configPayload.skin() != null) {
-            String texture = configPayload.skin().value();
-            String signature = configPayload.skin().signature();
-            // Only apply skin if texture value is present
-            if (texture != null && !texture.isBlank()) {
-                skinData = new SkinData(texture, signature);
-            } else {
-                // This is valid for default skins (STEVE/ALEX), so we log info, not warning
-                plugin.getLogger().info("Agent configuration has 'skin' object but 'value' is empty. Using default skin.");
-            }
-        }
-        // Ensure spawning happens on the main thread
-        final SkinData finalSkin = skinData;
-        if (Bukkit.isPrimaryThread()) {
-            finalizeSpawn(agent, location, finalSkin);
-        } else {
-            plugin.getMainThreadExecutor().execute(() -> finalizeSpawn(agent, location, finalSkin));
-        }
-        return agent;
-    }
-
     public NerrusAgent spawnAgent(String name, Location location, @Nullable String skinNameToFetch) {
         NerrusAgent agent = createAgentBase(name);
         String lookupName = (skinNameToFetch != null && !skinNameToFetch.isEmpty()) ? skinNameToFetch : name;
@@ -137,14 +94,6 @@ public class AgentService {
         }
     }
 
-    public void updateAgentSkin(NerrusAgent agent, Incoming.AgentSyncPayload.Skin skin) {
-        if (skin == null || skin.value() == null)
-            return;
-        SkinData skinData = new SkinData(skin.value(), skin.signature());
-        agent.getPersona().setSkin(skinData);
-        plugin.getLogger().info("Updated skin for agent: " + agent.getName());
-    }
-
     public boolean removeAgent(String name) {
         NerrusAgent agent = findAgentByName(name);
         if (agent != null) {
@@ -179,17 +128,7 @@ public class AgentService {
             // Trigger Async DB Update (Explicitly broadcast DESPAWNED state)
             // We do this manually here because we are bypassing the EventListener to capture the Future
             if (eventBus != null) {
-                // Use dynamic map to ensure ownerId is included for Node.js routing
-                Map<String, Object> state = mapToDespawnState(agent);
-                // Determine recipient for the event (Strict Envelope compliance)
-                UUID ownerId = agent.getPersona().getOwnerId();
-                String recipientId = ownerId != null ? ownerId.toString() : "*";
-                // Pass recipientId to broadcast (3-arg signature)
-                shutdownFutures.add(eventBus.broadcast("AGENT_REMOVED", recipientId, state)
-                        .exceptionally(ex -> {
-                            plugin.getLogger().warning("Failed to broadcast despawn for " + agent.getName());
-                            return null;
-                        }));
+                // [MODIFIED] Commented out broadcast logic.
             }
             // Remove from World (Sync)
             try {
@@ -202,28 +141,6 @@ public class AgentService {
         plugin.getLogger().info("Despawned all Nerrus agents.");
         // Return a future that completes when all DB packets are sent
         return CompletableFuture.allOf(shutdownFutures.toArray(new CompletableFuture[0]));
-    }
-
-    private Map<String, Object> mapToDespawnState(NerrusAgent agent) {
-        Location loc = agent.getPersona().getLocation();
-        UUID definitionId = agent.getPersona().getDefinitionId();
-        if (definitionId == null)
-            definitionId = UUID.fromString("00000000-0000-0000-0000-000000000000");
-        Map<String, Object> map = new HashMap<>();
-        map.put("id", agent.getPersona().getUniqueId());
-        map.put("definitionId", definitionId);
-        map.put("ownerId", agent.getPersona().getOwnerId());
-        map.put("name", agent.getName());
-        map.put("status", "DESPAWNED");
-        Map<String, Object> locData = new HashMap<>();
-        locData.put("world", loc.getWorld().getName());
-        locData.put("x", loc.getX());
-        locData.put("y", loc.getY());
-        locData.put("z", loc.getZ());
-        locData.put("yaw", loc.getYaw());
-        locData.put("pitch", loc.getPitch());
-        map.put("location", locData);
-        return map;
     }
 
     public void shutdown() {
