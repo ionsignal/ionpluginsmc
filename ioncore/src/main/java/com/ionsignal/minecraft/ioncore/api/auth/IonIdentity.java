@@ -1,5 +1,7 @@
 package com.ionsignal.minecraft.ioncore.api.auth;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,10 +18,10 @@ import java.util.UUID;
  *            Whether the account is fully linked.
  */
 public record IonIdentity(
-        UUID minecraftUuid,
-        String minecraftUsername,
-        Optional<String> webUsername,
-        boolean isLinked) {
+        @JsonProperty("minecraftUuid") UUID minecraftUuid,
+        @JsonProperty("minecraftUsername") String minecraftUsername,
+        @JsonProperty("webUsername") Optional<String> webUsername,
+        @JsonProperty("isLinked") boolean isLinked) {
     /**
      * Creates an unlinked identity.
      */

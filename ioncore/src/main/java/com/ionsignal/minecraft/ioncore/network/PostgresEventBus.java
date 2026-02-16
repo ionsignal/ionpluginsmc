@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ioncore.network;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
+import com.ionsignal.minecraft.ioncore.json.JsonService;
 
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnection;
@@ -16,6 +17,7 @@ import org.jetbrains.annotations.NotNull;
 public final class PostgresEventBus {
     private final IonCore plugin;
     private final DatabaseManager databaseManager;
+    private final JsonService jsonService;
     private final NetworkCommandRegistrar commandRegistrar;
 
     private final String commandChannel;
@@ -25,9 +27,10 @@ public final class PostgresEventBus {
     private boolean running = false;
     private long reconnectTimerId = -1;
 
-    public PostgresEventBus(@NotNull IonCore plugin, @NotNull DatabaseManager databaseManager) {
+    public PostgresEventBus(@NotNull IonCore plugin, @NotNull DatabaseManager databaseManager, @NotNull JsonService jsonService) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
+        this.jsonService = jsonService;
         this.commandRegistrar = new NetworkCommandRegistrar(plugin);
         this.commandChannel = plugin.getConfig().getString("database.channels.commands",
                 plugin.getConfig().getString("database.channels.inbound", "ion_commands"));
@@ -84,7 +87,6 @@ public final class PostgresEventBus {
     private void scheduleReconnect() {
         if (!running || reconnectTimerId != -1)
             return;
-        // Exponential backoff or simple delay
         reconnectTimerId = databaseManager.getVertx().setTimer(5000, id -> {
             reconnectTimerId = -1;
             connectListener();
@@ -102,7 +104,7 @@ public final class PostgresEventBus {
         if (!running)
             return CompletableFuture.completedFuture(null);
         CompletableFuture<Void> future = new CompletableFuture<>();
-        String jsonString = "{}"; // Placeholder
+        String jsonString = jsonService.toJson(payload);
         databaseManager.getPgPool()
                 .preparedQuery("SELECT pg_notify($1, $2)")
                 .execute(Tuple.of(eventChannel, jsonString))
@@ -117,6 +119,26 @@ public final class PostgresEventBus {
     private void handleNotification(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isEmpty())
             return;
+        // In this phase, we simply pass the raw JSON to the registrar.
+        // The registrar or handlers will use JsonService to parse specific types as needed.
+        // For now, we assume the payload contains a "type" field at the root or is wrapped in an envelope.
+        // TODO: Implement CommandEnvelope unwrapping in Phase 2.
+        // For now, we parse partially to find the type, or let the registrar handle it.
+        // Given the current registrar signature (String commandType, Consumer<String> handler),
+        // we need to extract the type here.
+        try {
+            var root = jsonService.readTree(jsonPayload);
+            if (root.has("type")) {
+                String type = root.get("type").asText();
+                commandRegistrar.dispatch(type, jsonPayload);
+            } else if (root.has("payload") && root.get("payload").has("type")) {
+                // Handle Envelope unwrapping if present
+                String type = root.get("payload").get("type").asText();
+                commandRegistrar.dispatch(type, jsonPayload);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to parse incoming notification: " + e.getMessage());
+        }
     }
 
     public void shutdown() {

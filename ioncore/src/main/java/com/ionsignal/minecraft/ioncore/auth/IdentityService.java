@@ -4,8 +4,7 @@ import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.api.auth.IonIdentity;
 import com.ionsignal.minecraft.ioncore.api.events.IonUserLinkedEvent;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
-
-import io.vertx.sqlclient.Tuple;
+import com.ionsignal.minecraft.ioncore.json.JsonService;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -17,6 +16,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
+import io.vertx.sqlclient.Tuple;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.security.SecureRandom;
 import java.util.Map;
 import java.util.Optional;
@@ -27,13 +30,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public class IdentityService {
     private final IonCore plugin;
     private final DatabaseManager databaseManager;
+    private final JsonService jsonService;
     private final Map<UUID, IonIdentity> identityCache = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
     private final String webUrl;
 
-    public IdentityService(IonCore plugin, DatabaseManager databaseManager) {
+    public IdentityService(IonCore plugin, DatabaseManager databaseManager, JsonService jsonService) {
         this.plugin = plugin;
         this.databaseManager = databaseManager;
+        this.jsonService = jsonService;
         String configUrl = plugin.getConfig().getString("web.url", "https://localhost:3002");
         // Strip trailing slash if present
         this.webUrl = configUrl.endsWith("/") ? configUrl.substring(0, configUrl.length() - 1) : configUrl;
@@ -136,23 +141,16 @@ public class IdentityService {
 
     /**
      * Callback for when the EventBus receives a PLAYER_LINKED message.
-     * 
+     *
      * @param payloadJson
      *            The raw JSON payload from the database event.
      */
     public void handleExternalLinkEvent(String payloadJson) {
-        // We assume the payload contains at least the minecraftUuid.
-        // For simplicity in this phase, we just re-fetch the identity to ensure consistency.
-        // In a more optimized version, we could parse the JSON and update the cache directly.
-        // Parse UUID from JSON (Simple string search to avoid GSON dependency in this specific class if
-        // possible,
-        // but IonCore usually has GSON available via transitive deps or we can use regex).
-        // Assuming standard JSON format: {"minecraftUuid":"..."}
+        // Updated to use Jackson (JsonService) instead of Regex
         try {
-            // Quick regex extract to avoid heavy parsing just for the ID
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"minecraftUuid\"\\s*:\\s*\"([^\"]+)\"").matcher(payloadJson);
-            if (m.find()) {
-                UUID uuid = UUID.fromString(m.group(1));
+            JsonNode root = jsonService.readTree(payloadJson);
+            if (root.has("minecraftUuid")) {
+                UUID uuid = UUID.fromString(root.get("minecraftUuid").asText());
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null && player.isOnline()) {
                     // Refresh Identity

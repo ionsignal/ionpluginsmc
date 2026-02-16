@@ -7,6 +7,7 @@ import com.ionsignal.minecraft.ioncore.database.impl.PostgresDocumentStore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
+import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.listeners.IdentityListener;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
@@ -20,11 +21,12 @@ import org.jetbrains.annotations.NotNull;
 public final class ServiceContainer {
     private final IonCore plugin;
 
-    // Network & Data Services
+    // Infrastructure Services
+    private JsonService jsonService; // Added
     private DatabaseManager databaseManager;
     private DocumentStore documentStore;
     private PostgresEventBus eventBus;
-    private IdentityService identityService; // Added
+    private IdentityService identityService;
 
     // Debug & Visualization Services
     private DebugSessionRegistry debugRegistry;
@@ -40,32 +42,29 @@ public final class ServiceContainer {
     public void initialize() {
         plugin.getLogger().info("Initializing Core Services...");
         try {
+            // JSON Service (Foundation)
+            this.jsonService = new JsonService();
             // Database Init
             this.databaseManager = new DatabaseManager(plugin);
             this.databaseManager.initialize();
             // Initialize generic DocumentStore
             this.documentStore = new PostgresDocumentStore(databaseManager);
-
-            // Identity Service (Phase 2)
-            this.identityService = new IdentityService(plugin, databaseManager);
-
+            // Identity Service
+            this.identityService = new IdentityService(plugin, databaseManager, jsonService);
             // Event Bus
-            this.eventBus = new PostgresEventBus(plugin, databaseManager);
+            this.eventBus = new PostgresEventBus(plugin, databaseManager, jsonService);
             // Register Identity Handlers
             this.eventBus.getCommandRegistrar().registerHandler("PLAYER_LINKED", identityService::handleExternalLinkEvent);
             this.eventBus.initialize();
-
             // Debugger Visualizations
             this.visualizationRegistry = new VisualizationProviderRegistry();
             this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);
             // Start the Visualization Heartbeat (1 tick interval)
             DebugVisualizationTask task = new DebugVisualizationTask(debugRegistry, visualizationRegistry);
             this.visualizationTask = task.runTaskTimer(plugin, 1L, 1L);
-
             // Register Listeners
             // Note: EventListener handles Debug cleanup, IdentityListener handles Auth
             plugin.getServer().getPluginManager().registerEvents(new IdentityListener(identityService), plugin);
-
             plugin.getLogger().info("Core Services initialized successfully.");
         } catch (Exception e) {
             plugin.getLogger().severe("CRITICAL: Failed to initialize Core Services.");
@@ -91,6 +90,12 @@ public final class ServiceContainer {
         if (debugRegistry != null) {
             debugRegistry.clear();
         }
+    }
+
+    public @NotNull JsonService getJsonService() {
+        if (jsonService == null)
+            throw new IllegalStateException("JsonService not initialized");
+        return jsonService;
     }
 
     public @NotNull DatabaseManager getDatabaseManager() {
