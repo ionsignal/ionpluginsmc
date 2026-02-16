@@ -25,7 +25,12 @@ val devJar by configurations.creating {
 dependencies {
     implementation(libs.vertx.core)
     implementation(libs.vertx.pg.client)
-    implementation(libs.gson)
+
+    // Jackson (JSON-Only Architecture)
+    implementation(libs.jackson.databind)
+    implementation(libs.jackson.datatype.jdk8)
+    implementation(libs.jackson.datatype.jsr310)
+    implementation(libs.jackson.module.parameter.names)
 
     implementation(libs.classgraph)
 
@@ -47,8 +52,6 @@ tasks {
         relocate("io.netty", "com.ionsignal.minecraft.ioncore.lib.netty")
         relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ioncore.lib.jackson")
         relocate("com.ongres", "com.ionsignal.minecraft.ioncore.lib.ongres")
-        
-        relocate("com.google.gson", "com.ionsignal.minecraft.ioncore.lib.gson")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ioncore.lib.classgraph")
 
         exclude("META-INF/maven/**")

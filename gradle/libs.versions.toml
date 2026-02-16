@@ -3,6 +3,9 @@ minecraft = "1.21.10"
 paperweight = "2.0.0-beta.19"
 shadow = "9.3.1"
 
+# Jackson (Added for JSON-Only Architecture)
+jackson = "2.21.0"
+
 # Terra
 terra = "6.6.6-BETA+fb5e597a1"
 terra-manifest = "1.0.0-BETA+fb5e597a1"
@@ -35,6 +38,12 @@ shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 # Paper API
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "minecraft" }
 paperweight = { module = "io.papermc.paperweight.userdev:io.papermc.paperweight.userdev.gradle.plugin", version.ref = "paperweight" }
+
+# Jackson (Added)
+jackson-databind = { group = "com.fasterxml.jackson.core", name = "jackson-databind", version.ref = "jackson" }
+jackson-datatype-jdk8 = { group = "com.fasterxml.jackson.datatype", name = "jackson-datatype-jdk8", version.ref = "jackson" }
+jackson-datatype-jsr310 = { group = "com.fasterxml.jackson.datatype", name = "jackson-datatype-jsr310", version.ref = "jackson" }
+jackson-module-parameter-names = { group = "com.fasterxml.jackson.module", name = "jackson-module-parameter-names", version.ref = "jackson" }
 
 # Terra, Tectonic, Seismic
 terra-api = { group = "com.dfsek.terra", name = "api", version.ref = "terra" }
