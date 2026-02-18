@@ -49,6 +49,9 @@ public class Persona {
     @Nullable
     private UUID ownerId;
 
+    @Nullable
+    private UUID sessionId;
+
     private PersonaEntity personaEntity;
     private PhysicalBody physicalBody;
     private Location lastLocation;
@@ -71,25 +74,22 @@ public class Persona {
         return definitionId;
     }
 
-    /**
-     * Sets the owner ID for this persona.
-     * This ID corresponds to the User UUID in the web database.
-     *
-     * @param ownerId
-     *            The UUID of the owner.
-     */
     public void setOwnerId(@Nullable UUID ownerId) {
         this.ownerId = ownerId;
     }
 
-    /**
-     * Gets the owner ID for this persona.
-     *
-     * @return The UUID of the owner, or null if not set (e.g. system agent).
-     */
     @Nullable
     public UUID getOwnerId() {
         return ownerId;
+    }
+
+    public void setSessionId(@Nullable UUID sessionId) {
+        this.sessionId = sessionId;
+    }
+
+    @Nullable
+    public UUID getSessionId() {
+        return sessionId;
     }
 
     @SuppressWarnings("null")

@@ -3,6 +3,8 @@ package com.ionsignal.minecraft.ioncore.network;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
+import com.ionsignal.minecraft.ioncore.network.model.CommandEnvelope;
+import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
 
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnection;
@@ -11,6 +13,7 @@ import io.vertx.sqlclient.Tuple;
 import org.bukkit.Bukkit;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -33,9 +36,9 @@ public final class PostgresEventBus {
         this.jsonService = jsonService;
         this.commandRegistrar = new NetworkCommandRegistrar(plugin);
         this.commandChannel = plugin.getConfig().getString("database.channels.commands",
-                plugin.getConfig().getString("database.channels.inbound", "ion_commands"));
+                plugin.getConfig().getString("database.channels.inbound", "ion:commands"));
         this.eventChannel = plugin.getConfig().getString("database.channels.events",
-                plugin.getConfig().getString("database.channels.outbound", "ion_events"));
+                plugin.getConfig().getString("database.channels.outbound", "ion:events"));
     }
 
     public void initialize() {
@@ -119,25 +122,51 @@ public final class PostgresEventBus {
     private void handleNotification(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isEmpty())
             return;
-        // In this phase, we simply pass the raw JSON to the registrar.
-        // The registrar or handlers will use JsonService to parse specific types as needed.
-        // For now, we assume the payload contains a "type" field at the root or is wrapped in an envelope.
-        // TODO: Implement CommandEnvelope unwrapping in Phase 2.
-        // For now, we parse partially to find the type, or let the registrar handle it.
-        // Given the current registrar signature (String commandType, Consumer<String> handler),
-        // we need to extract the type here.
+        // Replaced manual parsing with strict Envelope unwrapping
         try {
-            var root = jsonService.readTree(jsonPayload);
-            if (root.has("type")) {
-                String type = root.get("type").asText();
-                commandRegistrar.dispatch(type, jsonPayload);
-            } else if (root.has("payload") && root.get("payload").has("type")) {
-                // Handle Envelope unwrapping if present
-                String type = root.get("payload").get("type").asText();
-                commandRegistrar.dispatch(type, jsonPayload);
+            // Unwrap the envelope
+            IonCommand command = unwrapEnvelope(jsonPayload);
+            if (command == null) {
+                // Warning logged in unwrapEnvelope
+                return;
             }
+            // Dispatch to typed handler
+            commandRegistrar.dispatch(command);
         } catch (Exception e) {
-            plugin.getLogger().warning("Failed to parse incoming notification: " + e.getMessage());
+            plugin.getLogger().severe("Critical error processing notification: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Unwraps a CommandEnvelope and extracts the typed IonCommand payload.
+     *
+     * @param json
+     *            The raw JSON string from the notification
+     * @return The typed command payload, or null if deserialization fails
+     */
+    private IonCommand unwrapEnvelope(String json) {
+        try {
+            // Deserialize to CommandEnvelope (Jackson handles polymorphic payload via IonCommand annotations)
+            CommandEnvelope envelope = jsonService.fromJson(json, CommandEnvelope.class);
+            // Validate payload
+            if (envelope.payload() == null) {
+                plugin.getLogger().warning("CommandEnvelope has null payload");
+                return null;
+            }
+            // Log successful deserialization at debug level
+            if (plugin.getLogger().isLoggable(Level.FINE)) {
+                plugin.getLogger().fine(
+                        "Unwrapped envelope " + envelope.id() + " with payload type: " +
+                                envelope.payload().getClass().getSimpleName());
+            }
+            return envelope.payload();
+
+        } catch (RuntimeException e) {
+            plugin.getLogger().severe("Failed to deserialize CommandEnvelope: " + e.getMessage());
+            String preview = json.length() > 200 ? json.substring(0, 200) + "..." : json;
+            plugin.getLogger().severe("Problematic JSON: " + preview);
+            return null;
         }
     }
 

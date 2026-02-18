@@ -84,6 +84,9 @@ public class ServiceContainer {
                     "CRITICAL: IonCore is missing or failed to enable. IonNerrus cannot start.");
         }
         try {
+            // Retrieve EventBus early for injection
+            var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
+            var eventBus = coreContainer.getEventBus();
             // Layer 1: Configuration
             PluginConfig config = new PluginConfig(plugin.getConfig());
             // Layer 2: Platform-specific managers
@@ -104,10 +107,7 @@ public class ServiceContainer {
             HudManager hudManager = initializeHudManager(plugin);
             CraftEngineService craftEngineService = initializeCraftEngine(plugin);
             // Layer 5.5: Retrieve Identity Service from IonCore
-            var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
             IdentityService identityService = coreContainer.getIdentityService();
-            // Retrieve EventBus for AgentService injection
-            var eventBus = coreContainer.getEventBus();
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
@@ -158,14 +158,15 @@ public class ServiceContainer {
             // Get DocumentStore instead of EntitySyncRepository
             DocumentStore documentStore = coreContainer.getDocumentStore();
             var commandRegistrar = coreContainer.getEventBus().getCommandRegistrar();
+            var eventBus = coreContainer.getEventBus();
             // Register the collection (Allow-List)
             documentStore.registerCollection(NetworkBootstrap.COLLECTION_PERSONA_MANIFESTS);
             plugin.getLogger().info("Registered document collection: " + NetworkBootstrap.COLLECTION_PERSONA_MANIFESTS);
             // Bootstrap (Commands from Web) - Inject dependencies
             NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService, documentStore, commandRegistrar);
             netBootstrap.registerAll();
-            // Listener (Events to Web)
-            plugin.getServer().getPluginManager().registerEvents(new NetworkEventListener(), plugin);
+            // Listener (Events to Web) - Inject EventBus
+            plugin.getServer().getPluginManager().registerEvents(new NetworkEventListener(eventBus), plugin);
             plugin.getLogger().info("Network Integration: Listeners registered.");
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());

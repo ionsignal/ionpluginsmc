@@ -11,8 +11,8 @@ database:
     maximum-pool-size: 5
     connection-timeout: 5000 # 5 seconds
   channels:
-    commands: "ion_commands"
-    events: "ion_events"
+    commands: "ion:commands"
+    events: "ion:events"
 
 # Web Configuration
 # Used for account linking and dashboard integration.

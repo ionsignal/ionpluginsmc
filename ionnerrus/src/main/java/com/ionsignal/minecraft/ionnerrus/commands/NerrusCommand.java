@@ -2,6 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.commands;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
+import com.ionsignal.minecraft.ionnerrus.agent.AgentService.AgentSpawnRequest;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -80,6 +81,7 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
                 }
                 return handleSpawn(player, args);
             }
+            // ... rest of cases ...
             case "remove" -> {
                 return handleRemove(sender, args);
             }
@@ -174,7 +176,11 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String skinNameToFetch = args.length > 2 ? args[2] : name;
-        agentService.spawnAgent(name, findSafeSpawningLocation(player.getLocation()), skinNameToFetch);
+        AgentSpawnRequest request = AgentSpawnRequest.fromCommand(
+                name,
+                findSafeSpawningLocation(player.getLocation()),
+                skinNameToFetch);
+        agentService.spawnAgent(request);
         player.sendMessage(Component.text("Spawned agent " + name, NamedTextColor.GREEN));
         return true;
     }

@@ -2,7 +2,9 @@ package com.ionsignal.minecraft.ioncore.json;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
@@ -17,13 +19,13 @@ public class JsonService {
     private final ObjectMapper objectMapper;
 
     public JsonService() {
-        this.objectMapper = new ObjectMapper();
-        // Register modules for modern Java support (Records, Optionals, Instant)
-        this.objectMapper.registerModule(new ParameterNamesModule());
-        this.objectMapper.registerModule(new Jdk8Module());
-        this.objectMapper.registerModule(new JavaTimeModule());
-        // Configuration for resilience
-        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        this.objectMapper = JsonMapper.builder()
+                .addModule(new ParameterNamesModule())
+                .addModule(new Jdk8Module())
+                .addModule(new JavaTimeModule())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
+                .build();
     }
 
     public ObjectMapper getObjectMapper() {
@@ -32,6 +34,7 @@ public class JsonService {
 
     public String toJson(Object object) {
         try {
+
             return objectMapper.writeValueAsString(object);
         } catch (IOException e) {
             throw new RuntimeException("Failed to serialize object to JSON", e);
@@ -40,6 +43,12 @@ public class JsonService {
 
     public <T> T fromJson(String json, Class<T> clazz) {
         try {
+            // Add debug logging for CommandEnvelope deserialization
+            if (clazz.equals(com.ionsignal.minecraft.ioncore.network.model.CommandEnvelope.class)) {
+                // Log at FINE level to avoid spam
+                java.util.logging.Logger.getLogger("IonCore").info(
+                        "Deserializing CommandEnvelope from: " + json.substring(0, Math.min(100, json.length())) + "...");
+            }
             return objectMapper.readValue(json, clazz);
         } catch (IOException e) {
             throw new RuntimeException("Failed to deserialize JSON to " + clazz.getSimpleName(), e);
