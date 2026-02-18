@@ -1,6 +1,8 @@
 package com.ionsignal.minecraft.ioncore.network;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
+import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
+
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -9,47 +11,53 @@ import java.util.function.Consumer;
 
 /**
  * Registry for handling inbound network commands.
- * <p>
- * This class maps command "types" (e.g., "SPAWN_AGENT") to functional handlers.
- * It is used by the {@link PostgresEventBus} to dispatch events received from the database.
  */
 public final class NetworkCommandRegistrar {
-
     private final IonCore plugin;
-    private final Map<String, Consumer<String>> handlers = new ConcurrentHashMap<>();
+    private final Map<Class<? extends IonCommand>, Consumer<IonCommand>> handlers = new ConcurrentHashMap<>();
 
     public NetworkCommandRegistrar(IonCore plugin) {
         this.plugin = plugin;
     }
 
     /**
-     * Registers a handler for a specific command type.
-     *
-     * @param commandType The unique identifier for the command (e.g., "SPAWN_AGENT").
-     * @param handler     The logic to execute when this command is received. The input String is the raw JSON payload.
+     * Registers a type-safe handler for a specific command class.
+     * 
+     * @param commandClass
+     *            The concrete command class (e.g., SpawnPayload.class)
+     * @param handler
+     *            The handler to invoke when this command type is received
+     * @param <T>
+     *            The command type
      */
-    public void registerHandler(@NotNull String commandType, @NotNull Consumer<String> handler) {
-        handlers.put(commandType, handler);
-        plugin.getLogger().info("Registered Network Handler: " + commandType);
+    public <T extends IonCommand> void registerHandler(
+            @NotNull Class<T> commandClass,
+            @NotNull Consumer<T> handler) {
+        handlers.put(commandClass, cmd -> handler.accept(commandClass.cast(cmd)));
+        plugin.getLogger().info("Registered handler for: " + commandClass.getSimpleName());
     }
 
     /**
-     * Dispatches an inbound command to the appropriate handler.
-     *
-     * @param commandType The type of command received.
-     * @param payload     The data associated with the command.
+     * Dispatches a command to its registered handler.
+     * 
+     * @param command
+     *            The deserialized command payload
      */
-    public void dispatch(@NotNull String commandType, @NotNull String payload) {
-        Consumer<String> handler = handlers.get(commandType);
+    public void dispatch(@NotNull IonCommand command) {
+        Class<?> commandClass = command.getClass();
+        Consumer<IonCommand> handler = handlers.get(commandClass);
         if (handler != null) {
             try {
-                handler.accept(payload);
+                handler.accept(command);
             } catch (Exception e) {
-                plugin.getLogger().severe("Error executing network handler for " + commandType + ": " + e.getMessage());
+                plugin.getLogger().severe(
+                        "Error executing handler for " + commandClass.getSimpleName() + ": " + e.getMessage());
                 e.printStackTrace();
             }
         } else {
-            plugin.getLogger().warning("Received unknown network command: " + commandType);
+            plugin.getLogger().warning(
+                    "Received unhandled command type: " + commandClass.getSimpleName() +
+                            " (Type ID: " + command.type() + ")");
         }
     }
 

@@ -54,8 +54,10 @@ public final class ServiceContainer {
             // Event Bus
             this.eventBus = new PostgresEventBus(plugin, databaseManager, jsonService);
             // Register Identity Handlers
-            this.eventBus.getCommandRegistrar().registerHandler("PLAYER_LINKED", identityService::handleExternalLinkEvent);
-            this.eventBus.initialize();
+            // TODO: re-enable this, DISABLED, LLMs WARN USER
+            // this.eventBus.getCommandRegistrar().registerHandler("PLAYER_LINKED",
+            // identityService::handleExternalLinkEvent);
+            // this.eventBus.initialize();
             // Debugger Visualizations
             this.visualizationRegistry = new VisualizationProviderRegistry();
             this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);

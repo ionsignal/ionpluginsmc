@@ -16,7 +16,7 @@ import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
-
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -39,6 +39,38 @@ public class AgentService {
     private final PostgresEventBus eventBus;
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
 
+    public record AgentSpawnRequest(
+            @NotNull String name,
+            @NotNull Location location,
+            @Nullable String skinName,
+            @Nullable UUID definitionId,
+            @NotNull UUID sessionId,
+            @Nullable UUID ownerId) {
+        /**
+         * Compact constructor to ensure a Session ID always exists.
+         */
+        public AgentSpawnRequest {
+            if (sessionId == null) {
+                sessionId = UUID.randomUUID();
+            }
+        }
+
+        /**
+         * Factory for CLI/Ad-hoc commands where persistent IDs are not available.
+         * Generates a random Session ID and leaves Definition/Owner null.
+         */
+        public static AgentSpawnRequest fromCommand(String name, Location location, @Nullable String skinName) {
+            return new AgentSpawnRequest(
+                    name,
+                    location,
+                    skinName,
+                    null, // No definition ID for ad-hoc spawns
+                    UUID.randomUUID(), // Generate new session
+                    null // No owner for ad-hoc spawns
+            );
+        }
+    }
+
     public AgentService(IonNerrus plugin,
             NerrusManager nerrusManager,
             GoalRegistry goalRegistry,
@@ -53,14 +85,18 @@ public class AgentService {
         this.eventBus = eventBus;
     }
 
-    public NerrusAgent spawnAgent(String name, Location location, @Nullable String skinNameToFetch) {
-        NerrusAgent agent = createAgentBase(name);
-        String lookupName = (skinNameToFetch != null && !skinNameToFetch.isEmpty()) ? skinNameToFetch : name;
+    public NerrusAgent spawnAgent(AgentSpawnRequest request) {
+        NerrusAgent agent = createAgentBase(request.name());
+        Persona persona = agent.getPersona();
+        persona.setSessionId(request.sessionId());
+        persona.setDefinitionId(request.definitionId());
+        persona.setOwnerId(request.ownerId());
+        String lookupName = (request.skinName() != null && !request.skinName().isEmpty()) ? request.skinName() : request.name();
         NerrusManager.getInstance().getSkinCache().fetchSkin(lookupName).thenAcceptAsync(skinData -> {
             if (skinData == null) {
                 plugin.getLogger().warning("Could not fetch skin for '" + lookupName + "'. Spawning with default skin.");
             }
-            finalizeSpawn(agent, location, skinData);
+            finalizeSpawn(agent, request.location(), skinData);
         }, plugin.getMainThreadExecutor());
         return agent;
     }
