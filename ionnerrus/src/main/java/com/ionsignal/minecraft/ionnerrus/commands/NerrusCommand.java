@@ -13,9 +13,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParam
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
-
-import com.ionsignal.minecraft.ioncore.api.auth.IonIdentity;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
+import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -146,26 +145,32 @@ public class NerrusCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean handleSpawn(Player player, String[] args) {
-        Optional<IonIdentity> identityOpt = identityService.getCachedIdentity(player.getUniqueId());
+        // TODO: Needs to be updated, see commented out
+        // Optional<MinecraftIdentity> identityOpt =
+        // identityService.getCachedIdentity(player.getUniqueId());
         // Identity is still loading (Race condition on join)
-        if (identityOpt.isEmpty()) {
-            player.sendMessage(Component.text("Verifying account status... Please try again in a moment.", NamedTextColor.GRAY));
-            return true;
-        }
+        // if (identityOpt.isEmpty()) {
+        // player.sendMessage(Component.text("Verifying account status... Please try again in a moment.",
+        // NamedTextColor.GRAY));
+        // return true;
+        // }
         // Identity loaded, but not linked
-        if (!identityOpt.get().isLinked()) {
-            player.sendMessage(Component.text("You must link your Minecraft account to Runemind to spawn agents.", NamedTextColor.RED));
-            // Provide a clickable button to re-send the link if they missed the join message
-            Component linkButton = Component.text("[Click here to Link Account]", NamedTextColor.GOLD, TextDecoration.BOLD)
-                    .hoverEvent(HoverEvent.showText(Component.text("Click to generate a new verification link", NamedTextColor.GRAY)))
-                    .clickEvent(ClickEvent.callback(audience -> {
-                        if (audience instanceof Player p) {
-                            identityService.initiateLinkingProcess(p);
-                        }
-                    }));
-            player.sendMessage(linkButton);
-            return true;
-        }
+        // if (!identityOpt.get().isLinked()) {
+        // player.sendMessage(Component.text("You must link your Minecraft account to Runemind to spawn
+        // agents.", NamedTextColor.RED));
+        // // Provide a clickable button to re-send the link if they missed the join message
+        // Component linkButton = Component.text("[Click here to Link Account]", NamedTextColor.GOLD,
+        // TextDecoration.BOLD)
+        // .hoverEvent(HoverEvent.showText(Component.text("Click to generate a new verification link",
+        // NamedTextColor.GRAY)))
+        // .clickEvent(ClickEvent.callback(audience -> {
+        // if (audience instanceof Player p) {
+        // identityService.initiateLinkingProcess(p);
+        // }
+        // }));
+        // player.sendMessage(linkButton);
+        // return true;
+        // }
         if (args.length < 2) {
             player.sendMessage(Component.text("Usage: /nerrus spawn <name> [skin]", NamedTextColor.RED));
             return true;

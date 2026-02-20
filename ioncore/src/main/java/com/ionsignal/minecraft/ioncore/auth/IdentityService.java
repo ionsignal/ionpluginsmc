@@ -1,10 +1,10 @@
 package com.ionsignal.minecraft.ioncore.auth;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
-import com.ionsignal.minecraft.ioncore.api.auth.IonIdentity;
-import com.ionsignal.minecraft.ioncore.api.events.IonUserLinkedEvent;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
+import com.ionsignal.minecraft.ioncore.network.model.IonUser;
+import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -31,7 +31,7 @@ public class IdentityService {
     private final IonCore plugin;
     private final DatabaseManager databaseManager;
     private final JsonService jsonService;
-    private final Map<UUID, IonIdentity> identityCache = new ConcurrentHashMap<>();
+    private final Map<UUID, Optional<IonUser>> identityCache = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
     private final String webUrl;
 
@@ -40,15 +40,15 @@ public class IdentityService {
         this.databaseManager = databaseManager;
         this.jsonService = jsonService;
         String configUrl = plugin.getConfig().getString("web.url", "https://localhost:3002");
-        // Strip trailing slash if present
         this.webUrl = configUrl.endsWith("/") ? configUrl.substring(0, configUrl.length() - 1) : configUrl;
     }
 
     /**
      * Retrieves the cached identity for a player.
      * Returns empty if the player's identity has not been loaded yet.
+     * Note: The inner Optional represents the Link status.
      */
-    public Optional<IonIdentity> getCachedIdentity(UUID uuid) {
+    public Optional<Optional<IonUser>> getCachedIdentity(UUID uuid) {
         return Optional.ofNullable(identityCache.get(uuid));
     }
 
@@ -59,23 +59,26 @@ public class IdentityService {
     /**
      * Asynchronously fetches the identity from the database and updates the cache.
      */
-    public CompletableFuture<IonIdentity> fetchIdentity(Player player) {
-        CompletableFuture<IonIdentity> future = new CompletableFuture<>();
-        // Join ion_users with users to get the web username
-        String query = "SELECT u.username FROM ion_users i JOIN users u ON i.user_id = u.id WHERE i.minecraft_uuid = $1";
+    public CompletableFuture<Optional<IonUser>> fetchIdentity(Player player) {
+        CompletableFuture<Optional<IonUser>> future = new CompletableFuture<>();
+        // Updated query to fetch fields required for IonUser (user_id, max_personas)
+        // We no longer join with 'users' table as IonUser doesn't carry web username
+        String query = "SELECT user_id, max_personas FROM ion_users WHERE minecraft_uuid = $1";
         databaseManager.getPgPool()
                 .preparedQuery(query)
                 .execute(Tuple.of(player.getUniqueId()))
                 .onSuccess(rows -> {
-                    IonIdentity identity;
+                    Optional<IonUser> userOpt;
                     if (rows.size() > 0) {
-                        String webUsername = rows.iterator().next().getString("username");
-                        identity = IonIdentity.linked(player.getUniqueId(), player.getName(), webUsername);
+                        var row = rows.iterator().next();
+                        MinecraftIdentity identity = new MinecraftIdentity(player.getUniqueId(), player.getName());
+                        IonUser user = new IonUser(row.getUUID("user_id"), identity);
+                        userOpt = Optional.of(user);
                     } else {
-                        identity = IonIdentity.unlinked(player.getUniqueId(), player.getName());
+                        userOpt = Optional.empty();
                     }
-                    identityCache.put(player.getUniqueId(), identity);
-                    future.complete(identity);
+                    identityCache.put(player.getUniqueId(), userOpt);
+                    future.complete(userOpt);
                 })
                 .onFailure(err -> {
                     plugin.getLogger().severe("Failed to fetch identity for " + player.getName() + ": " + err.getMessage());
@@ -115,7 +118,6 @@ public class IdentityService {
 
     private CompletableFuture<String> generateTicket(Player player) {
         CompletableFuture<String> future = new CompletableFuture<>();
-        // Generate 32-char hex token
         byte[] bytes = new byte[16];
         random.nextBytes(bytes);
         StringBuilder sb = new StringBuilder();
@@ -123,7 +125,6 @@ public class IdentityService {
             sb.append(String.format("%02x", b));
         }
         String token = sb.toString();
-        // Upsert ticket (1 hour expiry)
         String sql = "INSERT INTO verification_tickets (token, minecraft_uuid, minecraft_username, expires_at) " +
                 "VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour') " +
                 "ON CONFLICT (minecraft_uuid) " +
@@ -141,12 +142,8 @@ public class IdentityService {
 
     /**
      * Callback for when the EventBus receives a PLAYER_LINKED message.
-     *
-     * @param payloadJson
-     *            The raw JSON payload from the database event.
      */
     public void handleExternalLinkEvent(String payloadJson) {
-        // Updated to use Jackson (JsonService) instead of Regex
         try {
             JsonNode root = jsonService.readTree(payloadJson);
             if (root.has("minecraftUuid")) {
@@ -154,18 +151,15 @@ public class IdentityService {
                 Player player = Bukkit.getPlayer(uuid);
                 if (player != null && player.isOnline()) {
                     // Refresh Identity
-                    fetchIdentity(player).thenAccept(identity -> {
+                    fetchIdentity(player).thenAccept(userOpt -> {
                         Bukkit.getScheduler().runTask(plugin, () -> {
-                            // Fire Event
-                            Bukkit.getPluginManager().callEvent(new IonUserLinkedEvent(player, identity));
+                            // Removed IonUserLinkedEvent firing as it is deprecated
                             // User Feedback
-                            player.sendMessage(Component.text("Account successfully linked! Welcome, ", NamedTextColor.GREEN)
-                                    .append(Component.text(identity.webUsername().orElse("User"), NamedTextColor.YELLOW)));
+                            player.sendMessage(Component.text("Account successfully linked! Welcome.", NamedTextColor.GREEN));
                             player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
                         });
                     });
                 } else {
-                    // Player offline, just invalidate cache so next join fetches fresh
                     invalidate(uuid);
                 }
             }

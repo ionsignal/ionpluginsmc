@@ -21,6 +21,10 @@ dependencies {
     // JSON Schema Generation
     implementation(libs.jsonschema.generator)
     implementation(libs.jsonschema.module.jackson)
+    implementation(libs.jackson.databind)
+    implementation(libs.jackson.datatype.jdk8)
+    implementation(libs.jackson.datatype.jsr310)
+    implementation(libs.jackson.module.parameter.names)
     // CraftEngine
     compileOnly(files("libs/craft-engine-paper-plugin-0.0.64.jar"))
     // FancyHolograms

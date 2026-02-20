@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ioncore.network;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
-import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -14,50 +14,56 @@ import java.util.function.Consumer;
  */
 public final class NetworkCommandRegistrar {
     private final IonCore plugin;
-    private final Map<Class<? extends IonCommand>, Consumer<IonCommand>> handlers = new ConcurrentHashMap<>();
+    private final Map<String, Consumer<String>> handlers = new ConcurrentHashMap<>();
 
     public NetworkCommandRegistrar(IonCore plugin) {
         this.plugin = plugin;
     }
 
     /**
-     * Registers a type-safe handler for a specific command class.
-     * 
-     * @param commandClass
-     *            The concrete command class (e.g., SpawnPayload.class)
+     * Registers a handler for a specific command type ID.
+     *
+     * @param typeId
+     *            The command type string (e.g., "command:persona:spawn")
      * @param handler
-     *            The handler to invoke when this command type is received
-     * @param <T>
-     *            The command type
+     *            The handler to invoke with the raw JSON payload string
      */
-    public <T extends IonCommand> void registerHandler(
-            @NotNull Class<T> commandClass,
-            @NotNull Consumer<T> handler) {
-        handlers.put(commandClass, cmd -> handler.accept(commandClass.cast(cmd)));
-        plugin.getLogger().info("Registered handler for: " + commandClass.getSimpleName());
+    public void registerHandler(
+            @NotNull String typeId,
+            @NotNull Consumer<String> handler) {
+        if (handlers.containsKey(typeId)) {
+            plugin.getLogger().warning("Duplicate handler registration for type: " + typeId);
+        }
+        handlers.put(typeId, handler);
+        plugin.getLogger().info("Registered handler for Type ID: " + typeId);
     }
 
     /**
      * Dispatches a command to its registered handler.
-     * 
-     * @param command
-     *            The deserialized command payload
+     *
+     * @param payload
+     *            The raw JsonNode payload from the envelope
      */
-    public void dispatch(@NotNull IonCommand command) {
-        Class<?> commandClass = command.getClass();
-        Consumer<IonCommand> handler = handlers.get(commandClass);
+    public void dispatch(@NotNull JsonNode payload) {
+        if (!payload.has("type")) {
+            plugin.getLogger().warning("Received payload without 'type' discriminator. Dropping.");
+            return;
+        }
+        String typeId = payload.get("type").asText();
+        Consumer<String> handler = handlers.get(typeId);
         if (handler != null) {
             try {
-                handler.accept(command);
+                // Pass the raw JSON string to the handler
+                // This allows the handler to use its own ObjectMapper (Standard Jackson)
+                handler.accept(payload.toString());
             } catch (Exception e) {
                 plugin.getLogger().severe(
-                        "Error executing handler for " + commandClass.getSimpleName() + ": " + e.getMessage());
+                        "Error executing handler for " + typeId + ": " + e.getMessage());
                 e.printStackTrace();
             }
         } else {
             plugin.getLogger().warning(
-                    "Received unhandled command type: " + commandClass.getSimpleName() +
-                            " (Type ID: " + command.type() + ")");
+                    "Received unhandled command type: " + typeId);
         }
     }
 

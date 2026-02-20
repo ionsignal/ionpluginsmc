@@ -14,7 +14,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * Custom Jackson TypeIdResolver for IonEvent polymorphism.
  */
 public class IonEventTypeResolver extends TypeIdResolverBase {
-
     private static final Map<String, Class<? extends IonEvent>> typeRegistry = new ConcurrentHashMap<>();
 
     /**
