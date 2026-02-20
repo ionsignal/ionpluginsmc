@@ -17,8 +17,9 @@ public class IdentityListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         // Async fetch
-        identityService.fetchIdentity(event.getPlayer()).thenAccept(identity -> {
-            if (!identity.isLinked()) {
+        identityService.fetchIdentity(event.getPlayer()).thenAccept(userOpt -> {
+            // Check if Optional is empty (Unlinked)
+            if (userOpt.isEmpty()) {
                 // If not linked, prompt them
                 identityService.initiateLinkingProcess(event.getPlayer());
             }

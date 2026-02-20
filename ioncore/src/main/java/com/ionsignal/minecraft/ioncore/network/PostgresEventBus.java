@@ -4,13 +4,14 @@ import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.network.model.CommandEnvelope;
-import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
 
 import io.vertx.core.Vertx;
-import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Tuple;
+import io.vertx.pgclient.pubsub.PgSubscriber;
 
 import org.bukkit.Bukkit;
+
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
@@ -19,16 +20,15 @@ import org.jetbrains.annotations.NotNull;
 
 public final class PostgresEventBus {
     private final IonCore plugin;
-    private final DatabaseManager databaseManager;
     private final JsonService jsonService;
+    private final DatabaseManager databaseManager;
     private final NetworkCommandRegistrar commandRegistrar;
 
     private final String commandChannel;
     private final String eventChannel;
 
-    private PgConnection listenerConnection;
+    private PgSubscriber subscriber;
     private boolean running = false;
-    private long reconnectTimerId = -1;
 
     public PostgresEventBus(@NotNull IonCore plugin, @NotNull DatabaseManager databaseManager, @NotNull JsonService jsonService) {
         this.plugin = plugin;
@@ -47,52 +47,31 @@ public final class PostgresEventBus {
         this.running = true;
         plugin.getLogger().info("Initializing PostgresEventBus (Vert.x 5.0)...");
         plugin.getLogger().info("Channels -> Commands: " + commandChannel + " | Events: " + eventChannel);
-        connectListener();
+        // Start PgSubscriber through Vert.x
+        start();
     }
 
-    private void connectListener() {
+    private void start() {
         if (!running)
             return;
         Vertx vertx = databaseManager.getVertx();
-        PgConnection.connect(vertx, databaseManager.getConnectOptions())
-                .onSuccess(conn -> {
-                    this.listenerConnection = conn;
-                    plugin.getLogger().info("EventBus Listener Connected.");
-                    // Handle Connection Loss
-                    conn.closeHandler(v -> handleClose("Connection Closed"));
-                    conn.exceptionHandler(e -> handleClose("Exception: " + e.getMessage()));
-                    // Setup Notification Handler
-                    conn.notificationHandler(notification -> {
-                        if (!notification.getChannel().equals(commandChannel))
-                            return;
-                        // Bridge to Main Thread
-                        Bukkit.getScheduler().runTask(plugin, () -> handleNotification(notification.getPayload()));
-                    });
-                    conn.query("LISTEN " + commandChannel).execute()
-                            .onFailure(e -> {
-                                plugin.getLogger().warning("Failed to issue LISTEN command: " + e.getMessage());
-                                conn.close();
-                            });
-                })
-                .onFailure(e -> {
-                    plugin.getLogger().warning("EventBus Listener Connection Failed: " + e.getMessage());
-                    scheduleReconnect();
-                });
-    }
-
-    private void handleClose(String reason) {
-        if (!running)
-            return;
-        plugin.getLogger().warning("EventBus Listener Lost (" + reason + "). Reconnecting...");
-        scheduleReconnect();
-    }
-
-    private void scheduleReconnect() {
-        if (!running || reconnectTimerId != -1)
-            return;
-        reconnectTimerId = databaseManager.getVertx().setTimer(5000, id -> {
-            reconnectTimerId = -1;
-            connectListener();
+        this.subscriber = PgSubscriber.subscriber(vertx, databaseManager.getConnectOptions());
+        this.subscriber.reconnectPolicy(retries -> {
+            long delay = Math.min(retries * 1000L, 10000L);
+            if (running) {
+                plugin.getLogger().warning("EventBus connection lost. Reconnecting in " + delay + "ms (Attempt " + (retries + 1) + ")");
+            }
+            return delay;
+        });
+        this.subscriber.channel(commandChannel).handler(payload -> {
+            Bukkit.getScheduler().runTask(plugin, () -> handleNotification(payload));
+        });
+        this.subscriber.connect().onComplete(ar -> {
+            if (ar.succeeded()) {
+                plugin.getLogger().info("EventBus Listener Connected.");
+            } else {
+                plugin.getLogger().warning("EventBus Listener Connection Failed: " + ar.cause().getMessage());
+            }
         });
     }
 
@@ -122,16 +101,12 @@ public final class PostgresEventBus {
     private void handleNotification(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isEmpty())
             return;
-        // Replaced manual parsing with strict Envelope unwrapping
         try {
-            // Unwrap the envelope
-            IonCommand command = unwrapEnvelope(jsonPayload);
-            if (command == null) {
-                // Warning logged in unwrapEnvelope
+            JsonNode payloadNode = unwrapEnvelope(jsonPayload);
+            if (payloadNode == null) {
                 return;
             }
-            // Dispatch to typed handler
-            commandRegistrar.dispatch(command);
+            commandRegistrar.dispatch(payloadNode);
         } catch (Exception e) {
             plugin.getLogger().severe("Critical error processing notification: " + e.getMessage());
             e.printStackTrace();
@@ -139,31 +114,27 @@ public final class PostgresEventBus {
     }
 
     /**
-     * Unwraps a CommandEnvelope and extracts the typed IonCommand payload.
+     * Unwraps a CommandEnvelope and extracts the raw JsonNode payload.
      *
      * @param json
      *            The raw JSON string from the notification
-     * @return The typed command payload, or null if deserialization fails
+     * @return The payload JsonNode, or null if deserialization fails
      */
-    private IonCommand unwrapEnvelope(String json) {
+    private JsonNode unwrapEnvelope(String json) {
         try {
-            // Deserialize to CommandEnvelope (Jackson handles polymorphic payload via IonCommand annotations)
             CommandEnvelope envelope = jsonService.fromJson(json, CommandEnvelope.class);
-            // Validate payload
             if (envelope.payload() == null) {
                 plugin.getLogger().warning("CommandEnvelope has null payload");
                 return null;
             }
-            // Log successful deserialization at debug level
             if (plugin.getLogger().isLoggable(Level.FINE)) {
                 plugin.getLogger().fine(
-                        "Unwrapped envelope " + envelope.id() + " with payload type: " +
-                                envelope.payload().getClass().getSimpleName());
+                        "Unwrapped envelope " + envelope.id() + ". Payload is generic JsonNode.");
             }
             return envelope.payload();
-
         } catch (RuntimeException e) {
             plugin.getLogger().severe("Failed to deserialize CommandEnvelope: " + e.getMessage());
+            e.printStackTrace();
             String preview = json.length() > 200 ? json.substring(0, 200) + "..." : json;
             plugin.getLogger().severe("Problematic JSON: " + preview);
             return null;
@@ -172,16 +143,9 @@ public final class PostgresEventBus {
 
     public void shutdown() {
         this.running = false;
-        if (reconnectTimerId != -1) {
-            try {
-                databaseManager.getVertx().cancelTimer(reconnectTimerId);
-            } catch (Exception ignored) {
-                // error
-            }
-        }
-        if (listenerConnection != null) {
-            listenerConnection.close();
-            listenerConnection = null;
+        if (subscriber != null) {
+            subscriber.close();
+            subscriber = null;
         }
         commandRegistrar.clear();
         plugin.getLogger().info("PostgresEventBus stopped.");

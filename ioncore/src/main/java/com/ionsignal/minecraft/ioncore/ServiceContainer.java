@@ -22,7 +22,7 @@ public final class ServiceContainer {
     private final IonCore plugin;
 
     // Infrastructure Services
-    private JsonService jsonService; // Added
+    private JsonService jsonService;
     private DatabaseManager databaseManager;
     private DocumentStore documentStore;
     private PostgresEventBus eventBus;
@@ -57,7 +57,7 @@ public final class ServiceContainer {
             // TODO: re-enable this, DISABLED, LLMs WARN USER
             // this.eventBus.getCommandRegistrar().registerHandler("PLAYER_LINKED",
             // identityService::handleExternalLinkEvent);
-            // this.eventBus.initialize();
+            this.eventBus.initialize();
             // Debugger Visualizations
             this.visualizationRegistry = new VisualizationProviderRegistry();
             this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);

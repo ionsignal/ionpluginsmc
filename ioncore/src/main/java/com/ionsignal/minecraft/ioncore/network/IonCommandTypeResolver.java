@@ -12,8 +12,6 @@ import java.util.Map;
 
 /**
  * Custom Jackson TypeIdResolver for IonCommand polymorphism.
- * Allows Core to deserialize command payloads without compile-time
- * knowledge of concrete implementations (which live in Nerrus).
  */
 public class IonCommandTypeResolver extends TypeIdResolverBase {
     private static final Map<String, Class<? extends IonCommand>> typeRegistry = new ConcurrentHashMap<>();

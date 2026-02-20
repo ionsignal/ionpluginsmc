@@ -1,8 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
-import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
-import com.ionsignal.minecraft.ioncore.network.IonCommandTypeResolver;
 import com.ionsignal.minecraft.ioncore.network.NetworkCommandRegistrar;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
@@ -18,6 +16,12 @@ import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.TeleportPayload;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -26,8 +30,6 @@ import org.bukkit.entity.Player;
 import java.util.Optional;
 import java.util.logging.Level;
 
-// TODO: THIS CLASS IF ROUGH DRAFT
-
 public class NetworkBootstrap {
     public static final String COLLECTION_PERSONA_MANIFESTS = "persona_manifests";
 
@@ -35,6 +37,7 @@ public class NetworkBootstrap {
     private final AgentService agentService;
     private final DocumentStore documentStore;
     private final NetworkCommandRegistrar commandRegistrar;
+    private final ObjectMapper mapper;
 
     public NetworkBootstrap(IonNerrus plugin,
             AgentService agentService,
@@ -44,60 +47,79 @@ public class NetworkBootstrap {
         this.agentService = agentService;
         this.documentStore = documentStore;
         this.commandRegistrar = commandRegistrar;
+        this.mapper = new ObjectMapper()
+                .registerModule(new ParameterNamesModule())
+                .registerModule(new Jdk8Module())
+                .registerModule(new JavaTimeModule())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     public void registerAll() {
-        // 1. Type Registration (Teach Jackson)
-        // We wrap this in a try-catch to handle plugin reloads where Core might still hold references.
-        // If IonNerrus is reloaded, the Core's static registry will conflict with the new classloader's
-        // classes.
+        // Spawn
+        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_SPAWN.getValue(), json -> {
+            deserializeAndHandle(json, SpawnPayload.class, this::handleSpawnAgent);
+        });
+        // Despawn
+        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_DESPAWN.getValue(), json -> {
+            deserializeAndHandle(json, DespawnPayload.class, this::handleDespawnAgent);
+        });
+        // Teleport
+        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_TELEPORT.getValue(), json -> {
+            deserializeAndHandle(json, TeleportPayload.class, payload -> {
+                plugin.getLogger().info("Teleport command received (Not implemented yet)");
+            });
+        });
+        // Skin Update
+        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_SKIN_UPDATE.getValue(), json -> {
+            deserializeAndHandle(json, SkinUpdatePayload.class, payload -> {
+                plugin.getLogger().info("Skin update command received (Not implemented yet)");
+            });
+        });
+        plugin.getLogger().info("NetworkBootstrap: Listening for SPAWN_AGENT and DESPAWN_AGENT via String Bridge.");
+    }
+
+    /**
+     * Helper to bridge Raw JSON String -> Standard Typed Object -> Handler.
+     */
+    private <T> void deserializeAndHandle(String json, Class<T> clazz, java.util.function.Consumer<T> handler) {
         try {
-            IonCommandTypeResolver.registerType(IonCommandType.COMMAND_PERSONA_SPAWN.getValue(), SpawnPayload.class);
-            IonCommandTypeResolver.registerType(IonCommandType.COMMAND_PERSONA_DESPAWN.getValue(), DespawnPayload.class);
-            IonCommandTypeResolver.registerType(IonCommandType.COMMAND_PERSONA_TELEPORT.getValue(), TeleportPayload.class);
-            IonCommandTypeResolver.registerType(IonCommandType.COMMAND_PERSONA_SKIN_UPDATE.getValue(), SkinUpdatePayload.class);
-        } catch (IllegalArgumentException e) {
-            plugin.getLogger().severe("CRITICAL: Network Type Registry Collision. " +
-                    "This usually happens after a plugin reload. Please RESTART the server to ensure network stability.");
+            T payload = mapper.readValue(json, clazz);
+            handler.accept(payload);
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.SEVERE, "Failed to deserialize " + clazz.getSimpleName(), e);
         }
-        // 2. Handler Registration (Teach Core)
-        // Use injected registrar with typed class keys to route commands to specific methods.
-        commandRegistrar.registerHandler(SpawnPayload.class, this::handleSpawnAgent);
-        commandRegistrar.registerHandler(DespawnPayload.class, this::handleDespawnAgent);
-        plugin.getLogger().info("NetworkBootstrap: Listening for SPAWN_AGENT and DESPAWN_AGENT.");
     }
 
     private void handleSpawnAgent(SpawnPayload payload) {
         if (payload == null)
             return;
-        // 1. Fetch Manifest (Async) to get the Agent's Name
-        // The SpawnPayload contains IDs but not the display name, which lives in the manifest.
+        // Validate Owner nesting to prevent NPEs (Risk B mitigation)
+        if (payload.owner() == null || payload.owner().identity() == null) {
+            plugin.getLogger().warning("Received SpawnPayload with invalid owner structure. Ignoring.");
+            return;
+        }
+        // Fetch Manifest (Async)
         documentStore.fetchDocument(COLLECTION_PERSONA_MANIFESTS, payload.definitionId())
                 .thenAccept(optJson -> {
                     if (optJson.isEmpty()) {
                         plugin.getLogger().warning("Cannot spawn agent " + payload.definitionId() + ": Manifest not found.");
                         return;
                     }
-
                     try {
-                        // Deserialize Manifest
-                        var jsonService = IonCore.getInstance().getServiceContainer().getJsonService();
-                        AgentConfig manifest = jsonService.fromJson(optJson.get(), AgentConfig.class);
-                        // 2. Switch to Main Thread for Spawning
-                        // Critical: We must not touch Bukkit API (Worlds, Players) from the async thread.
+                        // Use local mapper for Manifest as well to be safe
+                        AgentConfig manifest = mapper.readValue(optJson.get(), AgentConfig.class);
                         Bukkit.getScheduler().runTask(plugin, () -> {
                             Location spawnLoc = resolveSpawnLocation(payload.location());
                             if (spawnLoc == null) {
                                 return; // Error logged in resolveSpawnLocation
                             }
-                            // Construct the internal request
                             AgentSpawnRequest request = new AgentSpawnRequest(
                                     manifest.name(),
                                     spawnLoc,
-                                    null, // Skin is handled by AgentService fetching via name/manifest
+                                    null,
                                     payload.definitionId(),
                                     payload.sessionId(),
-                                    payload.owner().uuid());
+                                    payload.owner().identity().uuid());
 
                             agentService.spawnAgent(request);
                         });
@@ -122,8 +144,6 @@ public class NetworkBootstrap {
             if (target.isPresent()) {
                 agentService.removeAgent(target.get().getName());
             } else {
-                // This is common if the server restarted and the web dashboard is out of sync.
-                // We log it as a warning but it's effectively a successful "ensure despawned" operation.
                 plugin.getLogger().warning("Received despawn request for unknown agent definition: " + payload.definitionId());
             }
         });
@@ -131,11 +151,6 @@ public class NetworkBootstrap {
 
     /**
      * Resolves the polymorphic SpawnLocation into a concrete Bukkit Location.
-     * Performs validation on Worlds and Players.
-     *
-     * @param location
-     *            The generated model location.
-     * @return A valid Bukkit Location, or null if resolution failed.
      */
     private Location resolveSpawnLocation(SpawnLocation location) {
         if (location instanceof CoordinateSpawnLocation coord) {
