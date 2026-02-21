@@ -95,7 +95,8 @@ public class IonNerrus extends JavaPlugin {
                     this,
                     services.getNerrusManager(),
                     services.getChatBubbleService(),
-                    services.getHudManager());
+                    services.getHudManager(),
+                    services.getNerrusBridge());
             this.listenerRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register listeners: " + e.getMessage());

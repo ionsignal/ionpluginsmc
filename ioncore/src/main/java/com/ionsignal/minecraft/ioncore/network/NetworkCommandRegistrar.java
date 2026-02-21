@@ -26,7 +26,8 @@ public final class NetworkCommandRegistrar {
      * @param typeId
      *            The command type string (e.g., "command:persona:spawn")
      * @param handler
-     *            The handler to invoke with the raw JSON payload string
+     *            The handler to invoke with the raw JSON String payload.
+     *            [MODIFIED] Signature changed to accept String instead of JsonNode.
      */
     public void registerHandler(
             @NotNull String typeId,
@@ -45,6 +46,10 @@ public final class NetworkCommandRegistrar {
      *            The raw JsonNode payload from the envelope
      */
     public void dispatch(@NotNull JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            plugin.getLogger().warning("Dispatch received null payload. Dropping.");
+            return;
+        }
         if (!payload.has("type")) {
             plugin.getLogger().warning("Received payload without 'type' discriminator. Dropping.");
             return;
@@ -53,9 +58,8 @@ public final class NetworkCommandRegistrar {
         Consumer<String> handler = handlers.get(typeId);
         if (handler != null) {
             try {
-                // Pass the raw JSON string to the handler
-                // This allows the handler to use its own ObjectMapper (Standard Jackson)
-                handler.accept(payload.toString());
+                String jsonString = payload.toString();
+                handler.accept(jsonString);
             } catch (Exception e) {
                 plugin.getLogger().severe(
                         "Error executing handler for " + typeId + ": " + e.getMessage());

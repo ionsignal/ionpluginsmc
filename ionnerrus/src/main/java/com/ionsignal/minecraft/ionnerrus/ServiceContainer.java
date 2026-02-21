@@ -1,3 +1,5 @@
+// src/main/java/com/ionsignal/minecraft/ionnerrus/ServiceContainer.java
+
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
@@ -9,8 +11,8 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
-import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkBootstrap;
-import com.ionsignal.minecraft.ionnerrus.bootstrap.NetworkEventListener;
+// [MODIFIED] Removed NetworkBootstrap and NetworkEventListener imports; replaced by NerrusBridge
+import com.ionsignal.minecraft.ionnerrus.network.NerrusBridge;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
@@ -18,6 +20,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
 import org.bukkit.plugin.Plugin;
+import org.jetbrains.annotations.Nullable; // [ADDED] for @Nullable on nerrusBridge field and getter
 
 /**
  * Central service container managing the lifecycle of all plugin services.
@@ -48,6 +51,10 @@ public class ServiceContainer {
     // Auth Service (From IonCore)
     private final IdentityService identityService;
 
+    // Networking
+    @Nullable
+    private final NerrusBridge nerrusBridge;
+
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
             PluginConfig config,
@@ -60,7 +67,8 @@ public class ServiceContainer {
             ChatBubbleService chatBubbleService,
             HudManager hudManager,
             CraftEngineService craftEngineService,
-            IdentityService identityService) {
+            IdentityService identityService,
+            @Nullable NerrusBridge nerrusBridge) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -74,6 +82,7 @@ public class ServiceContainer {
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
         this.identityService = identityService;
+        this.nerrusBridge = nerrusBridge;
     }
 
     public static ServiceContainer initialize(IonNerrus plugin) {
@@ -121,9 +130,10 @@ public class ServiceContainer {
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             // Layer 7: Network Bootstrap (Wiring)
+            NerrusBridge nerrusBridge = null;
             boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
             if (isIonCoreEnabled) {
-                initializeNetworking(plugin, agentService);
+                nerrusBridge = initializeNetworking(plugin, agentService);
             } else {
                 plugin.getLogger().info("IonCore not found. Running in standalone offline mode.");
             }
@@ -141,7 +151,8 @@ public class ServiceContainer {
                     chatBubbleService,
                     hudManager,
                     craftEngineService,
-                    identityService);
+                    identityService,
+                    nerrusBridge);
         } catch (ServiceInitializationException e) {
             throw e;
         } catch (Exception e) {
@@ -150,7 +161,7 @@ public class ServiceContainer {
         }
     }
 
-    private static void initializeNetworking(IonNerrus plugin, AgentService agentService) {
+    private static @Nullable NerrusBridge initializeNetworking(IonNerrus plugin, AgentService agentService) {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
             // Resolve IonCore Dependencies ONCE at the boundary
@@ -160,17 +171,16 @@ public class ServiceContainer {
             var commandRegistrar = coreContainer.getEventBus().getCommandRegistrar();
             var eventBus = coreContainer.getEventBus();
             // Register the collection (Allow-List)
-            documentStore.registerCollection(NetworkBootstrap.COLLECTION_PERSONA_MANIFESTS);
-            plugin.getLogger().info("Registered document collection: " + NetworkBootstrap.COLLECTION_PERSONA_MANIFESTS);
-            // Bootstrap (Commands from Web) - Inject dependencies
-            NetworkBootstrap netBootstrap = new NetworkBootstrap(plugin, agentService, documentStore, commandRegistrar);
-            netBootstrap.registerAll();
-            // Listener (Events to Web) - Inject EventBus
-            plugin.getServer().getPluginManager().registerEvents(new NetworkEventListener(eventBus), plugin);
-            plugin.getLogger().info("Network Integration: Listeners registered.");
+            documentStore.registerCollection(NerrusBridge.COLLECTION_PERSONA_MANIFESTS);
+            plugin.getLogger().info("Registered document collection: " + NerrusBridge.COLLECTION_PERSONA_MANIFESTS);
+            // Nerrus bridge
+            NerrusBridge bridge = new NerrusBridge(plugin, agentService, documentStore, eventBus, commandRegistrar);
+            plugin.getLogger().info("Network Integration: NerrusBridge initialized.");
+            return bridge;
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Network Integration: " + e.getMessage());
             e.printStackTrace();
+            return null;
         }
     }
 
@@ -335,6 +345,16 @@ public class ServiceContainer {
         return identityService;
     }
 
+    /**
+     * Returns the network bridge, or null if running in standalone mode.
+     *
+     * @return NerrusBridge instance, or null if standalone
+     */
+    @Nullable
+    public NerrusBridge getNerrusBridge() {
+        return nerrusBridge;
+    }
+
     public void shutdown() {
         plugin.getLogger().info("Shutting down service container...");
         // Layer 6: High-level services first
@@ -362,6 +382,9 @@ public class ServiceContainer {
             shutdownService("HudManager", hudManager::shutdown);
         }
         // Layer 1: Configuration (no cleanup needed)
+        // NerrusBridge has no shutdown — its Bukkit listener is cleared by
+        // ListenerRegistrar.unregisterAll()
+        // and its command handlers are cleared by PostgresEventBus.shutdown() in IonCore.
         plugin.getLogger().info("Service container shutdown complete.");
     }
 
