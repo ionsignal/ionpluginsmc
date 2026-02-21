@@ -6,11 +6,14 @@ import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.listeners.CraftEngineReloadListener;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
+import com.ionsignal.minecraft.ionnerrus.network.NerrusBridge;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.PluginManager;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Registers all event listeners with the Bukkit event system.
@@ -21,12 +24,20 @@ public class ListenerRegistrar {
     private final NerrusManager nerrusManager;
     private final ChatBubbleService chatBubbleService;
     private final HudManager hudManager;
+    @Nullable
+    private final NerrusBridge nerrusBridge;
 
-    public ListenerRegistrar(IonNerrus plugin, NerrusManager nerrusManager, ChatBubbleService chatBubbleService, HudManager hudManager) {
+    public ListenerRegistrar(
+            IonNerrus plugin,
+            NerrusManager nerrusManager,
+            ChatBubbleService chatBubbleService,
+            HudManager hudManager,
+            @Nullable NerrusBridge nerrusBridge) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
+        this.nerrusBridge = nerrusBridge;
     }
 
     /**
@@ -49,6 +60,14 @@ public class ListenerRegistrar {
         if (hudManager != null) {
             manager.registerEvents(new CraftEngineReloadListener(plugin, hudManager), plugin);
             plugin.getLogger().info("Registered listener for CraftEngine reload events.");
+        }
+        // NerrusBridge handles both inbound command routing and outbound event publishing.
+        // Null when IonCore is absent or network initialization failed — safe to skip.
+        if (nerrusBridge != null) {
+            manager.registerEvents(nerrusBridge, plugin);
+            plugin.getLogger().info("NerrusBridge registered (IonCore connected).");
+        } else {
+            plugin.getLogger().info("NerrusBridge is null — running in standalone mode, outbound events disabled.");
         }
         plugin.getLogger().info("Registered event listeners.");
     }

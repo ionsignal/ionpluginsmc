@@ -14,12 +14,6 @@ import com.ionsignal.minecraft.ionnerrus.network.model.PlayerJoinPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.PlayerQuitPayload;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
-
 import org.bukkit.entity.Player;
 
 import org.jetbrains.annotations.NotNull;
@@ -34,21 +28,12 @@ import java.util.logging.Level;
  * Centralizes logic for converting Bukkit/Persona state into generated Network Models.
  */
 public class PayloadFactory {
-    // Standard Mapper to ensure correct serialization of IonNerrus POJOs (Enums, etc.)
-    // This avoids the "Shaded Jackson" problem where IonCore ignores @JsonValue annotations.
-    private static final ObjectMapper standardMapper = new ObjectMapper()
-            .registerModule(new ParameterNamesModule())
-            .registerModule(new Jdk8Module())
-            .registerModule(new JavaTimeModule())
-            .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-            .enable(SerializationFeature.WRITE_ENUMS_USING_TO_STRING);
-
     /**
      * Helper to serialize POJO to JSON String using standard mapper.
      */
     private static String toJsonString(Object pojo) {
         try {
-            return standardMapper.writeValueAsString(pojo);
+            return NerrusObjectMapper.INSTANCE.writeValueAsString(pojo);
         } catch (Exception e) {
             IonCore.getInstance().getLogger().log(Level.SEVERE, "Failed to serialize payload to JSON String", e);
             throw new RuntimeException("Serialization Failed", e);
