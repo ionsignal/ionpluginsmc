@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ioncore.network;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
+
 import com.fasterxml.jackson.databind.JsonNode;
 
 import org.jetbrains.annotations.NotNull;
@@ -14,7 +15,7 @@ import java.util.function.Consumer;
  */
 public final class NetworkCommandRegistrar {
     private final IonCore plugin;
-    private final Map<String, Consumer<String>> handlers = new ConcurrentHashMap<>();
+    private final Map<String, Consumer<JsonNode>> handlers = new ConcurrentHashMap<>();
 
     public NetworkCommandRegistrar(IonCore plugin) {
         this.plugin = plugin;
@@ -26,12 +27,11 @@ public final class NetworkCommandRegistrar {
      * @param typeId
      *            The command type string (e.g., "command:persona:spawn")
      * @param handler
-     *            The handler to invoke with the raw JSON String payload.
-     *            [MODIFIED] Signature changed to accept String instead of JsonNode.
+     *            The handler to invoke with the JsonNode payload.
      */
     public void registerHandler(
             @NotNull String typeId,
-            @NotNull Consumer<String> handler) {
+            @NotNull Consumer<JsonNode> handler) {
         if (handlers.containsKey(typeId)) {
             plugin.getLogger().warning("Duplicate handler registration for type: " + typeId);
         }
@@ -55,11 +55,10 @@ public final class NetworkCommandRegistrar {
             return;
         }
         String typeId = payload.get("type").asText();
-        Consumer<String> handler = handlers.get(typeId);
+        Consumer<JsonNode> handler = handlers.get(typeId);
         if (handler != null) {
             try {
-                String jsonString = payload.toString();
-                handler.accept(jsonString);
+                handler.accept(payload);
             } catch (Exception e) {
                 plugin.getLogger().severe(
                         "Error executing handler for " + typeId + ": " + e.getMessage());

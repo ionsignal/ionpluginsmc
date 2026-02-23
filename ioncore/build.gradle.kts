@@ -22,18 +22,27 @@ val devJar by configurations.creating {
     }
 }
 
+// Prevents Vert.x's transitive Jackson from entering the shadow JAR.
+// Paper/Minecraft URLClassLoader owns core Jackson at runtime (2.13.4-2)
+configurations.runtimeClasspath {
+    exclude(group = "com.fasterxml.jackson.core")
+    exclude(group = "com.fasterxml.jackson.datatype")
+    exclude(group = "com.fasterxml.jackson.module")
+}
+
 dependencies {
     implementation(libs.vertx.core)
     implementation(libs.vertx.pg.client)
-
-    // Jackson (JSON-Only Architecture)
-    implementation(libs.jackson.databind)
-    implementation(libs.jackson.datatype.jdk8)
-    implementation(libs.jackson.datatype.jsr310)
-    implementation(libs.jackson.module.parameter.names)
-
+    // Compile-time Jackson references only.
+    // Effective runtime version is Paper/Minecraft bundled 2.13.4-2, provided via Paper/Minecraft shared URLClassLoader.
+    // The catalog version is pinned to 2.13.4 to match.
+    compileOnly(libs.jackson.databind)
+    compileOnly(libs.jackson.datatype.jdk8)
+    compileOnly(libs.jackson.datatype.jsr310)
+    compileOnly(libs.jackson.module.parameter.names)
+    // Reflection
     implementation(libs.classgraph)
-
+    // Text
     compileOnly(libs.adventure.api)
 }
 
@@ -44,16 +53,13 @@ tasks {
 
     shadowJar {
         archiveClassifier.set("")
-
         mergeServiceFiles() // Required for Vert.x ServiceLoader
-
-        // Relocations for Vert.x 5 / Netty Hell Mitigation
+        // Relocations
         relocate("io.vertx", "com.ionsignal.minecraft.ioncore.lib.vertx")
         relocate("io.netty", "com.ionsignal.minecraft.ioncore.lib.netty")
-        relocate("com.fasterxml.jackson", "com.ionsignal.minecraft.ioncore.lib.jackson")
         relocate("com.ongres", "com.ionsignal.minecraft.ioncore.lib.ongres")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ioncore.lib.classgraph")
-
+        // Exclude
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")
@@ -63,7 +69,7 @@ tasks {
     processResources {
         val props = mapOf("version" to project.version)
         inputs.properties(props)
-        filesMatching("plugin.yml") {
+        filesMatching(listOf("plugin.yml", "paper-plugin.yml")) {
             expand(props)
         }
     }

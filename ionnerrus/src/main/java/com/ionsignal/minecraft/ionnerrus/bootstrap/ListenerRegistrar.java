@@ -6,7 +6,7 @@ import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.listeners.CraftEngineReloadListener;
 import com.ionsignal.minecraft.ionnerrus.listeners.PlayerListener;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
-import com.ionsignal.minecraft.ionnerrus.network.NerrusBridge;
+import com.ionsignal.minecraft.ionnerrus.network.NetworkService;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.listeners.PersonaInteractionListener;
 
@@ -25,19 +25,19 @@ public class ListenerRegistrar {
     private final ChatBubbleService chatBubbleService;
     private final HudManager hudManager;
     @Nullable
-    private final NerrusBridge nerrusBridge;
+    private final NetworkService nerrusBridge;
 
     public ListenerRegistrar(
             IonNerrus plugin,
             NerrusManager nerrusManager,
             ChatBubbleService chatBubbleService,
             HudManager hudManager,
-            @Nullable NerrusBridge nerrusBridge) {
+            @Nullable NetworkService networkService) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.chatBubbleService = chatBubbleService;
         this.hudManager = hudManager;
-        this.nerrusBridge = nerrusBridge;
+        this.nerrusBridge = networkService;
     }
 
     /**

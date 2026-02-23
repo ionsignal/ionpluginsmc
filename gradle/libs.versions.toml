@@ -3,8 +3,8 @@ minecraft = "1.21.10"
 paperweight = "2.0.0-beta.19"
 shadow = "9.3.1"
 
-# Jackson (Added for JSON-Only Architecture)
-jackson = "2.21.0"
+# Jackson (Updated to stable version 2.18.2)
+jackson = "2.13.4"
 
 # Terra
 terra = "6.6.6-BETA+fb5e597a1"
@@ -24,10 +24,11 @@ gson = "2.13.2"
 adventure = "4.26.1"
 postgresql = "42.7.8"
 hikaricp = "7.0.2"
-vertx = "5.0.7"
+vertx = "4.3.8"
 
 # Cloud (Added for Terra Addon)
-cloud = "2.0.0"
+cloud = "2.0.0-beta.10"
+cloudanotations = "2.0.0"
 
 [plugins]
 standardConvention = { id = "standard-conventions" }
@@ -54,6 +55,8 @@ seismic = { group = "com.dfsek", name = "seismic", version.ref = "seismic" }
 
 # Cloud (Added)
 cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud" }
+cloud-paper = { group = "org.incendo", name = "cloud-paper", version.ref = "cloud" }
+cloud-annotations = { group = "org.incendo", name = "cloud-annotations", version.ref = "cloudanotations" }
 
 # BlueNBT
 bluenbt = { group = "de.bluecolored", name = "bluenbt", version.ref = "bluenbt" }

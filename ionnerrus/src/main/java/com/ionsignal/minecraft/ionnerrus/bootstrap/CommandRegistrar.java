@@ -1,32 +1,50 @@
 package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
+import com.ionsignal.minecraft.ioncore.IonCore;
+import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
-import com.ionsignal.minecraft.ionnerrus.commands.NerrusCognitiveDebugCommand;
-import com.ionsignal.minecraft.ionnerrus.commands.NerrusCommand;
-import com.ionsignal.minecraft.ionnerrus.commands.NerrusDebugCommand;
+import com.ionsignal.minecraft.ionnerrus.commands.NerrusCloudCommands;
+import com.ionsignal.minecraft.ionnerrus.commands.parsers.NerrusAgentParser;
+import com.ionsignal.minecraft.ionnerrus.commands.parsers.PersonaDefinitionParser;
+import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
 
-import com.ionsignal.minecraft.ioncore.auth.IdentityService;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
 
-import org.bukkit.command.PluginCommand;
+import io.leangen.geantyref.TypeToken;
 
-import java.util.Objects;
+import org.incendo.cloud.annotations.AnnotationParser;
+import org.incendo.cloud.execution.ExecutionCoordinator;
+import org.incendo.cloud.paper.PaperCommandManager;
+import org.incendo.cloud.suggestion.Suggestion;
+
+import org.bukkit.Bukkit;
+import org.bukkit.Material;
+import org.bukkit.entity.Player;
+
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
- * Registers all plugin commands with the Bukkit command system.
- * This class is responsible for wiring command executors and tab completers.
+ * Registers all plugin commands using Cloud Command Framework.
  */
 public class CommandRegistrar {
     private final IonNerrus plugin;
     private final AgentService agentService;
+
     private final BlockTagManager blockTagManager;
     private final GoalFactory goalFactory;
-    private final GoalRegistry goalRegistry;
     private final IdentityService identityService;
 
+    private PaperCommandManager<CommandSourceStack> commandManager;
+
+    @SuppressWarnings("UnstableApiUsage")
     public CommandRegistrar(
             IonNerrus plugin,
             AgentService agentService,
@@ -38,55 +56,95 @@ public class CommandRegistrar {
         this.agentService = agentService;
         this.blockTagManager = blockTagManager;
         this.goalFactory = goalFactory;
-        this.goalRegistry = goalRegistry;
         this.identityService = identityService;
     }
 
     /**
-     * Registers all commands. Must be called during plugin enable.
+     * Registers all commands.
      */
     public void registerAll() {
-        // /nerrus command
-        NerrusCommand nerrusCommand = new NerrusCommand(plugin, agentService, blockTagManager, goalFactory, goalRegistry, identityService);
-        PluginCommand nerrusCmd = plugin.getCommand("nerrus");
-        Objects.requireNonNull(nerrusCmd, "The 'nerrus' command is not registered in plugin.yml");
-        nerrusCmd.setExecutor(nerrusCommand);
-        nerrusCmd.setTabCompleter(nerrusCommand);
-        // /nerrusdebug command
-        NerrusDebugCommand nerrusDebugCommand = new NerrusDebugCommand(plugin);
-        PluginCommand debugCmd = plugin.getCommand("nerrusdebug");
-        Objects.requireNonNull(debugCmd, "The 'nerrusdebug' command is not registered in plugin.yml");
-        debugCmd.setExecutor(nerrusDebugCommand);
-        debugCmd.setTabCompleter(nerrusDebugCommand);
-        // /cognitivedebug command
-        NerrusCognitiveDebugCommand cognitiveDebugCommand = new NerrusCognitiveDebugCommand(plugin);
-        PluginCommand cognitiveDebugCmd = plugin.getCommand("cognitivedebug");
-        Objects.requireNonNull(cognitiveDebugCmd, "The 'cognitivedebug' command is not registered in plugin.yml");
-        cognitiveDebugCmd.setExecutor(cognitiveDebugCommand);
-        cognitiveDebugCmd.setTabCompleter(cognitiveDebugCommand);
-        plugin.getLogger().info("Registered '/nerrus', '/nerrusdebug', and '/cognitivedebug' commands.");
+        try {
+            // Initialize Cloud PaperCommandManager using Builder
+            this.commandManager = PaperCommandManager.builder()
+                    .executionCoordinator(ExecutionCoordinator.simpleCoordinator())
+                    .buildOnEnable(plugin);
+            // Register Active Agent Parser
+            this.commandManager.parserRegistry().registerParserSupplier(
+                    TypeToken.get(NerrusAgent.class),
+                    params -> new NerrusAgentParser(agentService));
+            this.commandManager.parserRegistry().registerNamedParserSupplier(
+                    "nerrus_agent",
+                    params -> new NerrusAgentParser(agentService));
+            // Register Unspawned Definition Parser
+            this.commandManager.parserRegistry().registerParserSupplier(
+                    TypeToken.get(AgentConfig.class),
+                    params -> new PersonaDefinitionParser(agentService));
+            this.commandManager.parserRegistry().registerNamedParserSupplier(
+                    "nerrus_definition",
+                    params -> new PersonaDefinitionParser(agentService));
+            // Register Suggestion Providers to prevent Tab Completion Degradation
+            registerSuggestionProviders();
+            // Initialize Annotation Parser with CommandSourceStack
+            AnnotationParser<CommandSourceStack> annotationParser = new AnnotationParser<>(
+                    commandManager,
+                    CommandSourceStack.class);
+            // [MODIFIED] Fetch EventBus and pass it into NerrusCloudCommands
+            PostgresEventBus eventBus = IonCore.getInstance().getServiceContainer().getEventBus();
+            // Register Command Classes
+            annotationParser.parse(new NerrusCloudCommands(
+                    plugin,
+                    agentService,
+                    blockTagManager,
+                    goalFactory,
+                    identityService,
+                    eventBus));
+            plugin.getLogger().info("Registered commands via Cloud Command Framework.");
+        } catch (Exception e) {
+            plugin.getLogger().severe("Failed to initialize Cloud Command Manager: " + e.getMessage());
+            e.printStackTrace();
+            // We do not disable the plugin here, but commands will be broken.
+        }
+    }
+
+    // Helper to wire up domain-specific suggestions
+    private void registerSuggestionProviders() {
+        // Restored Block Tags (e.g. "logs", "stone")
+        this.commandManager.parserRegistry().registerSuggestionProvider(
+                "block_tags",
+                (ctx, input) -> CompletableFuture.supplyAsync(() -> blockTagManager.getRegisteredGroupNames().stream()
+                        .map(Suggestion::suggestion)
+                        .collect(Collectors.toList())));
+        // Restored Materials (Items only)
+        this.commandManager.parserRegistry().registerSuggestionProvider(
+                "materials",
+                (ctx, input) -> CompletableFuture.supplyAsync(() -> Arrays.stream(Material.values())
+                        .filter(Material::isItem)
+                        .map(m -> Suggestion.suggestion(m.name().toLowerCase()))
+                        .collect(Collectors.toList())));
+        // Restored Online Players (Standard Bukkit filtering)
+        this.commandManager.parserRegistry().registerSuggestionProvider(
+                "online_players",
+                (ctx, input) -> CompletableFuture.supplyAsync(() -> Bukkit.getOnlinePlayers().stream()
+                        .map(Player::getName)
+                        .map(Suggestion::suggestion)
+                        .collect(Collectors.toList())));
+        // Registered Owned Available Personas (Cache)
+        this.commandManager.parserRegistry().registerSuggestionProvider(
+                "owned_available_personas",
+                new PersonaDefinitionParser(agentService));
+        // Registered Owned Active Agents
+        this.commandManager.parserRegistry().registerSuggestionProvider(
+                "owned_active_agents",
+                new NerrusAgentParser(agentService));
     }
 
     /**
-     * Unregisters commands from the Bukkit system even (technically) a no-op in Bukkit but we clear
-     * executors/completers to prevent stale references.
+     * Unregisters commands.
      */
     public void unregisterAll() {
-        PluginCommand nerrusCmd = plugin.getCommand("nerrus");
-        if (nerrusCmd != null) {
-            nerrusCmd.setExecutor(null);
-            nerrusCmd.setTabCompleter(null);
+        if (this.commandManager != null) {
+            this.commandManager = null;
         }
-        PluginCommand debugCmd = plugin.getCommand("nerrusdebug");
-        if (debugCmd != null) {
-            debugCmd.setExecutor(null);
-            debugCmd.setTabCompleter(null);
-        }
-        PluginCommand cognitiveDebugCmd = plugin.getCommand("cognitivedebug");
-        if (cognitiveDebugCmd != null) {
-            cognitiveDebugCmd.setExecutor(null);
-            cognitiveDebugCmd.setTabCompleter(null);
-        }
-        plugin.getLogger().info("Unregistered all commands.");
+        plugin.getLogger().info("Unregistered command manager.");
     }
 }

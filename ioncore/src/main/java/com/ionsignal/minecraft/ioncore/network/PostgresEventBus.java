@@ -45,10 +45,9 @@ public final class PostgresEventBus {
         if (running)
             return;
         this.running = true;
-        plugin.getLogger().info("Initializing PostgresEventBus (Vert.x 5.0)...");
+        plugin.getLogger().info("Initializing PostgresEventBus");
         plugin.getLogger().info("Channels -> Commands: " + commandChannel + " | Events: " + eventChannel);
-        // Start PgSubscriber through Vert.x
-        start();
+        start(); // Start PgSubscriber through Vert.x
     }
 
     private void start() {

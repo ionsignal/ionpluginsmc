@@ -1,7 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
-import com.ionsignal.minecraft.ionnerrus.network.model.PlayerSpawnLocation;
-import com.ionsignal.minecraft.ionnerrus.network.model.CoordinateSpawnLocation;
 import com.fasterxml.jackson.annotation.*;
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type", visible = true)

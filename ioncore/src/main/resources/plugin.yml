@@ -1,8 +1,0 @@
-main: com.ionsignal.minecraft.ioncore.IonCore
-name: IonCore
-version: "${version}"
-api-version: "1.21"
-load: STARTUP
-description: "Core framework for Ion Signal plugins"
-author: IonSignal
-website: https://github.com/ionsignal/ioncore

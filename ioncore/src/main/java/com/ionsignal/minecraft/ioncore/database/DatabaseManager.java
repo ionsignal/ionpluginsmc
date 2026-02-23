@@ -3,8 +3,9 @@ package com.ionsignal.minecraft.ioncore.database;
 import com.ionsignal.minecraft.ioncore.IonCore;
 
 import io.vertx.core.Vertx;
-import io.vertx.pgclient.PgBuilder;
+// import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 
@@ -30,7 +31,7 @@ public final class DatabaseManager {
     }
 
     public void initialize() {
-        plugin.getLogger().info("Initializing DatabaseManager (Vert.x 5.0)...");
+        plugin.getLogger().info("Initializing DatabaseManager (Vert.x 4.3.8)...");
         // Load Secrets
         File file = new File(plugin.getDataFolder(), "secrets.properties");
         if (file.exists()) {
@@ -66,11 +67,12 @@ public final class DatabaseManager {
                 .setMaxSize(poolSize);
         // Create Pool using the static factory method from Pool.java
         // This ensures we bind to our specific Vertx instance.
-        this.pgPool = PgBuilder.pool()
-                .with(poolOptions)
-                .connectingTo(connectOptions)
-                .using(vertx)
-                .build();
+        // this.pgPool = PgBuilder.pool()
+        // .with(poolOptions)
+        // .connectingTo(connectOptions)
+        // .using(vertx)
+        // .build();
+        this.pgPool = PgPool.pool(vertx, connectOptions, poolOptions);
         // Test Connection (Async)
         this.pgPool.getConnection()
                 .onSuccess(conn -> {

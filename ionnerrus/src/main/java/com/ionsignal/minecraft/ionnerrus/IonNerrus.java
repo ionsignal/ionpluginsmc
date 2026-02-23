@@ -42,6 +42,8 @@ public class IonNerrus extends JavaPlugin {
         IonNerrus.instance = this;
         // Logging level configuration
         enableDebugLogging();
+        // Check classpath dependency versions
+        runClassloaderProbe();
         // Load config before any service initialization
         saveDefaultConfig();
         reloadConfig();
@@ -96,7 +98,7 @@ public class IonNerrus extends JavaPlugin {
                     services.getNerrusManager(),
                     services.getChatBubbleService(),
                     services.getHudManager(),
-                    services.getNerrusBridge());
+                    services.getNetworkService());
             this.listenerRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register listeners: " + e.getMessage());
@@ -206,6 +208,14 @@ public class IonNerrus extends JavaPlugin {
         }
     }
 
+    /**
+     * Development Helper method to check classpath dependency versions
+     */
+    private void runClassloaderProbe() {
+        String jacksonVersion = com.fasterxml.jackson.databind.cfg.PackageVersion.VERSION.toString();
+        getLogger().info("Runtime Jackson Version: " + jacksonVersion);
+    }
+
     public static IonNerrus getInstance() {
         return instance;
     }
@@ -223,7 +233,6 @@ public class IonNerrus extends JavaPlugin {
     }
 
     public LLMService getLlmService() {
-        // Null-safe delegation with clear error message
         if (services == null) {
             throw new IllegalStateException("Services not initialized - plugin failed to load");
         }
@@ -231,7 +240,6 @@ public class IonNerrus extends JavaPlugin {
     }
 
     public AgentService getAgentService() {
-        // Null-safe delegation with clear error message
         if (services == null) {
             throw new IllegalStateException("Services not initialized - plugin failed to load");
         }
@@ -239,7 +247,6 @@ public class IonNerrus extends JavaPlugin {
     }
 
     public PluginConfig getPluginConfig() {
-        // Null-safe delegation with clear error message
         if (services == null) {
             throw new IllegalStateException("Services not initialized - plugin failed to load");
         }
@@ -247,12 +254,10 @@ public class IonNerrus extends JavaPlugin {
     }
 
     public ChatBubbleService getChatBubbleService() {
-        // Null-safe delegation with clear error message which can still return null even if services are
-        // initialized (FancyHolograms may not be available)
         if (services == null) {
             throw new IllegalStateException("Services not initialized - plugin failed to load");
         }
-        return services.getChatBubbleService(); // NOTE: Can return null
+        return services.getChatBubbleService();
     }
 
     /**
@@ -266,11 +271,10 @@ public class IonNerrus extends JavaPlugin {
      *             if services not initialized (plugin failed to load)
      */
     public HudManager getHudManager() {
-        // Null-safe delegation with clear error message
         if (services == null) {
             throw new IllegalStateException("Services not initialized - plugin failed to load");
         }
-        return services.getHudManager(); // NOTE: Can return null (CraftEngine dependency)
+        return services.getHudManager();
     }
 
     /**
@@ -279,12 +283,10 @@ public class IonNerrus extends JavaPlugin {
      * @return true if HUD features can be used, false otherwise
      */
     public boolean isHudAvailable() {
-        // Delegate to ServiceContainer's availability check
         return services != null && services.isHudAvailable();
     }
 
-    // Added getter for container itself
     public ServiceContainer getServices() {
-        return services; // Intentionally allow null check by callers
+        return services;
     }
 }

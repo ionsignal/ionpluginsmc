@@ -7,74 +7,54 @@ import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.network.model.EventEnvelope;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.network.model.AgentStatePayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.AgentStatus;
+import com.ionsignal.minecraft.ionnerrus.network.model.SessionStatus;
 import com.ionsignal.minecraft.ionnerrus.network.model.IonEventType;
 import com.ionsignal.minecraft.ionnerrus.network.model.Location;
 import com.ionsignal.minecraft.ionnerrus.network.model.PlayerJoinPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.PlayerQuitPayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.RequestSpawnPayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.RequestDespawnPayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.RequestPersonaListPayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
 import org.bukkit.entity.Player;
-
+import com.fasterxml.jackson.databind.JsonNode;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Level;
 
-/**
- * Factory for creating network payloads from internal Nerrus objects.
- * Centralizes logic for converting Bukkit/Persona state into generated Network Models.
- */
 public class PayloadFactory {
-    /**
-     * Helper to serialize POJO to JSON String using standard mapper.
-     */
-    private static String toJsonString(Object pojo) {
+    private static JsonNode toJsonNode(Object pojo) {
         try {
-            return NerrusObjectMapper.INSTANCE.writeValueAsString(pojo);
-        } catch (Exception e) {
-            IonCore.getInstance().getLogger().log(Level.SEVERE, "Failed to serialize payload to JSON String", e);
+            return NerrusObjectMapper.INSTANCE.valueToTree(pojo);
+        } catch (IllegalArgumentException e) {
+            IonCore.getInstance().getLogger().log(Level.SEVERE, "Failed to convert payload to JsonNode", e);
             throw new RuntimeException("Serialization Failed", e);
         }
     }
 
-    /**
-     * Creates an AgentStatePayload wrapped in an EventEnvelope.
-     *
-     * @param agent
-     *            The agent to capture state from.
-     * @param forcedStatus
-     *            Optional status override (e.g., OFFLINE). If null, status is calculated based on
-     *            movement.
-     * @return An Optional containing the envelope, or empty if the agent lacks a Session ID or Owner
-     *         Identity.
-     */
-    public static Optional<EventEnvelope> createAgentStateEnvelope(@NotNull NerrusAgent agent, @Nullable AgentStatus forcedStatus) {
+    public static Optional<EventEnvelope> createAgentStateEnvelope(@NotNull NerrusAgent agent, @Nullable SessionStatus forcedStatus) {
         Persona persona = agent.getPersona();
         UUID sessionId = persona.getSessionId();
-        // Guard: Cannot report state for agents without a session (e.g. legacy/ad-hoc spawns)
         if (sessionId == null) {
             return Optional.empty();
         }
-        // We need the full IonUser object to satisfy the schema.
         UUID ownerId = persona.getOwnerId();
-        if (ownerId == null) {
-            return Optional.empty(); // No owner, cannot form payload
-        }
-        // Access IdentityService to get cached IonUser
+        Objects.requireNonNull(ownerId, "Agent ownerId cannot be null for state broadcasting");
         IdentityService identityService = IonCore.getInstance().getIdentityService();
         Optional<Optional<IonUser>> cachedIdentity = identityService.getCachedIdentity(ownerId);
-        // If cache is missing or user is unlinked (empty inner optional), we cannot send the event.
         if (cachedIdentity.isEmpty() || cachedIdentity.get().isEmpty()) {
             return Optional.empty();
         }
         IonUser owner = cachedIdentity.get().get();
-        AgentStatus status = forcedStatus;
+        SessionStatus status = forcedStatus;
         if (status == null) {
-            boolean isMoving = persona.isSpawned() && persona.getPhysicalBody().movement().isMoving();
-            status = isMoving ? AgentStatus.WALKING : AgentStatus.IDLE;
+            status = SessionStatus.ACTIVE;
         }
         Location locationModel = fromBukkitLocation(persona.getLocation());
         AgentStatePayload payload = new AgentStatePayload(
@@ -88,35 +68,52 @@ public class PayloadFactory {
         EventEnvelope envelope = new EventEnvelope(
                 UUID.randomUUID(),
                 System.currentTimeMillis(),
-                toJsonString(payload));
+                toJsonNode(payload));
         return Optional.of(envelope);
     }
 
-    /**
-     * Creates a PlayerJoinPayload wrapped in an EventEnvelope.
-     */
+    public static EventEnvelope createRequestSpawnEnvelope(@NotNull IonUser owner, @NotNull UUID definitionId,
+            @NotNull SpawnLocation location) {
+        RequestSpawnPayload payload = new RequestSpawnPayload(
+                owner,
+                definitionId,
+                IonEventType.REQUEST_PERSONA_SPAWN.getValue(),
+                location);
+        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
+    }
+
+    public static EventEnvelope createRequestDespawnEnvelope(@NotNull IonUser owner, @NotNull UUID definitionId, @NotNull UUID sessionId) {
+        RequestDespawnPayload payload = new RequestDespawnPayload(
+                owner,
+                definitionId,
+                sessionId,
+                IonEventType.REQUEST_PERSONA_DESPAWN.getValue());
+        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
+    }
+
+    public static EventEnvelope createRequestPersonaListEnvelope(@NotNull IonUser owner) {
+        RequestPersonaListPayload payload = new RequestPersonaListPayload(
+                owner,
+                IonEventType.REQUEST_PERSONA_LIST.getValue());
+        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
+    }
+
     public static EventEnvelope createPlayerJoinEnvelope(@NotNull Player player) {
         MinecraftIdentity identity = createMinecraftIdentity(player);
         PlayerJoinPayload payload = new PlayerJoinPayload(
                 IonEventType.EVENT_PLAYER_JOIN.getValue(),
                 identity);
-        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonString(payload));
+        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    /**
-     * Creates a PlayerQuitPayload wrapped in an EventEnvelope.
-     */
     public static EventEnvelope createPlayerQuitEnvelope(@NotNull Player player) {
         MinecraftIdentity identity = createMinecraftIdentity(player);
         PlayerQuitPayload payload = new PlayerQuitPayload(
                 IonEventType.EVENT_PLAYER_QUIT.getValue(),
                 identity);
-        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonString(payload));
+        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    /**
-     * Converts a Bukkit Location to a Network Model Location.
-     */
     public static Location fromBukkitLocation(@NotNull org.bukkit.Location loc) {
         return new Location(
                 loc.getWorld() != null ? loc.getWorld().getName() : "unknown",
@@ -127,9 +124,6 @@ public class PayloadFactory {
                 loc.getPitch());
     }
 
-    /**
-     * Creates a simple MinecraftIdentity from a Bukkit Player.
-     */
     public static MinecraftIdentity createMinecraftIdentity(@NotNull Player player) {
         return new MinecraftIdentity(player.getUniqueId(), player.getName());
     }

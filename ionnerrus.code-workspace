@@ -1,11 +1,14 @@
 {
   "folders": [
     {
-      "path": "."
+      "path": ".",
     },
     {
-      "path": "../../other/openai"
-    }
+      "path": "../../other/openai",
+    },
+    {
+      "path": "../../other/paperweight",
+    },
   ],
   "settings": {
     "java.configuration.updateBuildConfiguration": "automatic",

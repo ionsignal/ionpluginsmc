@@ -1,0 +1,61 @@
+name: IonNerrus
+version: "${version}"
+api-version: "1.21"
+main: com.ionsignal.minecraft.ionnerrus.IonNerrus
+loader: com.ionsignal.minecraft.ionnerrus.IonNerrusLoader
+bootstrap: com.ionsignal.minecraft.ionnerrus.IonNerrusBootstrap
+author: IonSignal
+description: "${description}"
+website: https://github.com/ionsignal/ionnerrus
+
+# Modern dependency declaration
+dependencies:
+  server:
+    IonCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+    CraftEngine:
+      load: BEFORE
+      required: false
+    FancyHolograms:
+      load: BEFORE
+      required: false
+    Terra:
+      load: BEFORE
+      required: false
+
+permissions:
+  ionnerrus.admin:
+    description: Allows usage of all IonNerrus commands.
+    default: op
+  ionnerrus.command.list:
+    description: Allows listing active agents
+    default: op
+  ionnerrus.command.stop:
+    description: Allows stopping an agent's current goal
+    default: op
+  ionnerrus.command.spawn:
+    description: Allows spawning agents
+    default: op
+  ionnerrus.command.remove:
+    description: Allows removing agents
+    default: op
+  ionnerrus.command.gather:
+    description: Allows instructing agents to gather resources
+    default: op
+  ionnerrus.command.give:
+    description: Allows instructing agents to give items
+    default: op
+  ionnerrus.command.craft:
+    description: Allows instructing agents to craft items
+    default: op
+  ionnerrus.command.follow:
+    description: Allows instructing agents to follow entities
+    default: op
+  ionnerrus.command.do:
+    description: Allows issuing natural language directives
+    default: op
+  ionnerrus.command.ask:
+    description: Allows asking agents questions
+    default: op
