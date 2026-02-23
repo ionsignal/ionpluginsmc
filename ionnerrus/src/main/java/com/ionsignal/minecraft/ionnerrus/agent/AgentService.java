@@ -1,11 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.commands.SpawnAgentCommand;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
+import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
@@ -14,10 +16,9 @@ import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AgentService {
     public static final String NERRUS_AGENT_METADATA = "ionnerrus_agent";
@@ -36,40 +38,13 @@ public class AgentService {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
-    private final PostgresEventBus eventBus;
+
+    // Persona Memory Management
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
+    private final Map<UUID, List<AgentConfig>> availablePersonasCache = new ConcurrentHashMap<>();
 
-    public record AgentSpawnRequest(
-            @NotNull String name,
-            @NotNull Location location,
-            @Nullable String skinName,
-            @Nullable UUID definitionId,
-            @NotNull UUID sessionId,
-            @Nullable UUID ownerId) {
-        /**
-         * Compact constructor to ensure a Session ID always exists.
-         */
-        public AgentSpawnRequest {
-            if (sessionId == null) {
-                sessionId = UUID.randomUUID();
-            }
-        }
-
-        /**
-         * Factory for CLI/Ad-hoc commands where persistent IDs are not available.
-         * Generates a random Session ID and leaves Definition/Owner null.
-         */
-        public static AgentSpawnRequest fromCommand(String name, Location location, @Nullable String skinName) {
-            return new AgentSpawnRequest(
-                    name,
-                    location,
-                    skinName,
-                    null, // No definition ID for ad-hoc spawns
-                    UUID.randomUUID(), // Generate new session
-                    null // No owner for ad-hoc spawns
-            );
-        }
-    }
+    @SuppressWarnings("unused")
+    private final PostgresEventBus eventBus;
 
     public AgentService(IonNerrus plugin,
             NerrusManager nerrusManager,
@@ -85,58 +60,42 @@ public class AgentService {
         this.eventBus = eventBus;
     }
 
-    public NerrusAgent spawnAgent(AgentSpawnRequest request) {
-        NerrusAgent agent = createAgentBase(request.name());
-        Persona persona = agent.getPersona();
-        persona.setSessionId(request.sessionId());
-        persona.setDefinitionId(request.definitionId());
-        persona.setOwnerId(request.ownerId());
-        String lookupName = (request.skinName() != null && !request.skinName().isEmpty()) ? request.skinName() : request.name();
-        NerrusManager.getInstance().getSkinCache().fetchSkin(lookupName).thenAcceptAsync(skinData -> {
-            if (skinData == null) {
-                plugin.getLogger().warning("Could not fetch skin for '" + lookupName + "'. Spawning with default skin.");
-            }
-            finalizeSpawn(agent, request.location(), skinData);
-        }, plugin.getMainThreadExecutor());
-        return agent;
-    }
-
-    private NerrusAgent createAgentBase(String name) {
-        Persona persona = personaRegistry.createPersona(EntityType.PLAYER, name, Optional.empty());
+    public NerrusAgent spawnAgent(SpawnAgentCommand command) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Agents must be spawned on the main thread");
+        if (findAgentBySessionId(command.sessionId()) != null) {
+            plugin.getLogger().warning("Agent with session ID " + command.sessionId() + " is already active.");
+            return findAgentBySessionId(command.sessionId());
+        }
+        Persona persona = personaRegistry.createPersona(EntityType.PLAYER, command.name(), Optional.empty());
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
-        // Removed broadcaster from NerrusAgent constructor
+        persona.setSessionId(command.sessionId());
+        persona.setDefinitionId(command.definitionId());
+        persona.setOwnerId(command.ownerId());
+        if (command.skin() != null) {
+            persona.setSkin(new SkinData(command.skin().value(), command.skin().signature()));
+        }
         NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
-        return agent;
-    }
-
-    private void finalizeSpawn(NerrusAgent agent, Location location, @Nullable SkinData skinData) {
-        Persona persona = agent.getPersona();
-        if (!agents.containsKey(persona.getUniqueId())) {
-            return;
-        }
-        if (skinData != null) {
-            persona.setSkin(skinData);
-        }
         try {
-            persona.spawn(location);
+            persona.spawn(command.location());
             agent.start();
             plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
             Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
         } catch (Exception e) {
             plugin.getLogger().severe("Error spawning agent " + agent.getName() + ": " + e.getMessage());
             e.printStackTrace();
-            removeAgent(agent.getName());
+            despawnAgent(command.sessionId());
         }
+        return agent;
     }
 
-    public boolean removeAgent(String name) {
-        NerrusAgent agent = findAgentByName(name);
+    public boolean despawnAgent(UUID sessionId) {
+        NerrusAgent agent = findAgentBySessionId(sessionId);
         if (agent != null) {
             Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
-            plugin.getLogger().info("Removed Nerrus agent: " + name);
+            plugin.getLogger().info("Despawned Nerrus agent session: " + sessionId);
             return true;
         }
         return false;
@@ -145,6 +104,20 @@ public class AgentService {
     public NerrusAgent findAgentByName(String name) {
         return agents.values().stream()
                 .filter(agent -> agent.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    public NerrusAgent findAgentBySessionId(UUID sessionId) {
+        return agents.values().stream()
+                .filter(a -> sessionId.equals(a.getPersona().getSessionId()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    public NerrusAgent findAgentByDefinitionId(UUID definitionId) {
+        return agents.values().stream()
+                .filter(a -> definitionId.equals(a.getPersona().getDefinitionId()))
                 .findFirst()
                 .orElse(null);
     }
@@ -161,21 +134,16 @@ public class AgentService {
         List<CompletableFuture<Void>> shutdownFutures = new ArrayList<>();
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
-            // Trigger Async DB Update (Explicitly broadcast DESPAWNED state)
-            // We do this manually here because we are bypassing the EventListener to capture the Future
-            if (eventBus != null) {
-                // [MODIFIED] Commented out broadcast logic.
-            }
-            // Remove from World (Sync)
-            try {
+            if (agent.getPersona().getSessionId() != null) {
+                despawnAgent(agent.getPersona().getSessionId());
+            } else {
+                Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
+                agents.remove(agent.getPersona().getUniqueId());
                 personaRegistry.deregister(agent.getPersona());
-            } catch (Exception e) {
-                plugin.getLogger().warning("Error despawning agent " + agent.getName() + ": " + e.getMessage());
             }
         }
         agents.clear();
         plugin.getLogger().info("Despawned all Nerrus agents.");
-        // Return a future that completes when all DB packets are sent
         return CompletableFuture.allOf(shutdownFutures.toArray(new CompletableFuture[0]));
     }
 
@@ -186,5 +154,19 @@ public class AgentService {
                     " remaining agents - this shouldn't happen!");
             despawnAll();
         }
+    }
+
+    public void updatePersonaCache(UUID ownerMcUuid, List<AgentConfig> personas) {
+        availablePersonasCache.put(ownerMcUuid, personas);
+        plugin.getLogger().info("Updated Persona Cache for player " + ownerMcUuid + " (" + personas.size() + " personas)");
+    }
+
+    public List<AgentConfig> getCachedPersonas(UUID ownerMcUuid) {
+        return availablePersonasCache.getOrDefault(ownerMcUuid, new ArrayList<>());
+    }
+
+    public void clearPersonaCache(UUID ownerMcUuid) {
+        availablePersonasCache.remove(ownerMcUuid);
+        plugin.getLogger().info("Cleared Persona Cache for player " + ownerMcUuid);
     }
 }

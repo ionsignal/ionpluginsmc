@@ -1,9 +1,7 @@
-// src/main/java/com/ionsignal/minecraft/ionnerrus/ServiceContainer.java
-
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
-import com.ionsignal.minecraft.ioncore.auth.IdentityService; // Imported from IonCore
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
@@ -11,8 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
-// [MODIFIED] Removed NetworkBootstrap and NetworkEventListener imports; replaced by NerrusBridge
-import com.ionsignal.minecraft.ionnerrus.network.NerrusBridge;
+import com.ionsignal.minecraft.ionnerrus.network.NetworkService;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
@@ -20,7 +17,7 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
 import org.bukkit.plugin.Plugin;
-import org.jetbrains.annotations.Nullable; // [ADDED] for @Nullable on nerrusBridge field and getter
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Central service container managing the lifecycle of all plugin services.
@@ -53,7 +50,7 @@ public class ServiceContainer {
 
     // Networking
     @Nullable
-    private final NerrusBridge nerrusBridge;
+    private final NetworkService networkService;
 
     private ServiceContainer(IonNerrus plugin,
             NerrusManager nerrusManager,
@@ -68,7 +65,7 @@ public class ServiceContainer {
             HudManager hudManager,
             CraftEngineService craftEngineService,
             IdentityService identityService,
-            @Nullable NerrusBridge nerrusBridge) {
+            @Nullable NetworkService nerrusBridge) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
         this.config = config;
@@ -82,7 +79,7 @@ public class ServiceContainer {
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
         this.identityService = identityService;
-        this.nerrusBridge = nerrusBridge;
+        this.networkService = nerrusBridge;
     }
 
     public static ServiceContainer initialize(IonNerrus plugin) {
@@ -130,7 +127,7 @@ public class ServiceContainer {
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             // Layer 7: Network Bootstrap (Wiring)
-            NerrusBridge nerrusBridge = null;
+            NetworkService nerrusBridge = null;
             boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
             if (isIonCoreEnabled) {
                 nerrusBridge = initializeNetworking(plugin, agentService);
@@ -161,7 +158,7 @@ public class ServiceContainer {
         }
     }
 
-    private static @Nullable NerrusBridge initializeNetworking(IonNerrus plugin, AgentService agentService) {
+    private static @Nullable NetworkService initializeNetworking(IonNerrus plugin, AgentService agentService) {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
             // Resolve IonCore Dependencies ONCE at the boundary
@@ -171,10 +168,10 @@ public class ServiceContainer {
             var commandRegistrar = coreContainer.getEventBus().getCommandRegistrar();
             var eventBus = coreContainer.getEventBus();
             // Register the collection (Allow-List)
-            documentStore.registerCollection(NerrusBridge.COLLECTION_PERSONA_MANIFESTS);
-            plugin.getLogger().info("Registered document collection: " + NerrusBridge.COLLECTION_PERSONA_MANIFESTS);
-            // Nerrus bridge
-            NerrusBridge bridge = new NerrusBridge(plugin, agentService, documentStore, eventBus, commandRegistrar);
+            documentStore.registerCollection(NetworkService.COLLECTION_PERSONA_MANIFESTS);
+            plugin.getLogger().info("Registered document collection: " + NetworkService.COLLECTION_PERSONA_MANIFESTS);
+            // Nerrus Network Service
+            NetworkService bridge = new NetworkService(plugin, agentService, documentStore, eventBus, commandRegistrar);
             plugin.getLogger().info("Network Integration: NerrusBridge initialized.");
             return bridge;
         } catch (Exception e) {
@@ -351,8 +348,8 @@ public class ServiceContainer {
      * @return NerrusBridge instance, or null if standalone
      */
     @Nullable
-    public NerrusBridge getNerrusBridge() {
-        return nerrusBridge;
+    public NetworkService getNetworkService() {
+        return networkService;
     }
 
     public void shutdown() {

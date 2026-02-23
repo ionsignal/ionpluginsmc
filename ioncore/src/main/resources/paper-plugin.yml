@@ -1,0 +1,13 @@
+name: IonCore
+version: "${version}"
+api-version: "1.21"
+main: com.ionsignal.minecraft.ioncore.IonCore
+loader: com.ionsignal.minecraft.ioncore.IonCoreLoader
+bootstrap: com.ionsignal.minecraft.ioncore.IonCoreBootstrap
+author: IonSignal
+description: "Core framework for Ion Signal plugins"
+website: https://github.com/ionsignal/ioncore
+permissions:
+  ioncore.admin:
+    description: Allows usage of all IonCore commands.
+    default: op

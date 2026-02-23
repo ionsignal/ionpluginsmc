@@ -1,11 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
-public enum SpawnLocationType {
-    PLAYER((String) "PLAYER"), COORDINATES((String) "COORDINATES");
+public enum SessionStatus {
+    PENDING("pending"), ACTIVE("active"), OFFLINE("offline");
 
     private final String value;
 
-    SpawnLocationType(String value) {
+    SessionStatus(String value) {
         this.value = value;
     }
 
@@ -13,8 +13,8 @@ public enum SpawnLocationType {
         return value;
     }
 
-    public static SpawnLocationType fromValue(String value) {
-        for (SpawnLocationType e : SpawnLocationType.values()) {
+    public static SessionStatus fromValue(String value) {
+        for (SessionStatus e : SessionStatus.values()) {
             if (e.value.equals(value)) {
                 return e;
             }
