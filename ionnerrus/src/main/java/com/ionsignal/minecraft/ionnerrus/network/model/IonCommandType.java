@@ -6,7 +6,7 @@ public enum IonCommandType {
             (String) "command:persona:despawn"), // COMMAND_PERSONA_DESPAWN
     COMMAND_PERSONA_TELEPORT(
             (String) "command:persona:teleport"), // COMMAND_PERSONA_TELEPORT
-    COMMAND_PERSONA_SKIN_UPDATE((String) "command:persona:skin:update"), // COMMAND_PERSONA_SKIN_UPDATE
+    COMMAND_PERSONA_UPDATE((String) "command:persona:update"), // COMMAND_PERSONA_UPDATE
     COMMAND_PERSONA_LIST((String) "command:persona:list"), // COMMAND_PERSONA_LIST
     SYSTEM_PERSONA_KILL((String) "system:persona:kill"), // SYSTEM_PERSONA_KILL
     SYSTEM_COMMAND_FAILED((String) "system:command:failed"); // SYSTEM_COMMAND_FAILED

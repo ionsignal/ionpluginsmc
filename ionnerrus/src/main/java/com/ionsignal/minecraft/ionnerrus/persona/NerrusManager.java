@@ -2,7 +2,6 @@ package com.ionsignal.minecraft.ionnerrus.persona;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
-import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinCache;
 import com.ionsignal.minecraft.ionnerrus.util.ServerVersion;
 
 import org.bukkit.Bukkit;
@@ -14,7 +13,6 @@ public class NerrusManager {
     private final IonNerrus plugin;
     private final NerrusRegistry registry;
     private NerrusTick tickTask;
-    private SkinCache skinCache;
 
     // Default to NoOp until injected by ServiceContainer
     private CraftEngineService craftEngineService = new CraftEngineService.NoOp();
@@ -23,7 +21,6 @@ public class NerrusManager {
         instance = this;
         this.plugin = plugin;
         this.registry = new NerrusRegistry(this);
-        this.skinCache = new SkinCache(plugin);
     }
 
     public boolean initialize() {
@@ -46,9 +43,6 @@ public class NerrusManager {
     public void shutdown() {
         if (tickTask != null) {
             tickTask.cancel();
-        }
-        if (skinCache != null) {
-            skinCache.shutdown();
         }
         registry.clear();
         instance = null;
@@ -76,9 +70,5 @@ public class NerrusManager {
 
     public Logger getLogger() {
         return plugin.getLogger();
-    }
-
-    public SkinCache getSkinCache() {
-        return skinCache;
     }
 }

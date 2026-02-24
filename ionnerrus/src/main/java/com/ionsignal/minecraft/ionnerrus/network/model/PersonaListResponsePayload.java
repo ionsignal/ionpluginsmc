@@ -10,5 +10,5 @@ import com.fasterxml.jackson.annotation.*;
 public record PersonaListResponsePayload(
         @JsonProperty("owner") IonUser owner,
         @JsonProperty("type") String type,
-        @JsonProperty("personas") List<AgentConfig> personas) implements IonCommand {
+        @JsonProperty("personas") List<PersonaListItem> personas) implements IonCommand {
 }

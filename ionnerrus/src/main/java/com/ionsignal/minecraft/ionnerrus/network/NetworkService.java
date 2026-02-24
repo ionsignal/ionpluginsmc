@@ -19,11 +19,13 @@ import com.ionsignal.minecraft.ionnerrus.network.model.IonCommandType;
 import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListResponsePayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.PlayerSpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.network.model.Skin;
-import com.ionsignal.minecraft.ionnerrus.network.model.SkinUpdatePayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.UpdatePayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.SystemPersonaKillPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.TeleportPayload;
+import com.ionsignal.minecraft.ionnerrus.persona.Persona;
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaSkinData;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -39,6 +41,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 
@@ -81,10 +84,8 @@ public class NetworkService implements Listener {
                 plugin.getLogger().info("Teleport command received (Not implemented yet)");
             });
         });
-        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_SKIN_UPDATE.getValue(), node -> {
-            deserializeAndHandle(node, SkinUpdatePayload.class, payload -> {
-                plugin.getLogger().info("Skin update command received (Not implemented yet)");
-            });
+        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_UPDATE.getValue(), node -> {
+            deserializeAndHandle(node, UpdatePayload.class, this::handlePersonaUpdate);
         });
         commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_LIST.getValue(), node -> {
             deserializeAndHandle(node, PersonaListResponsePayload.class, this::handlePersonaListResponse);
@@ -190,6 +191,78 @@ public class NetworkService implements Listener {
         Bukkit.getScheduler().runTask(plugin, () -> {
             agentService.updatePersonaCache(payload.owner().identity().uuid(), payload.personas());
         });
+    }
+
+    private void handlePersonaUpdate(UpdatePayload payload) {
+        if (payload == null || payload.definitionId() == null) {
+            return;
+        }
+        if (plugin.getLogger().isLoggable(Level.FINE)) {
+            plugin.getLogger().fine("Received update ping for definition: " + payload.definitionId());
+        }
+        // Pull the latest manifest from the database asynchronously
+        documentStore.fetchDocument(COLLECTION_PERSONA_MANIFESTS, payload.definitionId())
+                .thenAccept(optJson -> {
+                    if (optJson.isEmpty()) {
+                        plugin.getLogger().warning("Cannot update agent " + payload.definitionId() + ": Manifest not found.");
+                        return;
+                    }
+                    try {
+                        // Parse the updated configuration
+                        AgentConfig manifest = NerrusObjectMapper.INSTANCE.readValue(optJson.get(), AgentConfig.class);
+                        // Hand off to the Main Server Thread for state application
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            // Guard Clause: Ensure agent is still spawned on this server instance
+                            NerrusAgent target = agentService.findAgentByDefinitionId(payload.definitionId());
+                            if (target == null) {
+                                if (plugin.getLogger().isLoggable(Level.FINE)) {
+                                    plugin.getLogger()
+                                            .fine("Update ignored: Agent " + payload.definitionId() + " is not currently spawned.");
+                                }
+                                return;
+                            }
+                            Persona persona = target.getPersona();
+                            boolean skinChanged = false;
+                            boolean nameChanged = false;
+                            // Evaluate Skin State
+                            PersonaSkinData currentSkin = persona.getSkin();
+                            PersonaSkinData newSkin = null;
+                            if (manifest.skin() != null) {
+                                newSkin = new PersonaSkinData(
+                                        manifest.skin().mojangTextureValue(),
+                                        manifest.skin().mojangTextureSignature(),
+                                        manifest.skin().type());
+                            }
+                            if (!Objects.equals(currentSkin, newSkin)) {
+                                // Triggers the NMS Profile Swap and Blink Sequence
+                                persona.setSkin(newSkin);
+                                skinChanged = true;
+                                plugin.getLogger().info("Applied live skin update to agent: " + persona.getName());
+                            }
+                            // Evaluate Name State
+                            String currentName = persona.getName();
+                            String newName = manifest.name();
+                            if (newName != null && !newName.equals(currentName)) {
+                                // Triggers a despawn/respawn cycle to update the nametag
+                                persona.setName(newName);
+                                nameChanged = true;
+                                plugin.getLogger().info("Applied live name update to agent: " + currentName + " -> " + newName);
+                            }
+                            if (!skinChanged && !nameChanged) {
+                                if (plugin.getLogger().isLoggable(Level.FINE)) {
+                                    plugin.getLogger().fine(
+                                            "Update ping processed for " + persona.getName() + " but no state changes were detected.");
+                                }
+                            }
+                        });
+                    } catch (Exception e) {
+                        plugin.getLogger().log(Level.SEVERE, "Failed to process update manifest for " + payload.definitionId(), e);
+                    }
+                })
+                .exceptionally(ex -> {
+                    plugin.getLogger().log(Level.SEVERE, "Async error handling update request for " + payload.definitionId(), ex);
+                    return null;
+                });
     }
 
     private Location resolveSpawnLocation(SpawnLocation location) {

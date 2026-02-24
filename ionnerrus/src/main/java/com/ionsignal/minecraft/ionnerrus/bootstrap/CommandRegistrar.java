@@ -12,7 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCloudCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.NerrusAgentParser;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.PersonaDefinitionParser;
-import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
+import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 
@@ -77,7 +77,7 @@ public class CommandRegistrar {
                     params -> new NerrusAgentParser(agentService));
             // Register Unspawned Definition Parser
             this.commandManager.parserRegistry().registerParserSupplier(
-                    TypeToken.get(AgentConfig.class),
+                    TypeToken.get(PersonaListItem.class),
                     params -> new PersonaDefinitionParser(agentService));
             this.commandManager.parserRegistry().registerNamedParserSupplier(
                     "nerrus_definition",

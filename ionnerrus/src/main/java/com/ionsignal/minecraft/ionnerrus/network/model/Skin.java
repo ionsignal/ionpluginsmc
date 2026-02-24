@@ -4,6 +4,6 @@ import com.fasterxml.jackson.annotation.*;
 
 public record Skin(
         @JsonProperty("type") SkinType type,
-        @JsonProperty("value") String value,
-        @JsonProperty("signature") String signature) {
+        @JsonProperty("mojangTextureValue") String mojangTextureValue,
+        @JsonProperty("mojangTextureSignature") String mojangTextureSignature) {
 }

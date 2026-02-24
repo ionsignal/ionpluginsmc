@@ -7,12 +7,11 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
-import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
+import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
-import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
-
+import com.ionsignal.minecraft.ionnerrus.persona.PersonaSkinData;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
 import org.bukkit.Bukkit;
@@ -41,7 +40,7 @@ public class AgentService {
 
     // Persona Memory Management
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
-    private final Map<UUID, List<AgentConfig>> availablePersonasCache = new ConcurrentHashMap<>();
+    private final Map<UUID, List<PersonaListItem>> availablePersonasCache = new ConcurrentHashMap<>();
 
     @SuppressWarnings("unused")
     private final PostgresEventBus eventBus;
@@ -78,7 +77,10 @@ public class AgentService {
         persona.setDefinitionId(command.definitionId());
         persona.setOwnerId(command.ownerId());
         if (command.skin() != null) {
-            persona.setSkin(new SkinData(command.skin().value(), command.skin().signature()));
+            persona.setSkin(new PersonaSkinData(
+                    command.skin().mojangTextureValue(),
+                    command.skin().mojangTextureSignature(),
+                    command.skin().type()));
         }
         NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
@@ -166,12 +168,12 @@ public class AgentService {
         }
     }
 
-    public void updatePersonaCache(UUID ownerMcUuid, List<AgentConfig> personas) {
+    public void updatePersonaCache(UUID ownerMcUuid, List<PersonaListItem> personas) {
         availablePersonasCache.put(ownerMcUuid, personas);
         plugin.getLogger().info("Updated Persona Cache for player " + ownerMcUuid + " (" + personas.size() + " personas)");
     }
 
-    public List<AgentConfig> getCachedPersonas(UUID ownerMcUuid) {
+    public List<PersonaListItem> getCachedPersonas(UUID ownerMcUuid) {
         return availablePersonasCache.getOrDefault(ownerMcUuid, new ArrayList<>());
     }
 

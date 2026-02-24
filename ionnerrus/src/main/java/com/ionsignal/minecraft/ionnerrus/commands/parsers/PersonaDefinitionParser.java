@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.commands.parsers;
 
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
+import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 
@@ -21,10 +21,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
- * Parses a string argument into an AgentConfig (Definition) from the player's cache.
+ * Parses a string argument into an PersonaListItem (Definition) from the player's cache.
  * Fails if the definition is not found or the cache is empty.
  */
-public class PersonaDefinitionParser implements ArgumentParser<CommandSourceStack, AgentConfig>, SuggestionProvider<CommandSourceStack> {
+public class PersonaDefinitionParser
+        implements ArgumentParser<CommandSourceStack, PersonaListItem>, SuggestionProvider<CommandSourceStack> {
     private final AgentService agentService;
 
     public PersonaDefinitionParser(AgentService agentService) {
@@ -32,18 +33,18 @@ public class PersonaDefinitionParser implements ArgumentParser<CommandSourceStac
     }
 
     @Override
-    public @NonNull ArgumentParseResult<AgentConfig> parse(@NonNull CommandContext<CommandSourceStack> commandContext,
+    public @NonNull ArgumentParseResult<PersonaListItem> parse(@NonNull CommandContext<CommandSourceStack> commandContext,
             @NonNull CommandInput commandInput) {
         String input = commandInput.readString();
         if (!(commandContext.sender().getSender() instanceof Player player)) {
             return ArgumentParseResult.failure(new IllegalArgumentException("Only players can spawn agents via command."));
         }
-        List<AgentConfig> cachedPersonas = agentService.getCachedPersonas(player.getUniqueId());
+        List<PersonaListItem> cachedPersonas = agentService.getCachedPersonas(player.getUniqueId());
         if (cachedPersonas.isEmpty()) {
             return ArgumentParseResult.failure(
                     new IllegalArgumentException("Your personas are still loading, or you have none. Please try again in a moment."));
         }
-        Optional<AgentConfig> match = cachedPersonas.stream()
+        Optional<PersonaListItem> match = cachedPersonas.stream()
                 .filter(config -> config.name().equalsIgnoreCase(input))
                 .findFirst();
         if (match.isEmpty()) {
