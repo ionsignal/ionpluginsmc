@@ -4,8 +4,8 @@ import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
-import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
 import com.ionsignal.minecraft.ionnerrus.network.model.CoordinateSpawnLocation;
+import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocationType;
 
@@ -99,7 +99,7 @@ public class NerrusCloudCommands {
     @Permission("ionnerrus.command.spawn")
     public void spawnAgent(
             CommandSourceStack stack,
-            @Argument(value = "definition", parserName = "nerrus_definition") AgentConfig config) {
+            @Argument(value = "definition", parserName = "nerrus_definition") PersonaListItem config) {
         if (!(stack.getExecutor() instanceof Player player)) {
             stack.getSender().sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
             return;

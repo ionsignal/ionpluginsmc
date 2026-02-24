@@ -7,10 +7,9 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.*;
 
-public record SkinUpdatePayload(
+public record UpdatePayload(
         @JsonProperty("owner") IonUser owner,
         @JsonProperty("definitionId") UUID definitionId,
-        @JsonProperty("type") String type,
-        @JsonProperty("skin") Skin skin)
+        @JsonProperty("type") String type)
         implements IonCommand {
 }

@@ -13,7 +13,7 @@ import java.util.logging.Logger;
 
 /**
  * Listens for Nerrus lifecycle events to clean up IonCore debug sessions.
- * This prevents memory leaks and stuck execution controllers when agents 
+ * This prevents memory leaks and stuck execution controllers when agents
  * are removed or die while being debugged.
  */
 public class DebugIntegrationListener implements Listener {

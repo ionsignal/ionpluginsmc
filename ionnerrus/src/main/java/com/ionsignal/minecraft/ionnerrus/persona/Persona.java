@@ -4,14 +4,13 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
 import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
 import com.ionsignal.minecraft.ionnerrus.persona.components.impl.BukkitPhysicalBody;
-import com.ionsignal.minecraft.ionnerrus.persona.skin.SkinData;
-
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import com.mojang.authlib.properties.PropertyMap;
 
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.world.entity.Entity.RemovalReason;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -41,21 +40,20 @@ public class Persona {
     private final NerrusManager manager;
     private final MetadataStorage metadata;
 
-    private String name;
+    @Nullable
+    private UUID ownerId;
 
     @Nullable
     private UUID definitionId;
 
     @Nullable
-    private UUID ownerId;
-
-    @Nullable
     private UUID sessionId;
 
+    private String name;
     private PersonaEntity personaEntity;
     private PhysicalBody physicalBody;
     private Location lastLocation;
-    private SkinData skinData;
+    private PersonaSkinData skinData;
 
     public Persona(NerrusManager manager, UUID uuid, String name, EntityType entityType) {
         this.manager = manager;
@@ -231,11 +229,11 @@ public class Persona {
     }
 
     @Nullable
-    public SkinData getSkin() {
+    public PersonaSkinData getSkin() {
         return skinData;
     }
 
-    public void setSkin(SkinData skinData) {
+    public void setSkin(PersonaSkinData skinData) {
         this.skinData = skinData;
         if (isSpawned()) {
             refreshPlayerProfile();
@@ -268,46 +266,49 @@ public class Persona {
      * Creates a GameProfile with properties populated upfront.
      * Required because GameProfile and PropertyMap are immutable in 1.21+.
      */
-    private GameProfile createGameProfile(UUID uuid, String name, SkinData skin) {
-        if (skin != null && skin.texture() != null && !skin.texture().isEmpty()) {
-            // Build mutable map first
+    private GameProfile createGameProfile(UUID uuid, String name, PersonaSkinData skin) {
+        if (skin != null && skin.textureValue() != null && !skin.textureValue().isEmpty() && !skin.textureSignature().isEmpty()) {
             Multimap<String, Property> properties = LinkedHashMultimap.create();
-
-            // FIX: Ensure signature is handled correctly (null check)
-            if (skin.signature() != null && !skin.signature().isEmpty()) {
-                properties.put("textures", new Property("textures", skin.texture(), skin.signature()));
-            } else {
-                properties.put("textures", new Property("textures", skin.texture()));
-            }
-
-            // Create immutable PropertyMap
+            properties.put("textures", new Property("textures", skin.textureValue(), skin.textureSignature()));
             PropertyMap propertyMap = new PropertyMap(properties);
-            // Construct profile
             return new GameProfile(uuid, name, propertyMap);
         } else {
-            // Default constructor uses PropertyMap.EMPTY
             return new GameProfile(uuid, name);
         }
     }
 
+    /**
+     * Replaces the GameProfile and performs a client-side "Blink" to hot-swap the skin.
+     * This updates the Tab List globally and safely resends the 3D entity to nearby viewers
+     * without destroying the server-side PersonaEntity or interrupting its AI tasks.
+     */
     @SuppressWarnings("null")
     private void refreshPlayerProfile() {
-        // Create the new profile with the updated skin
+        // Create the new profile with the updated skin and apply it to the entity
         GameProfile newProfile = createGameProfile(uuid, name, skinData);
-        // Update the entity directly via our new setter
-        // This replaces the old reflection-based approach
         personaEntity.setGameProfile(newProfile);
-        // Resend player info packets to clients to update the skin
-        var trackedEntity = personaEntity.level().getChunkSource().chunkMap.entityMap.get(personaEntity.getId());
+        // Update the Tab List for all online players
+        ClientboundPlayerInfoRemovePacket removeInfo = new ClientboundPlayerInfoRemovePacket(
+                java.util.List.of(personaEntity.getUUID()));
+        ClientboundPlayerInfoUpdatePacket addInfo = ClientboundPlayerInfoUpdatePacket
+                .createSinglePlayerInitializing(personaEntity, false);
+        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+            var conn = ((CraftPlayer) onlinePlayer).getHandle().connection;
+            conn.send(removeInfo);
+            conn.send(addInfo);
+        }
+        // Blink the 3D entity for players currently tracking it
+        var chunkMap = personaEntity.level().getChunkSource().chunkMap;
+        var trackedEntity = chunkMap.entityMap.get(personaEntity.getId());
         if (trackedEntity != null) {
-            ClientboundPlayerInfoRemovePacket removePacket = new ClientboundPlayerInfoRemovePacket(
-                    java.util.List.of(personaEntity.getUUID()));
-            // The update packet will read the NEW profile from the entity
-            ClientboundPlayerInfoUpdatePacket addPacket = ClientboundPlayerInfoUpdatePacket
-                    .createPlayerInitializing(java.util.List.of(personaEntity));
+            ClientboundRemoveEntitiesPacket removeEntity = new ClientboundRemoveEntitiesPacket(personaEntity.getId());
             for (var connection : trackedEntity.seenBy) {
-                connection.send(removePacket);
-                connection.send(addPacket);
+                // Destroy the old 3D model for this viewer
+                connection.send(removeEntity);
+                // Force the tracker to resend all spawn, metadata, and equipment packets
+                // using the fresh GameProfile we just applied.
+                ServerPlayer viewer = connection.getPlayer();
+                trackedEntity.serverEntity.sendPairingData(viewer, viewer.connection::send);
             }
         }
     }
