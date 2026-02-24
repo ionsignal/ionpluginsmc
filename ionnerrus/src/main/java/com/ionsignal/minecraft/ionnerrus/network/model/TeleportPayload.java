@@ -10,7 +10,6 @@ import com.fasterxml.jackson.annotation.*;
 public record TeleportPayload(
         @JsonProperty("owner") IonUser owner,
         @JsonProperty("definitionId") UUID definitionId,
-        @JsonProperty("sessionId") UUID sessionId,
         @JsonProperty("type") String type,
         @JsonProperty("location") Location location)
         implements IonCommand {

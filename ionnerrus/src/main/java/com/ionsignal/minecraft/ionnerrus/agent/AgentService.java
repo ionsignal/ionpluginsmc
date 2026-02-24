@@ -62,6 +62,12 @@ public class AgentService {
 
     public NerrusAgent spawnAgent(SpawnAgentCommand command) {
         Preconditions.checkState(Bukkit.isPrimaryThread(), "Agents must be spawned on the main thread");
+        NerrusAgent existingClone = findAgentByDefinitionId(command.definitionId());
+        if (existingClone != null) {
+            plugin.getLogger().warning("Highlander Rule: Found existing physical clone for definition "
+                    + command.definitionId() + ". Despawning old clone before spawning new session.");
+            despawnAgent(existingClone);
+        }
         if (findAgentBySessionId(command.sessionId()) != null) {
             plugin.getLogger().warning("Agent with session ID " + command.sessionId() + " is already active.");
             return findAgentBySessionId(command.sessionId());
@@ -91,11 +97,15 @@ public class AgentService {
 
     public boolean despawnAgent(UUID sessionId) {
         NerrusAgent agent = findAgentBySessionId(sessionId);
+        return despawnAgent(agent);
+    }
+
+    public boolean despawnAgent(NerrusAgent agent) {
         if (agent != null) {
             Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
-            plugin.getLogger().info("Despawned Nerrus agent session: " + sessionId);
+            plugin.getLogger().info("Despawned Nerrus agent: " + agent.getName() + " (Session: " + agent.getPersona().getSessionId() + ")");
             return true;
         }
         return false;

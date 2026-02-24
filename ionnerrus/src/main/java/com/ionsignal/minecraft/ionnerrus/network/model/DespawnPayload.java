@@ -10,6 +10,5 @@ import com.fasterxml.jackson.annotation.*;
 public record DespawnPayload(
         @JsonProperty("owner") IonUser owner,
         @JsonProperty("definitionId") UUID definitionId,
-        @JsonProperty("sessionId") UUID sessionId,
         @JsonProperty("type") String type) implements IonCommand {
 }

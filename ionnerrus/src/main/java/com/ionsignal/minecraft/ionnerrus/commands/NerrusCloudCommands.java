@@ -39,7 +39,6 @@ import org.incendo.cloud.annotations.Permission;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
-import java.util.UUID;
 import java.util.logging.Level;
 
 /**
@@ -125,7 +124,6 @@ public class NerrusCloudCommands {
         player.sendMessage(Component.text("Requested spawn for persona '" + config.name() + "'...", NamedTextColor.GRAY));
     }
 
-    // [MODIFIED] Switched from direct removal to EventBus request
     @Command("nerrus remove <agent>")
     @Permission("ionnerrus.command.remove")
     public void removeAgent(
@@ -138,27 +136,20 @@ public class NerrusCloudCommands {
             var userOpt = identityService.getCachedIdentity(player.getUniqueId());
             if (userOpt.isPresent() && userOpt.get().isPresent()) {
                 IonUser owner = userOpt.get().get();
-                UUID sessionId = agent.getPersona().getSessionId();
-                if (sessionId != null) {
-                    var envelope = PayloadFactory.createRequestDespawnEnvelope(owner, agent.getPersona().getDefinitionId(), sessionId);
-                    eventBus.broadcast(envelope);
-                    sender.sendMessage(Component.text("Requested despawn for agent " + name + "...", NamedTextColor.GRAY));
-                    return;
-                }
+                var envelope = PayloadFactory.createRequestDespawnEnvelope(owner, agent.getPersona().getDefinitionId());
+                eventBus.broadcast(envelope);
+                sender.sendMessage(Component.text("Requested despawn for agent " + name + "...", NamedTextColor.GRAY));
+                return;
             } else {
                 sender.sendMessage(Component.text("You must link your Runemind account to remove agents.", NamedTextColor.RED));
                 return;
             }
         }
         // Fallback for console or agents spawned outside the closed loop
-        if (agent.getPersona().getSessionId() != null) {
-            if (agentService.despawnAgent(agent.getPersona().getSessionId())) {
-                sender.sendMessage(Component.text("Force-removed agent " + name, NamedTextColor.GREEN));
-            } else {
-                sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
-            }
+        if (agentService.despawnAgent(agent)) {
+            sender.sendMessage(Component.text("Force-removed agent " + name, NamedTextColor.GREEN));
         } else {
-            sender.sendMessage(Component.text("Agent has no session ID (cannot despawn via new API): " + name, NamedTextColor.RED));
+            sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
         }
     }
 
