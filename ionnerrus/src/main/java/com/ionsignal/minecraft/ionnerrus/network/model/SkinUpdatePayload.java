@@ -10,7 +10,6 @@ import com.fasterxml.jackson.annotation.*;
 public record SkinUpdatePayload(
         @JsonProperty("owner") IonUser owner,
         @JsonProperty("definitionId") UUID definitionId,
-        @JsonProperty("sessionId") UUID sessionId,
         @JsonProperty("type") String type,
         @JsonProperty("skin") Skin skin)
         implements IonCommand {

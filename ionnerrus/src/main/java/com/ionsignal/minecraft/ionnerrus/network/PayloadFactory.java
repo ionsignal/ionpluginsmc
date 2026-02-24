@@ -82,11 +82,10 @@ public class PayloadFactory {
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    public static EventEnvelope createRequestDespawnEnvelope(@NotNull IonUser owner, @NotNull UUID definitionId, @NotNull UUID sessionId) {
+    public static EventEnvelope createRequestDespawnEnvelope(@NotNull IonUser owner, @NotNull UUID definitionId) {
         RequestDespawnPayload payload = new RequestDespawnPayload(
                 owner,
                 definitionId,
-                sessionId,
                 IonEventType.REQUEST_PERSONA_DESPAWN.getValue());
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }

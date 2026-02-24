@@ -7,7 +7,8 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.*;
 
-public record RequestDespawnPayload(@JsonProperty("owner") IonUser owner, @JsonProperty("definitionId") UUID definitionId,
-        @JsonProperty("sessionId") UUID sessionId, @JsonProperty("type") String type) implements IonEvent {
-
+public record RequestDespawnPayload(
+        @JsonProperty("owner") IonUser owner,
+        @JsonProperty("definitionId") UUID definitionId,
+        @JsonProperty("type") String type) implements IonEvent {
 }

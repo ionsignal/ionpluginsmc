@@ -173,12 +173,12 @@ public class NetworkService implements Listener {
         if (payload == null)
             return;
         Bukkit.getScheduler().runTask(plugin, () -> {
-            NerrusAgent target = agentService.findAgentBySessionId(payload.sessionId());
+            NerrusAgent target = agentService.findAgentByDefinitionId(payload.definitionId());
             if (target != null) {
-                agentService.despawnAgent(payload.sessionId());
+                agentService.despawnAgent(target);
             } else {
                 plugin.getLogger().warning(
-                        "Received despawn request for unknown agent session: " + payload.sessionId());
+                        "Received despawn request for unknown agent definition: " + payload.definitionId());
             }
         });
     }

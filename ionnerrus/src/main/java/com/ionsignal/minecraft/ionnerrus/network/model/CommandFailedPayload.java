@@ -8,6 +8,6 @@ import com.fasterxml.jackson.annotation.*;
 public record CommandFailedPayload(
         @JsonProperty("owner") IonUser owner,
         @JsonProperty("reason") String reason,
-        @JsonProperty("originalCommand") String originalCommand,
+        @JsonProperty("command") String command,
         @JsonProperty("type") String type) implements IonCommand {
 }
