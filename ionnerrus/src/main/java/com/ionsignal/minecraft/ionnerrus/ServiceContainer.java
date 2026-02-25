@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus;
 
-import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
@@ -10,6 +9,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.network.NetworkService;
+import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
@@ -17,7 +17,10 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
 import org.bukkit.plugin.Plugin;
+
 import org.jetbrains.annotations.Nullable;
+
+import java.util.concurrent.ExecutorService;
 
 /**
  * Central service container managing the lifecycle of all plugin services.
@@ -48,6 +51,9 @@ public class ServiceContainer {
     // Auth Service (From IonCore)
     private final IdentityService identityService;
 
+    // PayloadFactory service
+    private final PayloadFactory payloadFactory;
+
     // Networking
     @Nullable
     private final NetworkService networkService;
@@ -65,6 +71,7 @@ public class ServiceContainer {
             HudManager hudManager,
             CraftEngineService craftEngineService,
             IdentityService identityService,
+            PayloadFactory payloadFactory,
             @Nullable NetworkService nerrusBridge) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
@@ -79,6 +86,7 @@ public class ServiceContainer {
         this.hudManager = hudManager;
         this.craftEngineService = craftEngineService;
         this.identityService = identityService;
+        this.payloadFactory = payloadFactory;
         this.networkService = nerrusBridge;
     }
 
@@ -92,28 +100,30 @@ public class ServiceContainer {
         try {
             // Retrieve EventBus early for injection
             var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
-            var eventBus = coreContainer.getEventBus();
             // Layer 1: Configuration
-            PluginConfig config = new PluginConfig(plugin.getConfig());
+            var config = new PluginConfig(plugin.getConfig());
             // Layer 2: Platform-specific managers
-            NerrusManager nerrusManager = new NerrusManager(plugin);
+            var nerrusManager = new NerrusManager(plugin);
             if (!nerrusManager.initialize()) {
                 throw new ServiceInitializationException(
                         "Failed to initialize NerrusManager - incompatible server version?");
             }
             // Layer 3: Content systems
-            BlockTagManager blockTagManager = new BlockTagManager();
-            RecipeService recipeService = new RecipeService(blockTagManager);
+            var blockTagManager = new BlockTagManager();
+            var recipeService = new RecipeService(blockTagManager);
             // Layer 4: Goal system
-            GoalRegistry goalRegistry = new GoalRegistry();
-            GoalFactory goalFactory = new GoalFactory(blockTagManager, recipeService);
+            var goalRegistry = new GoalRegistry();
+            var goalFactory = new GoalFactory(blockTagManager, recipeService);
             // Layer 5: External integrations
-            LLMService llmService = initializeLLMService(plugin);
-            ChatBubbleService chatBubbleService = initializeChatBubbles(plugin);
-            HudManager hudManager = initializeHudManager(plugin);
-            CraftEngineService craftEngineService = initializeCraftEngine(plugin);
-            // Layer 5.5: Retrieve Identity Service from IonCore
-            IdentityService identityService = coreContainer.getIdentityService();
+            var llmService = initializeLLMService(plugin);
+            var chatBubbleService = initializeChatBubbles(plugin);
+            var hudManager = initializeHudManager(plugin);
+            var craftEngineService = initializeCraftEngine(plugin);
+            // Layer 5.5: Retrieve Identity Service and JsonService from IonCore
+            var identityService = coreContainer.getIdentityService();
+            var jsonService = coreContainer.getJsonService(); // [MODIFIED] Fetched JsonService early
+            // Instantiate PayloadFactory immediately after its dependencies are resolved
+            var payloadFactory = new PayloadFactory(jsonService, identityService);
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
@@ -122,15 +132,14 @@ public class ServiceContainer {
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
-                    llmService,
-                    eventBus);
+                    llmService);
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             // Layer 7: Network Bootstrap (Wiring)
             NetworkService nerrusBridge = null;
             boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
             if (isIonCoreEnabled) {
-                nerrusBridge = initializeNetworking(plugin, agentService);
+                nerrusBridge = initializeNetworking(plugin, agentService, payloadFactory);
             } else {
                 plugin.getLogger().info("IonCore not found. Running in standalone offline mode.");
             }
@@ -149,6 +158,7 @@ public class ServiceContainer {
                     hudManager,
                     craftEngineService,
                     identityService,
+                    payloadFactory,
                     nerrusBridge);
         } catch (ServiceInitializationException e) {
             throw e;
@@ -158,20 +168,20 @@ public class ServiceContainer {
         }
     }
 
-    private static @Nullable NetworkService initializeNetworking(IonNerrus plugin, AgentService agentService) {
+    private static @Nullable NetworkService initializeNetworking(IonNerrus plugin, AgentService agentService,
+            PayloadFactory payloadFactory) {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
-            // Resolve IonCore Dependencies ONCE at the boundary
             var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
-            // Get DocumentStore instead of EntitySyncRepository
-            DocumentStore documentStore = coreContainer.getDocumentStore();
+            var documentStore = coreContainer.getDocumentStore();
             var commandRegistrar = coreContainer.getEventBus().getCommandRegistrar();
             var eventBus = coreContainer.getEventBus();
-            // Register the collection (Allow-List)
+            var jsonService = coreContainer.getJsonService();
+            ExecutorService virtualThreadExecutor = coreContainer.getVirtualThreadExecutor();
             documentStore.registerCollection(NetworkService.COLLECTION_PERSONA_MANIFESTS);
             plugin.getLogger().info("Registered document collection: " + NetworkService.COLLECTION_PERSONA_MANIFESTS);
-            // Nerrus Network Service
-            NetworkService bridge = new NetworkService(plugin, agentService, documentStore, eventBus, commandRegistrar);
+            var bridge = new NetworkService(plugin, agentService, documentStore, eventBus, commandRegistrar, jsonService,
+                    payloadFactory, virtualThreadExecutor);
             plugin.getLogger().info("Network Integration: NerrusBridge initialized.");
             return bridge;
         } catch (Exception e) {
@@ -340,6 +350,13 @@ public class ServiceContainer {
 
     public IdentityService getIdentityService() {
         return identityService;
+    }
+
+    public PayloadFactory getPayloadFactory() {
+        if (payloadFactory == null) {
+            throw new IllegalStateException("PayloadFactory not initialized");
+        }
+        return payloadFactory;
     }
 
     /**

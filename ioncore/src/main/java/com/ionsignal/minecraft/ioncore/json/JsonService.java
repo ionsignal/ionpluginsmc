@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -24,6 +25,8 @@ public class JsonService {
                 .addModule(new Jdk8Module())
                 .addModule(new JavaTimeModule())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
+                .enable(SerializationFeature.WRITE_ENUMS_USING_TO_STRING)
                 .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
                 .build();
     }
@@ -34,7 +37,6 @@ public class JsonService {
 
     public String toJson(Object object) {
         try {
-
             return objectMapper.writeValueAsString(object);
         } catch (IOException e) {
             throw new RuntimeException("Failed to serialize object to JSON", e);
@@ -43,9 +45,7 @@ public class JsonService {
 
     public <T> T fromJson(String json, Class<T> clazz) {
         try {
-            // Add debug logging for CommandEnvelope deserialization
             if (clazz.equals(com.ionsignal.minecraft.ioncore.network.model.CommandEnvelope.class)) {
-                // Log at FINE level to avoid spam
                 java.util.logging.Logger.getLogger("IonCore").info(
                         "Deserializing CommandEnvelope from: " + json.substring(0, Math.min(100, json.length())) + "...");
             }
@@ -60,6 +60,22 @@ public class JsonService {
             return objectMapper.readTree(json);
         } catch (IOException e) {
             throw new RuntimeException("Failed to parse JSON tree", e);
+        }
+    }
+
+    public <T> T treeToValue(JsonNode node, Class<T> clazz) {
+        try {
+            return objectMapper.treeToValue(node, clazz);
+        } catch (Exception e) {
+            throw new RuntimeException("Serialization Failed", e);
+        }
+    }
+
+    public JsonNode valueToTree(Object object) {
+        try {
+            return objectMapper.valueToTree(object);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Serialization Failed", e);
         }
     }
 }

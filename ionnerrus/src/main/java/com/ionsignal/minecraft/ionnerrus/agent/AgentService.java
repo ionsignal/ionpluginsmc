@@ -12,7 +12,6 @@ import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusRegistry;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaSkinData;
-import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.EntityType;
@@ -42,21 +41,16 @@ public class AgentService {
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
     private final Map<UUID, List<PersonaListItem>> availablePersonasCache = new ConcurrentHashMap<>();
 
-    @SuppressWarnings("unused")
-    private final PostgresEventBus eventBus;
-
     public AgentService(IonNerrus plugin,
             NerrusManager nerrusManager,
             GoalRegistry goalRegistry,
             GoalFactory goalFactory,
-            LLMService llmService,
-            PostgresEventBus eventBus) {
+            LLMService llmService) {
         this.plugin = plugin;
         this.personaRegistry = nerrusManager.getRegistry();
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-        this.eventBus = eventBus;
     }
 
     public NerrusAgent spawnAgent(SpawnAgentCommand command) {
@@ -93,6 +87,7 @@ public class AgentService {
             plugin.getLogger().severe("Error spawning agent " + agent.getName() + ": " + e.getMessage());
             e.printStackTrace();
             despawnAgent(command.sessionId());
+            throw new RuntimeException("Failed to physically spawn agent: " + e.getMessage(), e);
         }
         return agent;
     }

@@ -9,8 +9,6 @@ import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Tuple;
 import io.vertx.pgclient.pubsub.PgSubscriber;
 
-import org.bukkit.Bukkit;
-
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.concurrent.CompletableFuture;
@@ -47,7 +45,7 @@ public final class PostgresEventBus {
         this.running = true;
         plugin.getLogger().info("Initializing PostgresEventBus");
         plugin.getLogger().info("Channels -> Commands: " + commandChannel + " | Events: " + eventChannel);
-        start(); // Start PgSubscriber through Vert.x
+        start();
     }
 
     private void start() {
@@ -63,7 +61,7 @@ public final class PostgresEventBus {
             return delay;
         });
         this.subscriber.channel(commandChannel).handler(payload -> {
-            Bukkit.getScheduler().runTask(plugin, () -> handleNotification(payload));
+            plugin.getVirtualThreadExecutor().execute(() -> handleNotification(payload));
         });
         this.subscriber.connect().onComplete(ar -> {
             if (ar.succeeded()) {
@@ -82,8 +80,9 @@ public final class PostgresEventBus {
      * @return A future completing when the notification is sent.
      */
     public CompletableFuture<Void> broadcast(@NotNull Object payload) {
-        if (!running)
-            return CompletableFuture.completedFuture(null);
+        if (!running) {
+            return CompletableFuture.failedFuture(new IllegalStateException("EventBus is offline"));
+        }
         CompletableFuture<Void> future = new CompletableFuture<>();
         String jsonString = jsonService.toJson(payload);
         databaseManager.getPgPool()
@@ -100,6 +99,7 @@ public final class PostgresEventBus {
     private void handleNotification(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isEmpty())
             return;
+        plugin.getLogger().info("[VT-TEST] Processing payload on Virtual Thread: " + Thread.currentThread().isVirtual());
         try {
             JsonNode payloadNode = unwrapEnvelope(jsonPayload);
             if (payloadNode == null) {

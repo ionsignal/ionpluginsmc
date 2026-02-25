@@ -12,6 +12,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusCloudCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.NerrusAgentParser;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.PersonaDefinitionParser;
+import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
 import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -37,10 +38,10 @@ import java.util.stream.Collectors;
 public class CommandRegistrar {
     private final IonNerrus plugin;
     private final AgentService agentService;
-
     private final BlockTagManager blockTagManager;
     private final GoalFactory goalFactory;
     private final IdentityService identityService;
+    private final PayloadFactory payloadFactory;
 
     private PaperCommandManager<CommandSourceStack> commandManager;
 
@@ -51,12 +52,14 @@ public class CommandRegistrar {
             BlockTagManager blockTagManager,
             GoalFactory goalFactory,
             GoalRegistry goalRegistry,
-            IdentityService identityService) {
+            IdentityService identityService,
+            PayloadFactory payloadFactory) {
         this.plugin = plugin;
         this.agentService = agentService;
         this.blockTagManager = blockTagManager;
         this.goalFactory = goalFactory;
         this.identityService = identityService;
+        this.payloadFactory = payloadFactory;
     }
 
     /**
@@ -88,16 +91,16 @@ public class CommandRegistrar {
             AnnotationParser<CommandSourceStack> annotationParser = new AnnotationParser<>(
                     commandManager,
                     CommandSourceStack.class);
-            // [MODIFIED] Fetch EventBus and pass it into NerrusCloudCommands
+            // Fetch EventBus and pass it into NerrusCloudCommands
             PostgresEventBus eventBus = IonCore.getInstance().getServiceContainer().getEventBus();
-            // Register Command Classes
             annotationParser.parse(new NerrusCloudCommands(
                     plugin,
                     agentService,
                     blockTagManager,
                     goalFactory,
                     identityService,
-                    eventBus));
+                    eventBus,
+                    this.payloadFactory));
             plugin.getLogger().info("Registered commands via Cloud Command Framework.");
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Cloud Command Manager: " + e.getMessage());
