@@ -69,7 +69,7 @@ public class AgentService {
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
         persona.setSessionId(command.sessionId());
         persona.setDefinitionId(command.definitionId());
-        persona.setOwnerId(command.ownerId());
+        persona.setOwner(command.owner());
         if (command.skin() != null) {
             persona.setSkin(new PersonaSkinData(
                     command.skin().mojangTextureValue(),
