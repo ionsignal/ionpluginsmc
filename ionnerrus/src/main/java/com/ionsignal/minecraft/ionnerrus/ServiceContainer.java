@@ -47,8 +47,6 @@ public class ServiceContainer {
     private final ChatBubbleService chatBubbleService;
     private final HudManager hudManager;
     private final CraftEngineService craftEngineService;
-
-    // Auth Service (From IonCore)
     private final IdentityService identityService;
 
     // PayloadFactory service
@@ -119,11 +117,9 @@ public class ServiceContainer {
             var chatBubbleService = initializeChatBubbles(plugin);
             var hudManager = initializeHudManager(plugin);
             var craftEngineService = initializeCraftEngine(plugin);
-            // Layer 5.5: Retrieve Identity Service and JsonService from IonCore
             var identityService = coreContainer.getIdentityService();
-            var jsonService = coreContainer.getJsonService(); // [MODIFIED] Fetched JsonService early
-            // Instantiate PayloadFactory immediately after its dependencies are resolved
-            var payloadFactory = new PayloadFactory(jsonService, identityService);
+            // Layer 5.5: Retrieve Identity Service and JsonService from IonCore
+            var payloadFactory = new PayloadFactory(coreContainer.getJsonService());
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services

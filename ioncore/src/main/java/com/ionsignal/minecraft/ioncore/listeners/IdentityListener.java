@@ -1,10 +1,9 @@
 package com.ionsignal.minecraft.ioncore.listeners;
 
-import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 
-import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -28,10 +27,10 @@ public class IdentityListener implements Listener {
         });
     }
 
-    @EventHandler
+    // Priority set to MONITOR to ensure other listeners (NetworkService)
+    // have processed the event before we wipe the cache.
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
-        Bukkit.getScheduler().runTaskLater(IonCore.getInstance(), () -> {
-            identityService.invalidate(event.getPlayer().getUniqueId());
-        }, 1L);
+        identityService.invalidate(event.getPlayer().getUniqueId());
     }
 }

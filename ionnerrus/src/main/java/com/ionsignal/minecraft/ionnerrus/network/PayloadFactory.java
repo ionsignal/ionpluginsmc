@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.network;
 
-import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
@@ -24,17 +23,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 public class PayloadFactory {
 
     private final JsonService jsonService;
-    private final IdentityService identityService;
 
-    public PayloadFactory(JsonService jsonService, IdentityService identityService) {
+    public PayloadFactory(JsonService jsonService) {
         this.jsonService = jsonService;
-        this.identityService = identityService;
     }
 
     private JsonNode toJsonNode(Object pojo) {
@@ -55,19 +51,14 @@ public class PayloadFactory {
 
     public EventEnvelope createAgentStateEnvelope(
             @NotNull UUID sessionId,
-            @NotNull UUID ownerId,
+            @NotNull IonUser owner,
             @NotNull UUID definitionId,
             @NotNull String agentName,
             @NotNull Location locationModel,
             @Nullable SessionStatus forcedStatus) {
         Objects.requireNonNull(sessionId, "Agent sessionId cannot be null for state broadcasting");
-        Objects.requireNonNull(ownerId, "Agent ownerId cannot be null for state broadcasting");
+        Objects.requireNonNull(owner, "Agent owner cannot be null for state broadcasting");
         Objects.requireNonNull(definitionId, "Agent definitionId cannot be null for state broadcasting");
-        Optional<Optional<IonUser>> cachedIdentity = identityService.getCachedIdentity(ownerId);
-        if (cachedIdentity.isEmpty() || cachedIdentity.get().isEmpty()) {
-            throw new IllegalStateException("Cannot create state envelope: Owner identity not found in cache for UUID " + ownerId);
-        }
-        IonUser owner = cachedIdentity.get().get();
         SessionStatus status = forcedStatus;
         if (status == null) {
             status = SessionStatus.ACTIVE;

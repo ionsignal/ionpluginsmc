@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent;
 
+import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
@@ -463,6 +464,10 @@ public class NerrusAgent {
 
     public String getName() {
         return persona.getName();
+    }
+
+    public IonUser getOwner() {
+        return persona.getOwner();
     }
 
     @Nullable

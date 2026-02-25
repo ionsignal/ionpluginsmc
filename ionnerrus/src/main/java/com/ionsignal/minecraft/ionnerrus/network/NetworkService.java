@@ -212,7 +212,7 @@ public class NetworkService implements Listener {
                         skinModel,
                         payload.definitionId(),
                         payload.sessionId(),
-                        owner.identity().uuid());
+                        owner);
                 agentService.spawnAgent(request);
                 return null;
             }).get(5, TimeUnit.SECONDS);
@@ -344,11 +344,11 @@ public class NetworkService implements Listener {
     public void onAgentSpawn(NerrusAgentSpawnEvent event) {
         NerrusAgent agent = event.getAgent();
         UUID sessionId = agent.getPersona().getSessionId();
-        UUID ownerId = agent.getPersona().getOwnerId();
+        IonUser owner = agent.getOwner();
         UUID definitionId = agent.getPersona().getDefinitionId();
         String agentName = agent.getName();
-        if (sessionId == null || ownerId == null || definitionId == null) {
-            plugin.getLogger().warning("Cannot broadcast spawn state for agent " + agentName + ": Missing required IDs.");
+        if (sessionId == null || owner == null || definitionId == null) {
+            plugin.getLogger().warning("Cannot broadcast spawn state for agent " + agentName + ": Missing required IDs or Owner Snapshot.");
             return;
         }
         final com.ionsignal.minecraft.ionnerrus.network.model.Location locationModel = fromBukkitLocation(agent.getPersona().getLocation());
@@ -356,7 +356,7 @@ public class NetworkService implements Listener {
             Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network IO must not run on the primary thread");
             try {
                 EventEnvelope payload = payloadFactory.createAgentStateEnvelope(
-                        sessionId, ownerId, definitionId, agentName, locationModel, SessionStatus.ACTIVE);
+                        sessionId, owner, definitionId, agentName, locationModel, SessionStatus.ACTIVE);
                 eventBus.broadcast(payload).join();
             } catch (Exception e) {
                 Throwable rootCause = unwrapException(e);
@@ -372,11 +372,11 @@ public class NetworkService implements Listener {
     @EventHandler
     public void onAgentRemove(NerrusAgentRemoveEvent event) {
         NerrusAgent agent = event.getAgent();
+        IonUser owner = agent.getOwner();
         UUID sessionId = agent.getPersona().getSessionId();
-        UUID ownerId = agent.getPersona().getOwnerId();
         UUID definitionId = agent.getPersona().getDefinitionId();
         String agentName = agent.getName();
-        if (sessionId == null || ownerId == null || definitionId == null) {
+        if (sessionId == null || owner == null || definitionId == null) {
             return;
         }
         final com.ionsignal.minecraft.ionnerrus.network.model.Location locationModel = fromBukkitLocation(agent.getPersona().getLocation());
@@ -384,7 +384,7 @@ public class NetworkService implements Listener {
             Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network IO must not run on the primary thread");
             try {
                 EventEnvelope payload = payloadFactory.createAgentStateEnvelope(
-                        sessionId, ownerId, definitionId, agentName, locationModel, SessionStatus.OFFLINE);
+                        sessionId, owner, definitionId, agentName, locationModel, SessionStatus.OFFLINE);
                 eventBus.broadcast(payload).join();
             } catch (Exception e) {
                 Throwable rootCause = unwrapException(e);
