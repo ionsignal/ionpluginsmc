@@ -1,12 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.network;
 
-import com.ionsignal.minecraft.ioncore.IonCore;
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
+import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
-import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.network.model.EventEnvelope;
-import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.network.model.AgentStatePayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.CommandFailedPayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.IonCommandType;
 import com.ionsignal.minecraft.ionnerrus.network.model.SessionStatus;
 import com.ionsignal.minecraft.ionnerrus.network.model.IonEventType;
 import com.ionsignal.minecraft.ionnerrus.network.model.Location;
@@ -16,63 +17,79 @@ import com.ionsignal.minecraft.ionnerrus.network.model.RequestSpawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.RequestDespawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.RequestPersonaListPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
-import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 
-import org.bukkit.entity.Player;
 import com.fasterxml.jackson.databind.JsonNode;
+
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.logging.Level;
 
 public class PayloadFactory {
-    private static JsonNode toJsonNode(Object pojo) {
-        try {
-            return NerrusObjectMapper.INSTANCE.valueToTree(pojo);
-        } catch (IllegalArgumentException e) {
-            IonCore.getInstance().getLogger().log(Level.SEVERE, "Failed to convert payload to JsonNode", e);
-            throw new RuntimeException("Serialization Failed", e);
-        }
+
+    private final JsonService jsonService;
+    private final IdentityService identityService;
+
+    public PayloadFactory(JsonService jsonService, IdentityService identityService) {
+        this.jsonService = jsonService;
+        this.identityService = identityService;
     }
 
-    public static Optional<EventEnvelope> createAgentStateEnvelope(@NotNull NerrusAgent agent, @Nullable SessionStatus forcedStatus) {
-        Persona persona = agent.getPersona();
-        UUID sessionId = persona.getSessionId();
-        if (sessionId == null) {
-            return Optional.empty();
-        }
-        UUID ownerId = persona.getOwnerId();
+    private JsonNode toJsonNode(Object pojo) {
+        return jsonService.valueToTree(pojo);
+    }
+
+    public EventEnvelope createCommandFailedEnvelope(
+            @NotNull IonUser owner,
+            @NotNull String commandType,
+            @NotNull String reason) {
+        CommandFailedPayload payload = new CommandFailedPayload(
+                owner,
+                reason,
+                commandType,
+                IonCommandType.SYSTEM_COMMAND_FAILED.getValue());
+        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
+    }
+
+    public EventEnvelope createAgentStateEnvelope(
+            @NotNull UUID sessionId,
+            @NotNull UUID ownerId,
+            @NotNull UUID definitionId,
+            @NotNull String agentName,
+            @NotNull Location locationModel,
+            @Nullable SessionStatus forcedStatus) {
+        Objects.requireNonNull(sessionId, "Agent sessionId cannot be null for state broadcasting");
         Objects.requireNonNull(ownerId, "Agent ownerId cannot be null for state broadcasting");
-        IdentityService identityService = IonCore.getInstance().getIdentityService();
+        Objects.requireNonNull(definitionId, "Agent definitionId cannot be null for state broadcasting");
         Optional<Optional<IonUser>> cachedIdentity = identityService.getCachedIdentity(ownerId);
         if (cachedIdentity.isEmpty() || cachedIdentity.get().isEmpty()) {
-            return Optional.empty();
+            throw new IllegalStateException("Cannot create state envelope: Owner identity not found in cache for UUID " + ownerId);
         }
         IonUser owner = cachedIdentity.get().get();
         SessionStatus status = forcedStatus;
         if (status == null) {
             status = SessionStatus.ACTIVE;
         }
-        Location locationModel = fromBukkitLocation(persona.getLocation());
         AgentStatePayload payload = new AgentStatePayload(
                 owner,
-                persona.getDefinitionId(),
+                definitionId,
                 sessionId,
                 IonEventType.EVENT_PERSONA_STATE.getValue(),
-                agent.getName(),
+                agentName,
                 status,
                 locationModel);
         EventEnvelope envelope = new EventEnvelope(
                 UUID.randomUUID(),
                 System.currentTimeMillis(),
                 toJsonNode(payload));
-        return Optional.of(envelope);
+        return envelope;
     }
 
-    public static EventEnvelope createRequestSpawnEnvelope(@NotNull IonUser owner, @NotNull UUID definitionId,
+    public EventEnvelope createRequestSpawnEnvelope(
+            @NotNull IonUser owner,
+            @NotNull UUID definitionId,
             @NotNull SpawnLocation location) {
         RequestSpawnPayload payload = new RequestSpawnPayload(
                 owner,
@@ -82,7 +99,9 @@ public class PayloadFactory {
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    public static EventEnvelope createRequestDespawnEnvelope(@NotNull IonUser owner, @NotNull UUID definitionId) {
+    public EventEnvelope createRequestDespawnEnvelope(
+            @NotNull IonUser owner,
+            @NotNull UUID definitionId) {
         RequestDespawnPayload payload = new RequestDespawnPayload(
                 owner,
                 definitionId,
@@ -90,40 +109,27 @@ public class PayloadFactory {
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    public static EventEnvelope createRequestPersonaListEnvelope(@NotNull IonUser owner) {
+    public EventEnvelope createRequestPersonaListEnvelope(
+            @NotNull IonUser owner) {
         RequestPersonaListPayload payload = new RequestPersonaListPayload(
                 owner,
                 IonEventType.REQUEST_PERSONA_LIST.getValue());
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    public static EventEnvelope createPlayerJoinEnvelope(@NotNull Player player) {
-        MinecraftIdentity identity = createMinecraftIdentity(player);
+    public EventEnvelope createPlayerJoinEnvelope(
+            @NotNull MinecraftIdentity identity) {
         PlayerJoinPayload payload = new PlayerJoinPayload(
                 IonEventType.EVENT_PLAYER_JOIN.getValue(),
                 identity);
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
-    public static EventEnvelope createPlayerQuitEnvelope(@NotNull Player player) {
-        MinecraftIdentity identity = createMinecraftIdentity(player);
+    public EventEnvelope createPlayerQuitEnvelope(
+            @NotNull MinecraftIdentity identity) {
         PlayerQuitPayload payload = new PlayerQuitPayload(
                 IonEventType.EVENT_PLAYER_QUIT.getValue(),
                 identity);
         return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
-    }
-
-    public static Location fromBukkitLocation(@NotNull org.bukkit.Location loc) {
-        return new Location(
-                loc.getWorld() != null ? loc.getWorld().getName() : "unknown",
-                loc.getX(),
-                loc.getY(),
-                loc.getZ(),
-                loc.getYaw(),
-                loc.getPitch());
-    }
-
-    public static MinecraftIdentity createMinecraftIdentity(@NotNull Player player) {
-        return new MinecraftIdentity(player.getUniqueId(), player.getName());
     }
 }

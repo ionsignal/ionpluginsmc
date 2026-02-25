@@ -15,6 +15,10 @@ import org.bukkit.scheduler.BukkitTask;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
 /**
  * Dependency Injection Root for IonCore.
  */
@@ -27,6 +31,7 @@ public final class ServiceContainer {
     private DocumentStore documentStore;
     private PostgresEventBus eventBus;
     private IdentityService identityService;
+    private ExecutorService virtualThreadExecutor;
 
     // Debug & Visualization Services
     private DebugSessionRegistry debugRegistry;
@@ -42,6 +47,8 @@ public final class ServiceContainer {
     public void initialize() {
         plugin.getLogger().info("Initializing Core Services...");
         try {
+            // Instantiate VT Executor immediately so downstream services can use it
+            this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
             // JSON Service (Foundation)
             this.jsonService = new JsonService();
             // Database Init
@@ -92,6 +99,20 @@ public final class ServiceContainer {
         if (debugRegistry != null) {
             debugRegistry.clear();
         }
+
+        // Safe VT Executor teardown to prevent Classloader memory leaks
+        if (virtualThreadExecutor != null) {
+            virtualThreadExecutor.shutdown();
+            try {
+                if (!virtualThreadExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    plugin.getLogger().warning("VirtualThreadExecutor did not terminate gracefully. Forcing shutdown.");
+                    virtualThreadExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                virtualThreadExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     public @NotNull JsonService getJsonService() {
@@ -122,6 +143,12 @@ public final class ServiceContainer {
         if (identityService == null)
             throw new IllegalStateException("IdentityService not initialized");
         return identityService;
+    }
+
+    public @NotNull ExecutorService getVirtualThreadExecutor() {
+        if (virtualThreadExecutor == null)
+            throw new IllegalStateException("VirtualThreadExecutor not initialized");
+        return virtualThreadExecutor;
     }
 
     public @NotNull DebugSessionRegistry getDebugRegistry() {

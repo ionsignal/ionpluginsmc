@@ -82,7 +82,8 @@ public class IonNerrus extends JavaPlugin {
                     services.getBlockTagManager(),
                     services.getGoalFactory(),
                     services.getGoalRegistry(),
-                    services.getIdentityService());
+                    services.getIdentityService(),
+                    services.getPayloadFactory());
             commandRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register commands: " + e.getMessage());

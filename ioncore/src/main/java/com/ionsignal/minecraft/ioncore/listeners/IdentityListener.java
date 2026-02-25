@@ -1,7 +1,9 @@
 package com.ionsignal.minecraft.ioncore.listeners;
 
+import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 
+import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -28,6 +30,8 @@ public class IdentityListener implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        identityService.invalidate(event.getPlayer().getUniqueId());
+        Bukkit.getScheduler().runTaskLater(IonCore.getInstance(), () -> {
+            identityService.invalidate(event.getPlayer().getUniqueId());
+        }, 1L);
     }
 }

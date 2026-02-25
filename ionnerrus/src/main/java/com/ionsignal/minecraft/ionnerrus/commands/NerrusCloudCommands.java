@@ -52,6 +52,7 @@ public class NerrusCloudCommands {
     private final GoalFactory goalFactory;
     private final IdentityService identityService;
     private final PostgresEventBus eventBus;
+    private final PayloadFactory payloadFactory;
 
     public NerrusCloudCommands(
             IonNerrus plugin,
@@ -59,13 +60,15 @@ public class NerrusCloudCommands {
             BlockTagManager blockTagManager,
             GoalFactory goalFactory,
             IdentityService identityService,
-            PostgresEventBus eventBus) {
+            PostgresEventBus eventBus,
+            PayloadFactory payloadFactory) {
         this.plugin = plugin;
         this.agentService = agentService;
         this.blockTagManager = blockTagManager;
         this.goalFactory = goalFactory;
         this.identityService = identityService;
         this.eventBus = eventBus;
+        this.payloadFactory = payloadFactory;
     }
 
     @Command("nerrus list")
@@ -118,10 +121,14 @@ public class NerrusCloudCommands {
                 safeLoc.getWorld().getName(),
                 safeLoc.getX(), safeLoc.getY(), safeLoc.getZ(),
                 safeLoc.getYaw(), safeLoc.getPitch());
-        // Broadcast to web backend
-        var envelope = PayloadFactory.createRequestSpawnEnvelope(owner, config.id(), spawnLocation);
-        eventBus.broadcast(envelope);
-        player.sendMessage(Component.text("Requested spawn for persona '" + config.name() + "'...", NamedTextColor.GRAY));
+        var envelope = payloadFactory.createRequestSpawnEnvelope(owner, config.id(), spawnLocation);
+        eventBus.broadcast(envelope).whenComplete((v, ex) -> {
+            if (ex != null) {
+                player.sendMessage(Component.text("Failed to contact network.", NamedTextColor.RED));
+            } else {
+                player.sendMessage(Component.text("Requested spawn for persona '" + config.name() + "'...", NamedTextColor.GREEN));
+            }
+        });
     }
 
     @Command("nerrus remove <agent>")
@@ -136,9 +143,14 @@ public class NerrusCloudCommands {
             var userOpt = identityService.getCachedIdentity(player.getUniqueId());
             if (userOpt.isPresent() && userOpt.get().isPresent()) {
                 IonUser owner = userOpt.get().get();
-                var envelope = PayloadFactory.createRequestDespawnEnvelope(owner, agent.getPersona().getDefinitionId());
-                eventBus.broadcast(envelope);
-                sender.sendMessage(Component.text("Requested despawn for agent " + name + "...", NamedTextColor.GRAY));
+                var envelope = payloadFactory.createRequestDespawnEnvelope(owner, agent.getPersona().getDefinitionId());
+                eventBus.broadcast(envelope).whenComplete((v, ex) -> {
+                    if (ex != null) {
+                        sender.sendMessage(Component.text("Failed to contact network.", NamedTextColor.RED));
+                    } else {
+                        sender.sendMessage(Component.text("Requested despawn for agent " + name + "...", NamedTextColor.GREEN));
+                    }
+                });
                 return;
             } else {
                 sender.sendMessage(Component.text("You must link your Runemind account to remove agents.", NamedTextColor.RED));

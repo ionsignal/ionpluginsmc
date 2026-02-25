@@ -4,7 +4,10 @@ import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.listeners.EventListener;
+
 import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.concurrent.ExecutorService;
 
 /**
  * IonCore - Core framework for Ion Signal plugins.
@@ -56,6 +59,11 @@ public class IonCore extends JavaPlugin {
     public IdentityService getIdentityService() {
         ensureInitialized();
         return serviceContainer.getIdentityService();
+    }
+
+    public ExecutorService getVirtualThreadExecutor() {
+        ensureInitialized();
+        return serviceContainer.getVirtualThreadExecutor();
     }
 
     // --- Legacy / Static Bridge Accessors ---
