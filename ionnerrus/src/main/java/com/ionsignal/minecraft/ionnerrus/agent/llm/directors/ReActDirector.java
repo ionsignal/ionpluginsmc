@@ -1,8 +1,10 @@
+// ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/llm/directors/ReActDirector.java
 package com.ionsignal.minecraft.ionnerrus.agent.llm.directors;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveDebugState;
+import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
+import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveStatePayload;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -12,9 +14,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolSchemaFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.prompts.PromptContext;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
-import com.ionsignal.minecraft.ioncore.IonCore;
-import com.ionsignal.minecraft.ioncore.debug.DebugSession;
-import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -37,7 +36,6 @@ import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -47,6 +45,7 @@ public class ReActDirector {
     private final LLMService llmService;
     private final GoalFactory goalFactory;
     private final GoalRegistry goalRegistry;
+    private final AgentDebugService debuggerService;
 
     private final List<ChatCompletionMessageParam> conversationHistory;
     private final List<ChatCompletionTool> availableTools;
@@ -64,7 +63,8 @@ public class ReActDirector {
     private String lastToolCall = null;
     private String lastToolResult = null;
 
-    public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
+    public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService,
+            AgentDebugService debuggerService) {
         this.plugin = IonNerrus.getInstance();
         this.agent = agent;
         this.agentContext = new PromptContext(agent);
@@ -72,6 +72,7 @@ public class ReActDirector {
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+        this.debuggerService = debuggerService;
         this.conversationHistory = new ArrayList<>();
     }
 
@@ -97,15 +98,8 @@ public class ReActDirector {
 
     public void cancel() {
         this.isCancelled = true;
-        // Ensure any pending debug pause is cancelled
-        try {
-            IonCore.getDebugRegistry()
-                    .getActiveSession(agent.getPersona().getUniqueId())
-                    .flatMap(DebugSession::getController)
-                    .ifPresent(ExecutionController::cancel);
-        } catch (Exception ignored) {
-        }
         this.agent.assignGoal(null, null);
+        this.debuggerService.cancelActiveSession(this.agent.getPersona().getUniqueId());
     }
 
     public void executeDirective(String directive, Player requester) {
@@ -144,29 +138,12 @@ public class ReActDirector {
                 .toolChoice(ChatCompletionToolChoiceOption.ofAuto(ChatCompletionToolChoiceOption.Auto.AUTO))
                 .parallelToolCalls(false)
                 .build();
-        // Debug Interception (Main Thread)
-        CompletableFuture<Void> pauseFuture = CompletableFuture.completedFuture(null);
-        try {
-            Optional<DebugSession<CognitiveDebugState>> sessionOpt = IonCore.getDebugRegistry()
-                    .getActiveSession(agent.getPersona().getUniqueId(), CognitiveDebugState.class);
-            if (sessionOpt.isPresent()) {
-                DebugSession<CognitiveDebugState> session = sessionOpt.get();
-                // Create snapshot with the pending request summary
-                String requestSummary = "Sending " + params.messages().size() + " messages. Tools: " + availableTools.size();
-                CognitiveDebugState snapshot = CognitiveDebugState.snapshot(this, agent, requestSummary);
-                session.setState(snapshot);
-                session.markVisualizationDirty();
-                pauseFuture = session.getController()
-                        .map(controller -> controller.pauseAsync(
-                                "Cognitive Step " + cognitiveStepCount,
-                                "Preparing LLM request..."))
-                        .orElse(CompletableFuture.completedFuture(null));
-            }
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error during debug session check", e);
-        }
-        // Execution Chain
-        pauseFuture.thenComposeAsync(v -> {
+        CognitiveStatePayload payload = new CognitiveStatePayload(
+                cognitiveStepCount,
+                this.directive,
+                this.lastToolCall,
+                null);
+        debuggerService.yieldBeforeThinking(agent, payload).thenComposeAsync(v -> {
             // Async Boundary: Offload Thread
             // Check cancellation immediately after pause resumes
             if (isCancelled) {

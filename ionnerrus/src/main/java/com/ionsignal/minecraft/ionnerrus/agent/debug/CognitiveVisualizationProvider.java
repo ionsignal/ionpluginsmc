@@ -1,60 +1,44 @@
 package com.ionsignal.minecraft.ionnerrus.agent.debug;
 
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProvider;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
-
-import java.util.concurrent.CompletableFuture;
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
+import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 
 /**
- * Visualization provider for cognitive reasoning debug state that renders LLM conversation progress
- * and tool execution to player actionbar. Thread Safety: render() must be called on the main server
- * thread (enforced).
+ * Renders cognitive debug state into the Minecraft world using the ChatBubble system.
  */
 public class CognitiveVisualizationProvider implements VisualizationProvider<CognitiveDebugState> {
 
+    private final IonNerrus plugin;
+
+    public CognitiveVisualizationProvider(IonNerrus plugin) {
+        this.plugin = plugin;
+    }
+
     @Override
     public void render(CognitiveDebugState state) {
-        if (!Bukkit.isPrimaryThread()) {
-            throw new IllegalStateException(
-                    "CognitiveVisualizationProvider.render() must be called on main thread");
+        // Find the specific agent mentioned in the snapshot
+        NerrusAgent agent = plugin.getAgentService().findAgentBySessionId(state.agentId());
+        if (agent == null || !agent.getPersona().isSpawned())
+            return;
+
+        String hologramText = String.format(
+                "§b§l[BRAIN PAUSED]§r\n" +
+                        "§7Step: §f%d\n" +
+                        "§7Last Tool: §e%s\n" +
+                        "§bWaiting for Web Approval...",
+                state.stepCount(),
+                state.lastTool() != null ? state.lastTool() : "None");
+
+        if (plugin.getChatBubbleService() != null) {
+            plugin.getChatBubbleService().showBubble(
+                    agent.getPersona().getPersonaEntity().getBukkitEntity(),
+                    hologramText);
         }
-        Player owner = Bukkit.getPlayer(state.agentId());
-        if (owner == null) {
-            return; // Player offline
-        }
-        // Build actionbar showing cognitive progress
-        var builder = Component.text()
-                .append(Component.text("[Cognition: ", NamedTextColor.DARK_GRAY))
-                .append(Component.text(state.agentName(), NamedTextColor.LIGHT_PURPLE))
-                .append(Component.text("] Step: ", NamedTextColor.DARK_GRAY))
-                .append(Component.text(state.cognitiveStepCount(), NamedTextColor.YELLOW));
-        // Visual indicator if the agent is paused waiting for approval
-        if (state.pendingRequestSummary() != null) {
-            builder.append(Component.text(" | ", NamedTextColor.DARK_GRAY))
-                    .append(Component.text("WAITING FOR APPROVAL", NamedTextColor.GOLD));
-        } else {
-            builder.append(Component.text(" | Tool: ", NamedTextColor.DARK_GRAY))
-                    .append(Component.text(
-                            state.lastToolCall() != null ? state.lastToolCall() : "Thinking",
-                            NamedTextColor.AQUA));
-        }
-        builder.append(Component.text(" | Conv: ", NamedTextColor.DARK_GRAY))
-                .append(Component.text(state.conversationHistory().size(), NamedTextColor.GREEN));
-        owner.sendActionBar(builder.build());
     }
 
     @Override
     public Class<CognitiveDebugState> getStateType() {
         return CognitiveDebugState.class;
-    }
-
-    @Override
-    public CompletableFuture<Void> cleanup() {
-        return CompletableFuture.completedFuture(null);
     }
 }

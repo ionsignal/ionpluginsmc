@@ -52,6 +52,8 @@ public class LLMService {
                     .baseUrl(baseUrl)
                     .apiKey(apiKey)
                     .timeout(Duration.ofSeconds(60))
+                    // Disable Jackson version check to allow Paper's 2.13.4 runtime to function
+                    .checkJacksonVersionCompatibility(false)
                     .build()
                     .async(); // Return the async interface
             LOGGER.info("LLMService initialized with model: " + modelName + " and baseUrl: " + baseUrl + " using Virtual Threads.");

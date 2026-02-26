@@ -3,6 +3,7 @@ package com.ionsignal.minecraft.ionnerrus.agent;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.autonomy.AutonomyEngine;
+import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionController;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
@@ -49,6 +50,7 @@ public class NerrusAgent {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
+    private final AgentDebugService agentDebugService;
     private final SensorySystem sensorySystem;
     private final AutonomyEngine autonomyEngine;
     private final ConcurrentLinkedQueue<Object> messages = new ConcurrentLinkedQueue<>();
@@ -83,12 +85,19 @@ public class NerrusAgent {
         }
     }
 
-    public NerrusAgent(Persona persona, IonNerrus plugin, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
+    public NerrusAgent(
+            Persona persona,
+            IonNerrus plugin,
+            GoalRegistry goalRegistry,
+            GoalFactory goalFactory,
+            LLMService llmService,
+            AgentDebugService agentDebugService) {
         this.persona = persona;
         this.plugin = plugin;
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
+        this.agentDebugService = agentDebugService;
         this.autonomyEngine = new AutonomyEngine(this);
         this.sensorySystem = new BukkitSensorySystem(this);
     }
@@ -240,7 +249,7 @@ public class NerrusAgent {
             this.currentDirector.cancel();
             this.currentDirector = null;
         }
-        this.currentDirector = new ReActDirector(this, goalRegistry, goalFactory, llmService);
+        this.currentDirector = new ReActDirector(this, goalRegistry, goalFactory, llmService, agentDebugService);
         this.currentDirector.executeDirective(directive, requester);
     }
 

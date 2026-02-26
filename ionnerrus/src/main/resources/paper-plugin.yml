@@ -59,3 +59,6 @@ permissions:
   ionnerrus.command.ask:
     description: Allows asking agents questions
     default: op
+  ionnerrus.command.debug:
+    description: Allows attaching/detaching debug sessions and issuing debug control actions to agents.
+    default: op

@@ -90,7 +90,7 @@ public class ToolSchemaFactory {
      */
     private static Map<String, JsonValue> convertNodeToMap(ObjectNode node) {
         Map<String, JsonValue> map = new HashMap<>();
-        node.properties().forEach(entry -> {
+        node.fields().forEachRemaining(entry -> {
             // JsonValue.fromJsonNode is a static helper in the kotlin companion object of JsonValue
             // It safely converts Jackson types (MISSING, NULL, BOOLEAN, NUMBER, STRING, ARRAY, OBJECT)
             map.put(entry.getKey(), JsonValue.fromJsonNode(entry.getValue()));

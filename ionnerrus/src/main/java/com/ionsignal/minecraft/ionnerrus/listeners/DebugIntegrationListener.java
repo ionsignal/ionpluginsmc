@@ -3,6 +3,7 @@ package com.ionsignal.minecraft.ionnerrus.listeners;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaHolder;
+
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;

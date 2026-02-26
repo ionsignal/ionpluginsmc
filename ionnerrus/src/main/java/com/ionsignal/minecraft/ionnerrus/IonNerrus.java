@@ -76,14 +76,14 @@ public class IonNerrus extends JavaPlugin {
         }
         // Register commands
         try {
-            commandRegistrar = new CommandRegistrar(
-                    this,
+            commandRegistrar = new CommandRegistrar(this,
                     services.getAgentService(),
                     services.getBlockTagManager(),
                     services.getGoalFactory(),
                     services.getGoalRegistry(),
                     services.getIdentityService(),
-                    services.getPayloadFactory());
+                    services.getPayloadFactory(),
+                    services.getAgentDebugService());
             commandRegistrar.registerAll();
         } catch (Exception e) {
             getLogger().severe("Failed to register commands: " + e.getMessage());
