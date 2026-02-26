@@ -1,9 +1,9 @@
-package com.ionsignal.minecraft.ionnerrus.agent.llm;
+package com.ionsignal.minecraft.ionnerrus.agent.llm.directors;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
-
+import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.prompts.PromptContext;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionDeveloperMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -41,7 +41,7 @@ public class AskDirector {
      *            The Player who initiated the query, for receiving error messages.
      */
     public void executeQuery(NerrusAgent agent, String question, Player requester) {
-        AgentContext agentContext = new AgentContext(agent);
+        PromptContext agentContext = new PromptContext(agent);
         String systemPrompt = agentContext.buildQueryPrompt(question, requester);
         // Updated to use ChatCompletionCreateParams from openai-java
         ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()

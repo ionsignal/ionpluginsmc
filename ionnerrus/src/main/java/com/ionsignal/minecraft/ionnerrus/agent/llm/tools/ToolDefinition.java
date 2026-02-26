@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.agent.llm.tool;
+package com.ionsignal.minecraft.ionnerrus.agent.llm.tools;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 

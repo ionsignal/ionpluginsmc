@@ -10,14 +10,13 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * Plugin Loader for IonCore:
- * 
+ *
  * Responsible for configuring the runtime classpath with shared libraries NOT bundled by Paper.
  *
  * Paper's shared URLClassLoader provides core Jackson (jackson-core, jackson-annotations,
  * jackson-databind) at runtime via its own bundled library directory and wins the first-found
  * ordering race unconditionally.
  */
-// @SuppressWarnings("UnstableApiUsage") // TODO: check if needed
 public class IonCoreLoader implements PluginLoader {
 
     @Override
@@ -30,10 +29,6 @@ public class IonCoreLoader implements PluginLoader {
         addDependency(resolver, "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.13.4");
         addDependency(resolver, "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.4");
         addDependency(resolver, "com.fasterxml.jackson.module:jackson-module-parameter-names:2.13.4");
-        // Kotlin support for OpenAI/IonNerrus (Shared here to prevent classloader conflicts)
-        addDependency(resolver, "com.fasterxml.jackson.module:jackson-module-kotlin:2.13.4");
-        addDependency(resolver, "org.jetbrains.kotlin:kotlin-reflect:1.9.22");
-        addDependency(resolver, "org.jetbrains.kotlin:kotlin-stdlib:1.9.22");
         // Register the resolver
         classpathBuilder.addLibrary(resolver);
     }

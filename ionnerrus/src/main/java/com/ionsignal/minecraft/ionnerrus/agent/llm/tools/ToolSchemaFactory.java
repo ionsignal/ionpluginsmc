@@ -1,8 +1,6 @@
-package com.ionsignal.minecraft.ionnerrus.agent.llm;
+package com.ionsignal.minecraft.ionnerrus.agent.llm.tools;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
-
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import com.github.victools.jsonschema.generator.Option;
@@ -25,7 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class LLMToolBuilder {
+public class ToolSchemaFactory {
     private static final SchemaGenerator generator;
 
     static {

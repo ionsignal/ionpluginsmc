@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
 
 /**
  * Defines the contract for classes that can provide a ToolDefinition for the LLM.
