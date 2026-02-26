@@ -8,7 +8,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.TaskCompleted;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.CountItemsSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.impl.GatherBlockTask;

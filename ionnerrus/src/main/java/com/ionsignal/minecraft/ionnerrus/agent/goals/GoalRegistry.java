@@ -1,7 +1,8 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
 import org.jetbrains.annotations.Nullable;
+
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
 
 import java.util.Collection;
 import java.util.Collections;

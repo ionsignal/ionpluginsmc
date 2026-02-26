@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FailObjectiveParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
 
 import java.util.Arrays;
 import java.util.stream.Collectors;

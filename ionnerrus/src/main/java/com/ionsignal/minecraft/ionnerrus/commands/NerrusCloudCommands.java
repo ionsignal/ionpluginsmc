@@ -19,7 +19,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal.GiveItemP
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.AskDirector;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.directors.AskDirector;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 

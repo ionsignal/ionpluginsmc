@@ -7,7 +7,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.PlaceBlockParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.PlaceBlockSkill;
 import com.ionsignal.minecraft.ionnerrus.agent.tasks.Task;
 

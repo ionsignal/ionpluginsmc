@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.agent.llm.context;
+package com.ionsignal.minecraft.ionnerrus.agent.llm.prompts;
 
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 
@@ -12,10 +12,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class AgentContext {
+public class PromptContext {
     private final NerrusAgent agent;
 
-    public AgentContext(NerrusAgent agent) {
+    public PromptContext(NerrusAgent agent) {
         this.agent = agent;
     }
 

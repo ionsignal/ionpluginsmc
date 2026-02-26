@@ -11,7 +11,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalPrerequisite;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.directors.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignDirective;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.AssignGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.messages.SetBusyWithDirective;

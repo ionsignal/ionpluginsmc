@@ -1,9 +1,8 @@
 package com.ionsignal.minecraft.ionnerrus.agent.debug;
 
 import com.ionsignal.minecraft.ioncore.debug.DebugStateSnapshot;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.ReActDirector;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-
+import com.ionsignal.minecraft.ionnerrus.agent.llm.directors.ReActDirector;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 
 import java.util.List;

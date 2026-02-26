@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ionnerrus.agent.llm;
+package com.ionsignal.minecraft.ionnerrus.agent.llm.directors;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
@@ -8,9 +8,10 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalResult;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FailObjectiveParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.context.AgentContext;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.tool.ToolDefinition;
-
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolSchemaFactory;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.prompts.PromptContext;
+import com.ionsignal.minecraft.ionnerrus.agent.llm.tools.ToolDefinition;
 import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.debug.DebugSession;
 import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
@@ -50,7 +51,7 @@ public class ReActDirector {
     private final List<ChatCompletionMessageParam> conversationHistory;
     private final List<ChatCompletionTool> availableTools;
 
-    private final AgentContext agentContext;
+    private final PromptContext agentContext;
     private final NerrusAgent agent;
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -66,8 +67,8 @@ public class ReActDirector {
     public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.plugin = IonNerrus.getInstance();
         this.agent = agent;
-        this.agentContext = new AgentContext(agent);
-        this.availableTools = LLMToolBuilder.fromToolDefinitions(goalRegistry.getAll(), agent);
+        this.agentContext = new PromptContext(agent);
+        this.availableTools = ToolSchemaFactory.fromToolDefinitions(goalRegistry.getAll(), agent);
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
