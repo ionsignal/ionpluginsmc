@@ -5,6 +5,7 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
 import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
 import com.ionsignal.minecraft.ionnerrus.persona.components.impl.BukkitPhysicalBody;
+
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import com.mojang.authlib.properties.PropertyMap;
@@ -122,8 +123,6 @@ public class Persona {
             personaEntity.grantVisibility(onlinePlayer);
         }
         world.addFreshEntity(personaEntity);
-        // Register with CraftEngine to prevent NPEs during block interactions
-        manager.getCraftEngineService().registerPersona(personaEntity.getBukkitEntity());
         // Register with NerrusManager
         manager.getRegistry().register(this);
     }
@@ -134,8 +133,6 @@ public class Persona {
             manager.getLogger().warning("Trying to despawn a `!isSpawned()` PersonaEntity.");
             return;
         }
-        // Unregister from CraftEngine
-        manager.getCraftEngineService().unregisterPersona(personaEntity.getBukkitEntity());
         // Set last location
         this.lastLocation = getLocation();
         // Stop all physical operations

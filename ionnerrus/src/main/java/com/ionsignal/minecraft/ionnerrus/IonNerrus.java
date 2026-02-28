@@ -7,7 +7,6 @@ import com.ionsignal.minecraft.ionnerrus.bootstrap.IntegrationBootstrap;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.ListenerRegistrar;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.RecipeModifier;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
-import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
 
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -93,11 +92,11 @@ public class IonNerrus extends JavaPlugin {
         // Register event listeners
         try {
             // Assign to field to preserve state for cleanup
+            // Removed services.getHudManager() from constructor
             this.listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
                     services.getChatBubbleService(),
-                    services.getHudManager(),
                     services.getNetworkService());
             this.listenerRegistrar.registerAll();
         } catch (Exception e) {
@@ -258,32 +257,6 @@ public class IonNerrus extends JavaPlugin {
             throw new IllegalStateException("Services not initialized - plugin failed to load");
         }
         return services.getChatBubbleService();
-    }
-
-    /**
-     * Gets the HUD Manager if available.
-     *
-     * This provides access to the HUD rendering system for displaying persistent UI elements (status
-     * icons, health bars, goal indicators). The HUD system requires CraftEngine 3.6+ to function.
-     *
-     * @return HudManager instance, or null if CraftEngine unavailable or initialization failed
-     * @throws IllegalStateException
-     *             if services not initialized (plugin failed to load)
-     */
-    public HudManager getHudManager() {
-        if (services == null) {
-            throw new IllegalStateException("Services not initialized - plugin failed to load");
-        }
-        return services.getHudManager();
-    }
-
-    /**
-     * Checks if the HUD system is available and ready to use.
-     *
-     * @return true if HUD features can be used, false otherwise
-     */
-    public boolean isHudAvailable() {
-        return services != null && services.isHudAvailable();
     }
 
     public ServiceContainer getServices() {

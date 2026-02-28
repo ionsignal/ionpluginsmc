@@ -11,12 +11,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.network.NetworkService;
 import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
-import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
-import com.ionsignal.minecraft.ionnerrus.compatibility.impl.CraftEngineServiceImpl;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
-import com.ionsignal.minecraft.ionnerrus.hud.HudManager;
-
-import org.bukkit.plugin.Plugin;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -45,8 +40,6 @@ public class ServiceContainer {
     private final LLMService llmService;
     private final AgentService agentService;
     private final ChatBubbleService chatBubbleService;
-    private final HudManager hudManager;
-    private final CraftEngineService craftEngineService;
     private final IdentityService identityService;
 
     // PayloadFactory service
@@ -66,8 +59,6 @@ public class ServiceContainer {
             LLMService llmService,
             AgentService agentService,
             ChatBubbleService chatBubbleService,
-            HudManager hudManager,
-            CraftEngineService craftEngineService,
             IdentityService identityService,
             PayloadFactory payloadFactory,
             @Nullable NetworkService nerrusBridge) {
@@ -81,8 +72,6 @@ public class ServiceContainer {
         this.llmService = llmService;
         this.agentService = agentService;
         this.chatBubbleService = chatBubbleService;
-        this.hudManager = hudManager;
-        this.craftEngineService = craftEngineService;
         this.identityService = identityService;
         this.payloadFactory = payloadFactory;
         this.networkService = nerrusBridge;
@@ -115,13 +104,9 @@ public class ServiceContainer {
             // Layer 5: External integrations
             var llmService = initializeLLMService(plugin);
             var chatBubbleService = initializeChatBubbles(plugin);
-            var hudManager = initializeHudManager(plugin);
-            var craftEngineService = initializeCraftEngine(plugin);
             var identityService = coreContainer.getIdentityService();
             // Layer 5.5: Retrieve Identity Service and JsonService from IonCore
             var payloadFactory = new PayloadFactory(coreContainer.getJsonService());
-            // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
-            nerrusManager.setCraftEngineService(craftEngineService);
             // Layer 6: High-level services
             AgentService agentService = new AgentService(
                     plugin,
@@ -151,8 +136,6 @@ public class ServiceContainer {
                     llmService,
                     agentService,
                     chatBubbleService,
-                    hudManager,
-                    craftEngineService,
                     identityService,
                     payloadFactory,
                     nerrusBridge);
@@ -194,9 +177,6 @@ public class ServiceContainer {
         }
     }
 
-    /**
-     * Initializes LLM service (CRITICAL - required for agent cognition).
-     */
     private static LLMService initializeLLMService(IonNerrus plugin) {
         try {
             return new LLMService(plugin);
@@ -206,12 +186,6 @@ public class ServiceContainer {
         }
     }
 
-    /**
-     * Initializes chat bubble service (NON-CRITICAL - cosmetic feature).
-     * Failures are logged but don't prevent plugin startup.
-     *
-     * @return ChatBubbleService instance, or null if initialization failed.
-     */
     private static ChatBubbleService initializeChatBubbles(IonNerrus plugin) {
         try {
             ChatBubbleService service = new ChatBubbleService(plugin);
@@ -222,65 +196,6 @@ public class ServiceContainer {
                     "Failed to initialize chat bubble service (non-critical): " + e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Initializes the HUD Manager. (NON-CRITICAL - feature).
-     * Failures are logged but don't prevent plugin startup.
-     */
-    private static HudManager initializeHudManager(IonNerrus plugin) {
-        Plugin cePlugin = plugin.getServer()
-                .getPluginManager()
-                .getPlugin("CraftEngine");
-        if (cePlugin == null || !cePlugin.isEnabled()) {
-            plugin.getLogger().warning(
-                    "CraftEngine not found - HUD features disabled.");
-            return null;
-        }
-        try {
-            HudManager hudManager = new HudManager(plugin);
-            hudManager.finishRegistration();
-            plugin.getServer().getPluginManager().registerEvents(hudManager, plugin);
-            try {
-                hudManager.saveCache();
-            } catch (java.io.IOException e) {
-                plugin.getLogger().warning(
-                        "Failed to save HUD codepoint cache (non-fatal): " + e.getMessage());
-            }
-            plugin.getLogger().info(String.format(
-                    "HUD Manager initialized: %d elements registered, listening for pack generation.",
-                    hudManager.getElementCount()));
-            return hudManager;
-        } catch (NoClassDefFoundError e) {
-            plugin.getLogger().warning(
-                    "CraftEngine classes not found on classpath - HUD features disabled.");
-            return null;
-        } catch (Exception e) {
-            plugin.getLogger().severe(
-                    "Failed to initialize HUD Manager (non-critical): " + e.getMessage());
-            e.printStackTrace();
-            return null;
-        }
-    }
-
-    /**
-     * Initializes the CraftEngine compatibility layer and uses reflection-based implementation to avoid
-     * compile-time dependency requirements.
-     */
-    private static CraftEngineService initializeCraftEngine(IonNerrus plugin) {
-        if (plugin.getServer().getPluginManager().isPluginEnabled("CraftEngine")) {
-            try {
-                // We use the implementation that utilizes pure reflection
-                CraftEngineService service = new CraftEngineServiceImpl();
-                plugin.getLogger().info("CraftEngine detected. Compatibility layer initialized.");
-                return service;
-            } catch (Exception e) {
-                plugin.getLogger().warning("CraftEngine detected but failed to initialize compatibility layer: " + e.getMessage());
-                e.printStackTrace();
-                return new CraftEngineService.NoOp();
-            }
-        }
-        return new CraftEngineService.NoOp();
     }
 
     public NerrusManager getNerrusManager() {
@@ -315,32 +230,8 @@ public class ServiceContainer {
         return agentService;
     }
 
-    public CraftEngineService getCraftEngineService() {
-        return craftEngineService;
-    }
-
-    /**
-     * Gets the chat bubble service. Can return null if FancyHolograms is not available or
-     * initialization failed. Callers must check for null before use.
-     *
-     * @return ChatBubbleService instance, or null if unavailable.
-     */
     public ChatBubbleService getChatBubbleService() {
         return chatBubbleService; // NOTE: Can be null
-    }
-
-    /**
-     * Gets the HUD Manager. Can return null if CraftEngine is not available or
-     * initialization failed. Callers must check for null before use.
-     *
-     * @return HudManager instance, or null if unavailable
-     */
-    public HudManager getHudManager() {
-        return hudManager;
-    }
-
-    public boolean isHudAvailable() {
-        return hudManager != null;
     }
 
     public IdentityService getIdentityService() {
@@ -381,9 +272,6 @@ public class ServiceContainer {
         // Layer 2: Platform-specific managers
         if (nerrusManager != null) {
             shutdownService("NerrusManager", nerrusManager::shutdown);
-        }
-        if (hudManager != null) {
-            shutdownService("HudManager", hudManager::shutdown);
         }
         // Layer 1: Configuration (no cleanup needed)
         // NerrusBridge has no shutdown — its Bukkit listener is cleared by

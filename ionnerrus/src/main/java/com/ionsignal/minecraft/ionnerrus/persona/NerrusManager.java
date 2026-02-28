@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.compatibility.CraftEngineService;
 import com.ionsignal.minecraft.ionnerrus.util.ServerVersion;
 
 import org.bukkit.Bukkit;
@@ -13,9 +12,6 @@ public class NerrusManager {
     private final IonNerrus plugin;
     private final NerrusRegistry registry;
     private NerrusTick tickTask;
-
-    // Default to NoOp until injected by ServiceContainer
-    private CraftEngineService craftEngineService = new CraftEngineService.NoOp();
 
     public NerrusManager(IonNerrus plugin) {
         instance = this;
@@ -46,14 +42,6 @@ public class NerrusManager {
         }
         registry.clear();
         instance = null;
-    }
-
-    public void setCraftEngineService(CraftEngineService craftEngineService) {
-        this.craftEngineService = craftEngineService;
-    }
-
-    public CraftEngineService getCraftEngineService() {
-        return craftEngineService;
     }
 
     public static NerrusManager getInstance() {
