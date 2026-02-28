@@ -1,10 +1,7 @@
-// ionnerrus/src/main/java/com/ionsignal/minecraft/ionnerrus/agent/llm/directors/ReActDirector.java
 package com.ionsignal.minecraft.ionnerrus.agent.llm.directors;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveStatePayload;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -39,13 +36,13 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReActDirector {
     private final IonNerrus plugin;
     private final LLMService llmService;
     private final GoalFactory goalFactory;
     private final GoalRegistry goalRegistry;
-    private final AgentDebugService debuggerService;
 
     private final List<ChatCompletionMessageParam> conversationHistory;
     private final List<ChatCompletionTool> availableTools;
@@ -55,6 +52,8 @@ public class ReActDirector {
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
+    private final AtomicBoolean isFinished = new AtomicBoolean(false);
+
     private volatile boolean isCancelled = false;
 
     private String directive;
@@ -63,8 +62,7 @@ public class ReActDirector {
     private String lastToolCall = null;
     private String lastToolResult = null;
 
-    public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService,
-            AgentDebugService debuggerService) {
+    public ReActDirector(NerrusAgent agent, GoalRegistry goalRegistry, GoalFactory goalFactory, LLMService llmService) {
         this.plugin = IonNerrus.getInstance();
         this.agent = agent;
         this.agentContext = new PromptContext(agent);
@@ -72,7 +70,6 @@ public class ReActDirector {
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-        this.debuggerService = debuggerService;
         this.conversationHistory = new ArrayList<>();
     }
 
@@ -96,15 +93,33 @@ public class ReActDirector {
         return cognitiveStepCount;
     }
 
+    private void concludeDirective(String speech, Throwable error, String reason) {
+        if (!isFinished.compareAndSet(false, true)) {
+            return;
+        }
+        if (speech != null) {
+            agent.speak(speech);
+        }
+        if (error != null && !(error instanceof CancellationException)) {
+            plugin.getLogger().log(Level.SEVERE, "Directive failed: " + reason, error);
+        } else if (error instanceof CancellationException) {
+            plugin.getLogger().info("Directive cancelled: " + reason);
+        }
+        agent.setBusyWithDirective(false);
+    }
+
     public void cancel() {
         this.isCancelled = true;
         this.agent.assignGoal(null, null);
-        this.debuggerService.cancelActiveSession(this.agent.getPersona().getUniqueId());
+        concludeDirective("Okay, I'll stop what I'm doing.", new CancellationException("Task Cancelled by Override"),
+                "Task Cancelled by Override");
     }
 
     public void executeDirective(String directive, Player requester) {
         this.directive = directive;
         this.requester = requester;
+        this.isFinished.set(false);
+        this.isCancelled = false;
         agent.setBusyWithDirective(true);
         String systemPrompt = agentContext.buildSystemPrompt(directive, requester);
         conversationHistory.add(ChatCompletionMessageParam.ofDeveloper(
@@ -138,69 +153,59 @@ public class ReActDirector {
                 .toolChoice(ChatCompletionToolChoiceOption.ofAuto(ChatCompletionToolChoiceOption.Auto.AUTO))
                 .parallelToolCalls(false)
                 .build();
-        CognitiveStatePayload payload = new CognitiveStatePayload(
-                cognitiveStepCount,
-                this.directive,
-                this.lastToolCall,
-                null);
-        debuggerService.yieldBeforeThinking(agent, payload).thenComposeAsync(v -> {
+
+        CompletableFuture.completedFuture(null).thenComposeAsync(v -> {
             // Async Boundary: Offload Thread
-            // Check cancellation immediately after pause resumes
+            // Check cancellation immediately before firing LLM request
             if (isCancelled) {
-                return CompletableFuture.failedFuture(new CancellationException("Director cancelled"));
+                return CompletableFuture.<ChatCompletion>failedFuture(new CancellationException("Director cancelled"));
             }
             try {
                 plugin.getLogger().info("--- LLM Request (Step " + cognitiveStepCount + ") ---");
                 // Use the params constructed on the main thread
                 return llmService.getNextToolCall(params);
             } catch (Exception e) {
-                return CompletableFuture.failedFuture(e);
+                return CompletableFuture.<ChatCompletion>failedFuture(e);
             }
         }, plugin.getOffloadThreadExecutor()).whenCompleteAsync((completion, throwable) -> {
             // Response Handling: Main Thread
             if (isCancelled) {
-                return;
+                return; // Already handled by cancel()
             }
             if (throwable != null) {
                 if (throwable instanceof CancellationException) {
+                    concludeDirective(null, throwable, "Task Cancelled");
                     return;
                 }
-                plugin.getLogger().log(Level.SEVERE, "LLM call failed in cognitive step.", throwable);
-                agent.speak("I'm having trouble thinking right now.");
-                agent.setBusyWithDirective(false);
+                concludeDirective("I'm having trouble thinking right now.", throwable, "LLM call failed");
                 return;
             }
             // Process ChatCompletion response
             if (completion.choices().isEmpty()) {
                 plugin.getLogger().warning("LLM returned no choices.");
+                concludeDirective("I'm not sure what to do.", new IllegalStateException("No choices returned"), "LLM returned no choices");
                 return;
             }
             ChatCompletion.Choice choice = completion.choices().get(0);
-            // Refusal-First Logic:
-            // Check if model refused the request (Safety/Policy)
             if (choice.message().refusal().isPresent()) {
                 String refusal = choice.message().refusal().get();
                 plugin.getLogger().warning("LLM Refusal: " + refusal);
-                agent.speak("I can't do that. " + refusal);
-                agent.setBusyWithDirective(false);
+                concludeDirective("I can't do that. " + refusal, null, "LLM Refusal: " + refusal);
                 return;
             }
             // Check for tool calls
             if (choice.message().toolCalls().isPresent() && !choice.message().toolCalls().get().isEmpty()) {
                 List<ChatCompletionMessageToolCall> toolCalls = choice.message().toolCalls().get();
                 ChatCompletionMessageToolCall toolCallToExecute;
-                // History Sanitization: Handle parallel calls if model ignores parallelToolCalls(false)
                 if (toolCalls.size() > 1) {
                     plugin.getLogger().warning("Sanitizing parallel tool calls. Dropped " + (toolCalls.size() - 1) + " calls.");
                     toolCallToExecute = toolCalls.get(0);
-                    // Create synthetic message containing ONLY the first tool call
                     ChatCompletionAssistantMessageParam syntheticMsg = ChatCompletionAssistantMessageParam.builder()
                             .content(choice.message().content().orElse("")) // Safe optional access
                             .toolCalls(List.of(toolCallToExecute))
                             .build();
                     conversationHistory.add(ChatCompletionMessageParam.ofAssistant(syntheticMsg));
                 } else {
-                    // Standard path: 1 tool call
                     toolCallToExecute = toolCalls.get(0);
                     conversationHistory.add(ChatCompletionMessageParam.ofAssistant(choice.message().toParam()));
                 }
@@ -210,13 +215,10 @@ public class ReActDirector {
                 this.lastToolResult = null;
                 handleToolCall(toolCallToExecute);
             } else {
-                // No tool call, check for content
-                // Add original message to history
                 conversationHistory.add(ChatCompletionMessageParam.ofAssistant(choice.message().toParam()));
                 String finalMessage = choice.message().content().orElse("I'm finished with the task.");
-                agent.speak(finalMessage);
                 plugin.getLogger().info("ReActDirector finished: LLM provided a final text response.");
-                agent.setBusyWithDirective(false);
+                concludeDirective(finalMessage, null, "Task Completed");
             }
         }, plugin.getMainThreadExecutor());
     }
@@ -245,10 +247,9 @@ public class ReActDirector {
             if ("FAIL_OBJECTIVE".equalsIgnoreCase(toolName)) {
                 FailObjectiveParameters failParams = (FailObjectiveParameters) params;
                 String explanation = failParams.explanation();
-                agent.speak("I can't do that. " + explanation);
                 plugin.getLogger().warning("ReActDirector terminated by FAIL_OBJECTIVE tool. Type: " + failParams.failureType()
                         + ", Explanation: " + explanation);
-                agent.setBusyWithDirective(false);
+                concludeDirective("I can't do that. " + explanation, null, "Terminated by FAIL_OBJECTIVE: " + failParams.failureType());
                 return;
             }
             Goal newGoal = goalFactory.createGoal(toolName, params);
@@ -263,8 +264,7 @@ public class ReActDirector {
                             return;
                         }
                         plugin.getLogger().info("Directive for agent " + agent.getName() + " was cancelled by user.");
-                        agent.speak("Okay, I'll stop what I'm doing.");
-                        agent.setBusyWithDirective(false);
+                        concludeDirective("Okay, I'll stop what I'm doing.", throwable, "Goal cancelled by user");
                         return;
                     }
                     plugin.getLogger().log(Level.SEVERE, "Goal future completed exceptionally.", throwable);

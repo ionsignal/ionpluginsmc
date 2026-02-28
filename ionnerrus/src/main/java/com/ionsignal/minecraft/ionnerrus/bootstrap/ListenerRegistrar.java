@@ -24,6 +24,7 @@ public class ListenerRegistrar {
     private final NerrusManager nerrusManager;
     private final ChatBubbleService chatBubbleService;
     private final HudManager hudManager;
+
     @Nullable
     private final NetworkService nerrusBridge;
 

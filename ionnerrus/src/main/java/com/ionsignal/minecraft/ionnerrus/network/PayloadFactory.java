@@ -15,7 +15,6 @@ import com.ionsignal.minecraft.ionnerrus.network.model.PlayerQuitPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.RequestSpawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.RequestDespawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.RequestPersonaListPayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.DebugStateEventPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -77,26 +76,6 @@ public class PayloadFactory {
                 System.currentTimeMillis(),
                 toJsonNode(payload));
         return envelope;
-    }
-
-    public EventEnvelope createDebugStateEnvelope(
-            @NotNull UUID sessionId,
-            @NotNull IonUser owner,
-            @NotNull String agentName,
-            int stepCount,
-            @NotNull String directive,
-            @Nullable String lastTool,
-            @Nullable String pendingSummary) {
-        DebugStateEventPayload payload = new DebugStateEventPayload(
-                owner,
-                sessionId,
-                agentName,
-                stepCount,
-                directive,
-                lastTool,
-                pendingSummary,
-                IonEventType.EVENT_DEBUG_STATE.getValue());
-        return new EventEnvelope(UUID.randomUUID(), System.currentTimeMillis(), toJsonNode(payload));
     }
 
     public EventEnvelope createRequestSpawnEnvelope(

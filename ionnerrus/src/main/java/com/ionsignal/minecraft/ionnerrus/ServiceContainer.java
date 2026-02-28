@@ -4,9 +4,6 @@ import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveDebugState;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.CognitiveVisualizationProvider;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -51,7 +48,6 @@ public class ServiceContainer {
     private final HudManager hudManager;
     private final CraftEngineService craftEngineService;
     private final IdentityService identityService;
-    private final AgentDebugService agentDebugService;
 
     // PayloadFactory service
     private final PayloadFactory payloadFactory;
@@ -74,7 +70,6 @@ public class ServiceContainer {
             CraftEngineService craftEngineService,
             IdentityService identityService,
             PayloadFactory payloadFactory,
-            AgentDebugService agentDebugService,
             @Nullable NetworkService nerrusBridge) {
         this.plugin = plugin;
         this.nerrusManager = nerrusManager;
@@ -90,7 +85,6 @@ public class ServiceContainer {
         this.craftEngineService = craftEngineService;
         this.identityService = identityService;
         this.payloadFactory = payloadFactory;
-        this.agentDebugService = agentDebugService;
         this.networkService = nerrusBridge;
     }
 
@@ -128,26 +122,20 @@ public class ServiceContainer {
             var payloadFactory = new PayloadFactory(coreContainer.getJsonService());
             // Inject CraftEngineService into NerrusManager (Circular dependency resolution)
             nerrusManager.setCraftEngineService(craftEngineService);
-            // Layer 5.75: Instantiate AgentDebugService
-            var agentDebugService = new AgentDebugService(plugin, coreContainer.getEventBus(), payloadFactory);
             // Layer 6: High-level services
             AgentService agentService = new AgentService(
                     plugin,
                     nerrusManager,
                     goalRegistry,
                     goalFactory,
-                    llmService,
-                    agentDebugService);
-            var debugRegistry = com.ionsignal.minecraft.ioncore.IonCore.getVisualizationRegistry();
-            debugRegistry.register(CognitiveDebugState.class, new CognitiveVisualizationProvider(plugin));
-            plugin.getLogger().info("Registered CognitiveVisualizationProvider with IonCore.");
+                    llmService);
             GoalRegistrar goalRegistrar = new GoalRegistrar(goalRegistry, blockTagManager);
             goalRegistrar.registerAll();
             // Layer 7: Network Bootstrap (Wiring)
             NetworkService nerrusBridge = null;
             boolean isIonCoreEnabled = plugin.getServer().getPluginManager().isPluginEnabled("IonCore");
             if (isIonCoreEnabled) {
-                nerrusBridge = initializeNetworking(plugin, agentService, payloadFactory, agentDebugService);
+                nerrusBridge = initializeNetworking(plugin, agentService, payloadFactory);
             } else {
                 plugin.getLogger().info("IonCore not found. Running in standalone offline mode.");
             }
@@ -167,7 +155,6 @@ public class ServiceContainer {
                     craftEngineService,
                     identityService,
                     payloadFactory,
-                    agentDebugService,
                     nerrusBridge);
         } catch (ServiceInitializationException e) {
             throw e;
@@ -178,7 +165,7 @@ public class ServiceContainer {
     }
 
     private static @Nullable NetworkService initializeNetworking(IonNerrus plugin, AgentService agentService,
-            PayloadFactory payloadFactory, AgentDebugService agentDebugService) {
+            PayloadFactory payloadFactory) {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
             var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
@@ -197,8 +184,7 @@ public class ServiceContainer {
                     commandRegistrar,
                     jsonService,
                     payloadFactory,
-                    virtualThreadExecutor,
-                    agentDebugService);
+                    virtualThreadExecutor);
             plugin.getLogger().info("Network Integration: NerrusBridge initialized.");
             return bridge;
         } catch (Exception e) {
@@ -366,13 +352,6 @@ public class ServiceContainer {
             throw new IllegalStateException("PayloadFactory not initialized");
         }
         return payloadFactory;
-    }
-
-    public AgentDebugService getAgentDebugService() {
-        if (agentDebugService == null) {
-            throw new IllegalStateException("AgentDebugService not initialized");
-        }
-        return agentDebugService;
     }
 
     @Nullable

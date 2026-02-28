@@ -12,14 +12,12 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.commands.SpawnAgentCommand;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
 import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
 import com.ionsignal.minecraft.ionnerrus.network.model.SessionStatus;
 import com.ionsignal.minecraft.ionnerrus.network.model.CoordinateSpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.network.model.CommandFailedPayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.DebugControlCommandPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.DespawnPayload;
 import com.ionsignal.minecraft.ionnerrus.network.model.IonCommandType;
 import com.ionsignal.minecraft.ionnerrus.network.model.Location;
@@ -68,7 +66,6 @@ public class NetworkService implements Listener {
     private final JsonService jsonService;
     private final PayloadFactory payloadFactory;
     private final ExecutorService virtualThreadExecutor;
-    private final AgentDebugService agentDebugService;
 
     public NetworkService(
             IonNerrus plugin,
@@ -78,8 +75,7 @@ public class NetworkService implements Listener {
             NetworkCommandRegistrar commandRegistrar,
             JsonService jsonService,
             PayloadFactory payloadFactory,
-            ExecutorService virtualThreadExecutor,
-            AgentDebugService agentDebugService) {
+            ExecutorService virtualThreadExecutor) {
         this.plugin = plugin;
         this.agentService = agentService;
         this.documentStore = documentStore;
@@ -87,7 +83,6 @@ public class NetworkService implements Listener {
         this.jsonService = jsonService;
         this.payloadFactory = payloadFactory;
         this.virtualThreadExecutor = virtualThreadExecutor;
-        this.agentDebugService = agentDebugService;
         registerCommandHandlers(commandRegistrar);
     }
 
@@ -114,9 +109,6 @@ public class NetworkService implements Listener {
         });
         commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_LIST.getValue(), node -> {
             deserializeAndHandle(node, PersonaListResponsePayload.class, this::handlePersonaListResponse);
-        });
-        commandRegistrar.registerHandler(IonCommandType.COMMAND_DEBUG_CONTROL.getValue(), node -> {
-            deserializeAndHandle(node, DebugControlCommandPayload.class, this::handleDebugControl);
         });
         plugin.getLogger().info("NerrusBridge: Listening via Shared JsonNode dispatch.");
     }
@@ -160,19 +152,6 @@ public class NetworkService implements Listener {
             }
         }
         return t;
-    }
-
-    private void handleDebugControl(DebugControlCommandPayload payload) {
-        if (payload == null || payload.owner() == null || payload.sessionId() == null) {
-            throw new IllegalArgumentException("Received payload with invalid or missing structure.");
-        }
-        // Delegate debug action execution to the domain service
-        boolean success = agentDebugService.executeDebugAction(payload.sessionId(), payload.action());
-        if (!success) {
-            // Notify Web UI that the session is dead to prevent the UI from hanging
-            failCommand(payload.owner(), payload.type(),
-                    new IllegalStateException("Debug session not found or already completed."));
-        }
     }
 
     private void handleCommandFailed(CommandFailedPayload payload) {

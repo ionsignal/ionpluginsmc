@@ -9,7 +9,6 @@ import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
 
 /**
  * Fired when a player successfully links their Minecraft account to a Web account.
- * This event is fired on the main server thread.
  */
 public class IonUserLinkedEvent extends Event {
     private static final HandlerList HANDLERS = new HandlerList();

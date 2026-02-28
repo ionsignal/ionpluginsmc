@@ -32,5 +32,9 @@ chat-bubbles:
 
 testing:
   # Disables all non-wood crafting recipes for development/testing.
-  # WARNING: This is a destructive operation. Only enable in test environments.
   disableNonWoodRecipes: false
+  # Proxyman / Local Debug Proxy Configuration
+  proxy:
+    enabled: false
+    host: "127.0.0.1"
+    port: 9090

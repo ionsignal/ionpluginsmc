@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.llm;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-
 import com.openai.client.OpenAIClientAsync;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.chat.completions.ChatCompletion;
@@ -33,15 +32,50 @@ public class LLMService {
         String apiKey = config.getString("llm.apiKey");
         String baseUrl = config.getString("llm.baseUrl");
         this.modelName = config.getString("llm.modelName", "qwen3-coder");
-        // Initialize Virtual Thread Executor
-        // This executor will be used for both Network I/O (Dispatcher) and Logic/Parsing (StreamHandler)
+        boolean proxyEnabled = config.getBoolean("testing.proxy.enabled", false);
+        String proxyHost = config.getString("testing.proxy.host", "127.0.0.1");
+        int proxyPort = config.getInt("testing.proxy.port", 9090);
         this.vtExecutor = Executors.newVirtualThreadPerTaskExecutor();
         if (baseUrl == null || baseUrl.isBlank() || apiKey == null) {
             LOGGER.warning("LLM configuration is incomplete in config.yml.");
             this.openAI = null;
         } else {
-            // Build OpenAIClient using OpenAIOkHttpClient builder
-            // Removed redundant ClientOptions.Builder instantiation
+            // Proxyman / Local Proxy Injection ---
+            if (proxyEnabled) {
+                LOGGER.warning("=====================================================");
+                LOGGER.warning("INSECURE HTTP PROXY ENABLED. DO NOT USE IN PRODUCTION.");
+                LOGGER.warning("Routing LLM traffic through " + proxyHost + ":" + proxyPort);
+                LOGGER.warning("SSL Validation is completely disabled!");
+                LOGGER.warning("=====================================================");
+                try {
+                    // Set System Properties for basic proxy routing
+                    System.setProperty("http.proxyHost", proxyHost);
+                    System.setProperty("http.proxyPort", String.valueOf(proxyPort));
+                    System.setProperty("https.proxyHost", proxyHost);
+                    System.setProperty("https.proxyPort", String.valueOf(proxyPort));
+                    // Disable SSL Validation globally for the JVM (Required since OkHttp builder in openai-java
+                    // abstracts the SSL context)
+                    javax.net.ssl.TrustManager[] trustAllCerts = new javax.net.ssl.TrustManager[] {
+                            new javax.net.ssl.X509TrustManager() {
+                                public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+                                }
+
+                                public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+                                }
+
+                                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                                    return null;
+                                }
+                            }
+                    };
+                    javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("SSL");
+                    sc.init(null, trustAllCerts, new java.security.SecureRandom());
+                    javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+                    javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
+                } catch (Exception e) {
+                    LOGGER.severe("Failed to configure HTTP Proxy: " + e.getMessage());
+                }
+            }
             this.openAI = OpenAIOkHttpClient.builder()
                     .fromEnv() // Load defaults from env if any
                     // Inject VT executor for OkHttp Dispatcher (Blocking I/O)
@@ -51,7 +85,7 @@ public class LLMService {
                     // Apply manual options (BaseURL, Key)
                     .baseUrl(baseUrl)
                     .apiKey(apiKey)
-                    .timeout(Duration.ofSeconds(60))
+                    .timeout(Duration.ofSeconds(proxyEnabled ? 10 : 60)) // Fast-fail if proxy is offline
                     // Disable Jackson version check to allow Paper's 2.13.4 runtime to function
                     .checkJacksonVersionCompatibility(false)
                     .build()

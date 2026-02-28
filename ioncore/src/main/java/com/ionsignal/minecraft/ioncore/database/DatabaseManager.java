@@ -3,7 +3,6 @@ package com.ionsignal.minecraft.ioncore.database;
 import com.ionsignal.minecraft.ioncore.IonCore;
 
 import io.vertx.core.Vertx;
-// import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.Pool;

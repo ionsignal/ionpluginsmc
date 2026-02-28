@@ -2,7 +2,6 @@ package com.ionsignal.minecraft.ionnerrus.agent;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.commands.SpawnAgentCommand;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
@@ -37,7 +36,6 @@ public class AgentService {
     private final GoalRegistry goalRegistry;
     private final GoalFactory goalFactory;
     private final LLMService llmService;
-    private final AgentDebugService agentDebugService;
 
     // Persona Memory Management
     private final Map<UUID, NerrusAgent> agents = new HashMap<>();
@@ -47,14 +45,12 @@ public class AgentService {
             NerrusManager nerrusManager,
             GoalRegistry goalRegistry,
             GoalFactory goalFactory,
-            LLMService llmService,
-            AgentDebugService agentDebugService) {
+            LLMService llmService) {
         this.plugin = plugin;
         this.personaRegistry = nerrusManager.getRegistry();
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
-        this.agentDebugService = agentDebugService;
     }
 
     public NerrusAgent spawnAgent(SpawnAgentCommand command) {
@@ -80,7 +76,7 @@ public class AgentService {
                     command.skin().mojangTextureSignature(),
                     command.skin().type()));
         }
-        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService, agentDebugService);
+        NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
         try {
             persona.spawn(command.location());

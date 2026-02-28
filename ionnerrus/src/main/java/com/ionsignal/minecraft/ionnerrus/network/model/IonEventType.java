@@ -4,7 +4,6 @@ public enum IonEventType {
     EVENT_PLAYER_JOIN((String) "event:player:join"), // EVENT_PLAYER_JOIN
     EVENT_PLAYER_QUIT((String) "event:player:quit"), // EVENT_PLAYER_QUIT
     EVENT_PERSONA_STATE((String) "event:persona:state"), // EVENT_PERSONA_STATE
-    EVENT_DEBUG_STATE((String) "event:debug:state"), // EVENT_DEBUG_STATE
     REQUEST_PERSONA_SPAWN((String) "request:persona:spawn"), // REQUEST_PERSONA_SPAWN
     REQUEST_PERSONA_DESPAWN((String) "request:persona:despawn"), // REQUEST_PERSONA_DESPAWN
     REQUEST_PERSONA_LIST((String) "request:persona:list"); // REQUEST_PERSONA_LIST

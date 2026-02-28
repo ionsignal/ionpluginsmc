@@ -99,7 +99,6 @@ public final class PostgresEventBus {
     private void handleNotification(String jsonPayload) {
         if (jsonPayload == null || jsonPayload.isEmpty())
             return;
-        plugin.getLogger().info("[VT-TEST] Processing payload on Virtual Thread: " + Thread.currentThread().isVirtual());
         try {
             JsonNode payloadNode = unwrapEnvelope(jsonPayload);
             if (payloadNode == null) {

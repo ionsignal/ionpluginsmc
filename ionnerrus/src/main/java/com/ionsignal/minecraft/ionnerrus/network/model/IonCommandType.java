@@ -6,7 +6,6 @@ public enum IonCommandType {
     COMMAND_PERSONA_TELEPORT((String) "command:persona:teleport"), // COMMAND_PERSONA_TELEPORT
     COMMAND_PERSONA_UPDATE((String) "command:persona:update"), // COMMAND_PERSONA_UPDATE
     COMMAND_PERSONA_LIST((String) "command:persona:list"), // COMMAND_PERSONA_LIST
-    COMMAND_DEBUG_CONTROL((String) "command:debug:control"), // COMMAND_DEBUG_CONTROL
     SYSTEM_PERSONA_KILL((String) "system:persona:kill"), // SYSTEM_PERSONA_KILL
     SYSTEM_COMMAND_FAILED((String) "system:command:failed"); // SYSTEM_COMMAND_FAILED
 

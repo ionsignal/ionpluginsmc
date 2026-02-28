@@ -1,22 +1,28 @@
 package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
-import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
-import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
-import com.ionsignal.minecraft.ioncore.listeners.EventListener;
+
+// STUBBED DEBUG REGISTRIES FOR IONGENESIS COMPILATION
+import com.ionsignal.minecraft.ioncore.debug.DebugRegistry;
+import com.ionsignal.minecraft.ioncore.debug.DebugSession;
+import com.ionsignal.minecraft.ioncore.debug.ExecutionController;
+import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
+import com.ionsignal.minecraft.ioncore.debug.VisualizationProvider;
+import com.ionsignal.minecraft.ioncore.debug.VisualizationRegistry;
+// END STUBBED DEBUG REGISTRIES
 
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 
 /**
  * IonCore - Core framework for Ion Signal plugins.
- * Refactored to use strict ServiceContainer pattern.
  */
 public class IonCore extends JavaPlugin {
     private static IonCore instance;
 
-    // The single source of truth for all subsystems
     private ServiceContainer serviceContainer;
 
     @Override
@@ -27,10 +33,6 @@ public class IonCore extends JavaPlugin {
             // Initialize Service Container
             this.serviceContainer = new ServiceContainer(this);
             this.serviceContainer.initialize();
-            // Register Event Listeners (Moved out of main class)
-            getServer().getPluginManager().registerEvents(
-                    new EventListener(serviceContainer.getDebugRegistry()),
-                    this);
             getLogger().info("IonCore v" + getPluginMeta().getVersion() + " initialized.");
         } catch (ServiceInitializationException e) {
             getLogger().severe("CRITICAL INITIALIZATION FAILURE: " + e.getMessage());
@@ -66,24 +68,75 @@ public class IonCore extends JavaPlugin {
         return serviceContainer.getVirtualThreadExecutor();
     }
 
-    // --- Legacy / Static Bridge Accessors ---
-    // TODO: Update IonNerrus to NOT use these (will be deprecated eventually)
-    // These delegate to the container instance to maintain backward compatibility while enforcing the
-    // new architectural boundaries.
-
-    public static DebugSessionRegistry getDebugRegistry() {
-        ensureInitialized();
-        return instance.serviceContainer.getDebugRegistry();
-    }
-
-    public static VisualizationProviderRegistry getVisualizationRegistry() {
-        ensureInitialized();
-        return instance.serviceContainer.getVisualizationRegistry();
-    }
-
     private static void ensureInitialized() {
         if (instance == null || instance.serviceContainer == null) {
             throw new IllegalStateException("IonCore is not initialized. Ensure the plugin is enabled.");
         }
     }
+
+    // STUBBED DEBUG REGISTRIES FOR IONGENESIS COMPILATION
+    private static final DebugRegistry DUMMY_DEBUG_REGISTRY = new DebugRegistry() {
+        @Override
+        public Optional<DebugSession<?>> getActiveSession(UUID id) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean cancelSession(UUID id) {
+            return false;
+        }
+
+        @Override
+        public <T> DebugSession<T> createSession(UUID id, T initialState, ExecutionController controller) {
+            return new DebugSession<T>() {
+                @Override
+                public SessionStatus getStatus() {
+                    return SessionStatus.CANCELLED;
+                }
+
+                @Override
+                public void setStatus(SessionStatus status) {
+                }
+
+                @Override
+                public boolean isActive() {
+                    return false;
+                }
+
+                @Override
+                public Optional<ExecutionController> getController() {
+                    return Optional.empty();
+                }
+
+                @Override
+                public void transitionTo(SessionStatus status) {
+                }
+
+                @Override
+                public void setState(T state) {
+                }
+            };
+        }
+    };
+
+    private static final VisualizationRegistry DUMMY_VISUALIZATION_REGISTRY = new VisualizationRegistry() {
+        @Override
+        public <T> void register(Class<T> type, VisualizationProvider<T> provider) {
+            // No-op
+        }
+
+        @Override
+        public <T> void unregister(Class<T> type) {
+            // No-op
+        }
+    };
+
+    public static DebugRegistry getDebugRegistry() {
+        return DUMMY_DEBUG_REGISTRY;
+    }
+
+    public static VisualizationRegistry getVisualizationRegistry() {
+        return DUMMY_VISUALIZATION_REGISTRY;
+    }
+    // END STUBBED DEBUG REGISTRIES
 }

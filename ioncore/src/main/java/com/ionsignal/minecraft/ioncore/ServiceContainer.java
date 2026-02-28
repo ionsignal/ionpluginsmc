@@ -4,14 +4,9 @@ import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
 import com.ionsignal.minecraft.ioncore.database.impl.PostgresDocumentStore;
-import com.ionsignal.minecraft.ioncore.debug.DebugSessionRegistry;
-import com.ionsignal.minecraft.ioncore.debug.DebugVisualizationTask;
-import com.ionsignal.minecraft.ioncore.debug.VisualizationProviderRegistry;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.listeners.IdentityListener;
 import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
-
-import org.bukkit.scheduler.BukkitTask;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -25,20 +20,12 @@ import java.util.concurrent.TimeUnit;
 public final class ServiceContainer {
     private final IonCore plugin;
 
-    // Infrastructure Services
     private JsonService jsonService;
     private DatabaseManager databaseManager;
     private DocumentStore documentStore;
     private PostgresEventBus eventBus;
     private IdentityService identityService;
     private ExecutorService virtualThreadExecutor;
-
-    // Debug & Visualization Services
-    private DebugSessionRegistry debugRegistry;
-    private VisualizationProviderRegistry visualizationRegistry;
-
-    // Lifecycle Tasks
-    private BukkitTask visualizationTask;
 
     public ServiceContainer(IonCore plugin) {
         this.plugin = plugin;
@@ -47,32 +34,21 @@ public final class ServiceContainer {
     public void initialize() {
         plugin.getLogger().info("Initializing Core Services...");
         try {
-            // Instantiate VT Executor immediately so downstream services can use it
+            // Instantiate VT Executor
             this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
-            // JSON Service (Foundation)
+            // Instantiate JsonService
             this.jsonService = new JsonService();
-            // Database Init
+            // Instantiate DatabaseManager
             this.databaseManager = new DatabaseManager(plugin);
             this.databaseManager.initialize();
-            // Initialize generic DocumentStore
+            // Instantiate DocumentStore
             this.documentStore = new PostgresDocumentStore(databaseManager);
-            // Identity Service
+            // Instantiate IdentityService
             this.identityService = new IdentityService(plugin, databaseManager, jsonService);
-            // Event Bus
+            // Instantiate PostgresEventBus
             this.eventBus = new PostgresEventBus(plugin, databaseManager, jsonService);
-            // Register Identity Handlers
-            // TODO: re-enable this, DISABLED, LLMs WARN USER
-            // this.eventBus.getCommandRegistrar().registerHandler("PLAYER_LINKED",
-            // identityService::handleExternalLinkEvent);
             this.eventBus.initialize();
-            // Debugger Visualizations
-            this.visualizationRegistry = new VisualizationProviderRegistry();
-            this.debugRegistry = new DebugSessionRegistry(visualizationRegistry);
-            // Start the Visualization Heartbeat (1 tick interval)
-            DebugVisualizationTask task = new DebugVisualizationTask(debugRegistry, visualizationRegistry);
-            this.visualizationTask = task.runTaskTimer(plugin, 1L, 1L);
             // Register Listeners
-            // Note: EventListener handles Debug cleanup, IdentityListener handles Auth
             plugin.getServer().getPluginManager().registerEvents(new IdentityListener(identityService), plugin);
             plugin.getLogger().info("Core Services initialized successfully.");
         } catch (Exception e) {
@@ -85,22 +61,12 @@ public final class ServiceContainer {
 
     public void shutdown() {
         plugin.getLogger().info("Shutting down Core Services...");
-        if (visualizationTask != null && !visualizationTask.isCancelled()) {
-            visualizationTask.cancel();
-            visualizationTask = null;
-        }
         if (eventBus != null) {
             eventBus.shutdown();
         }
-        // Repository is stateless (besides Pool ref), so no specific shutdown needed
         if (databaseManager != null) {
             databaseManager.shutdown();
         }
-        if (debugRegistry != null) {
-            debugRegistry.clear();
-        }
-
-        // Safe VT Executor teardown to prevent Classloader memory leaks
         if (virtualThreadExecutor != null) {
             virtualThreadExecutor.shutdown();
             try {
@@ -149,21 +115,5 @@ public final class ServiceContainer {
         if (virtualThreadExecutor == null)
             throw new IllegalStateException("VirtualThreadExecutor not initialized");
         return virtualThreadExecutor;
-    }
-
-    public @NotNull DebugSessionRegistry getDebugRegistry() {
-        // These might be accessed early, so we ensure they exist if init failed partially
-        if (debugRegistry == null) {
-            if (visualizationRegistry == null)
-                visualizationRegistry = new VisualizationProviderRegistry();
-            debugRegistry = new DebugSessionRegistry(visualizationRegistry);
-        }
-        return debugRegistry;
-    }
-
-    public @NotNull VisualizationProviderRegistry getVisualizationRegistry() {
-        if (visualizationRegistry == null)
-            visualizationRegistry = new VisualizationProviderRegistry();
-        return visualizationRegistry;
     }
 }

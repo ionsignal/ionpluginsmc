@@ -44,14 +44,20 @@ public class PluginConfig {
         return this.handle.getDouble("chat-bubbles.min-slide-duration-seconds", 2.0);
     }
 
-    /**
-     * Gets whether non-wood crafting recipes should be disabled for testing.
-     * This is a development/testing utility and should always be false in production.
-     *
-     * @return true if non-wood recipes should be disabled, false otherwise
-     */
     public boolean isDisableNonWoodRecipes() {
         return this.handle.getBoolean("testing.disableNonWoodRecipes", false);
+    }
+
+    public boolean isProxyEnabled() {
+        return this.handle.getBoolean("testing.proxy.enabled", false);
+    }
+
+    public String getProxyHost() {
+        return this.handle.getString("testing.proxy.host", "127.0.0.1");
+    }
+
+    public int getProxyPort() {
+        return this.handle.getInt("testing.proxy.port", 9090);
     }
 
     public Color getChatBubbleBackgroundColor() {

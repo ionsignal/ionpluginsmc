@@ -7,11 +7,9 @@ import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.debug.AgentDebugService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusAgentCommands;
-import com.ionsignal.minecraft.ionnerrus.commands.NerrusDebugCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusDirectiveCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusGoalCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.NerrusAgentParser;
@@ -46,7 +44,6 @@ public class CommandRegistrar {
     private final GoalFactory goalFactory;
     private final IdentityService identityService;
     private final PayloadFactory payloadFactory;
-    private final AgentDebugService agentDebugService;
 
     private PaperCommandManager<CommandSourceStack> commandManager;
 
@@ -58,15 +55,13 @@ public class CommandRegistrar {
             GoalFactory goalFactory,
             GoalRegistry goalRegistry,
             IdentityService identityService,
-            PayloadFactory payloadFactory,
-            AgentDebugService agentDebugService) {
+            PayloadFactory payloadFactory) {
         this.plugin = plugin;
         this.agentService = agentService;
         this.blockTagManager = blockTagManager;
         this.goalFactory = goalFactory;
         this.identityService = identityService;
         this.payloadFactory = payloadFactory;
-        this.agentDebugService = agentDebugService;
     }
 
     /**
@@ -108,10 +103,6 @@ public class CommandRegistrar {
 
             annotationParser.parse(new NerrusDirectiveCommands(
                     agentService, plugin.getLlmService()));
-
-            annotationParser.parse(new NerrusDebugCommands(
-                    agentService, agentDebugService));
-
             plugin.getLogger().info("Registered commands via Cloud Command Framework.");
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Cloud Command Manager: " + e.getMessage());
