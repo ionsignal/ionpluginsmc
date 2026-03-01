@@ -1,9 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.commands;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.directors.AskDirector;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.directors.AskDirector;
+import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
+import com.ionsignal.minecraft.ionnerrus.llm.LLMService;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 

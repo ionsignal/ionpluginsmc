@@ -1,8 +1,8 @@
 package com.ionsignal.minecraft.ionnerrus.persona.components.impl;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken.Registration;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken.Registration;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.action.ActionController;

@@ -1,14 +1,14 @@
 package com.ionsignal.minecraft.ionnerrus.commands;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal.GiveItemParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.Goal;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalFactory;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.following.FollowPlayerParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.gathering.GatherBlockParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.interaction.GiveItemGoal.GiveItemParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
+import com.ionsignal.minecraft.ionnerrus.content.BlockTagManager;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 

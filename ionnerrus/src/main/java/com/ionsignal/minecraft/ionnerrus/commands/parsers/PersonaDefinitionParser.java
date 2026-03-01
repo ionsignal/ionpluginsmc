@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.commands.parsers;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
+import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;

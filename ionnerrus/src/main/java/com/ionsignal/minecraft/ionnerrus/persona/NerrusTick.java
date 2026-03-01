@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.persona;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 
 import org.bukkit.scheduler.BukkitRunnable;
 

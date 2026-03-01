@@ -1,11 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.api.events;
 
-import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
-
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
 import org.jetbrains.annotations.NotNull;
+
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 
 public class NerrusAgentSpawnEvent extends Event {
     private static final HandlerList HANDLERS = new HandlerList();

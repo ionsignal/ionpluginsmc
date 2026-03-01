@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.persona.orientation;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaEntity;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.LookResult;
 import com.ionsignal.minecraft.ionnerrus.persona.movement.PersonaLookControl;

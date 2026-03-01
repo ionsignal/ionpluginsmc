@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.persona.components;
 
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.Path;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;
 
 import org.bukkit.Location;

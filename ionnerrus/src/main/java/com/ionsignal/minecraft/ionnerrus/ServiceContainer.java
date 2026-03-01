@@ -1,15 +1,15 @@
 package com.ionsignal.minecraft.ionnerrus;
 
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalFactory;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalRegistrar;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalRegistry;
+import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.network.NetworkService;
 import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
+import com.ionsignal.minecraft.ionnerrus.content.BlockTagManager;
+import com.ionsignal.minecraft.ionnerrus.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.persona.NerrusManager;
 
 import org.jetbrains.annotations.Nullable;

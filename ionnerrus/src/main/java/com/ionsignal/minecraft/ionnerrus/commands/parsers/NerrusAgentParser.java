@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.commands.parsers;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
+import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 

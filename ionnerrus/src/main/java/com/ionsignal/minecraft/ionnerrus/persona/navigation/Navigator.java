@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.MetadataKeys;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.MovementResult;

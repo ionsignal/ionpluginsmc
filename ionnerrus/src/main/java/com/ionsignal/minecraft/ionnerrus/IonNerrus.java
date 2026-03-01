@@ -1,11 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus;
 
-import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
-import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
+import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.CommandRegistrar;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.IntegrationBootstrap;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.ListenerRegistrar;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
+import com.ionsignal.minecraft.ionnerrus.llm.LLMService;
 
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;

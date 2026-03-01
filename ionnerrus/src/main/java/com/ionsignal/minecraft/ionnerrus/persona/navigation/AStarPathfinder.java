@@ -1,7 +1,7 @@
 package com.ionsignal.minecraft.ionnerrus.persona.navigation;
 
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.navigation.SteeringResult.MovementType;
 
 import net.minecraft.core.BlockPos;

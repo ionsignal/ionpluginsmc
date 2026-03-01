@@ -1,6 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.persona.components;
 
-import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
+import com.ionsignal.minecraft.ionnerrus.agent.cognition.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
 import com.ionsignal.minecraft.ionnerrus.persona.components.results.ActionResult;
 
