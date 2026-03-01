@@ -15,13 +15,7 @@ dependencies:
       load: BEFORE
       required: true
       join-classpath: true
-    CraftEngine:
-      load: BEFORE
-      required: false
     FancyHolograms:
-      load: BEFORE
-      required: false
-    Terra:
       load: BEFORE
       required: false
 
