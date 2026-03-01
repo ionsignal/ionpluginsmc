@@ -7,13 +7,11 @@ import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.Goal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal.GiveItemParameters;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 
-import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 
 import org.incendo.cloud.annotation.specifier.Range;
@@ -25,17 +23,18 @@ import org.incendo.cloud.annotations.Permission;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
-import java.util.logging.Level;
-
 /**
  * Handles physical Goal assignments.
  */
 public class NerrusGoalCommands {
     @SuppressWarnings("unused")
+    private final IonNerrus plugin;
+
+    @SuppressWarnings("unused")
     private final AgentService agentService;
+
     private final GoalFactory goalFactory;
     private final BlockTagManager blockTagManager;
-    private final IonNerrus plugin;
 
     public NerrusGoalCommands(
             AgentService agentService,
@@ -72,33 +71,6 @@ public class NerrusGoalCommands {
                     Component.text("Instructing " + agent.getName() + " to gather " + amount + " " + groupName, NamedTextColor.GREEN));
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
-        }
-    }
-
-    @Command("nerrus craft <agent> <item> <amount>")
-    @Permission("ionnerrus.command.craft")
-    public void craftItem(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent,
-            @Argument(value = "item", suggestions = "materials") String itemName,
-            @Argument("amount") @Range(min = "1", max = "6400") int amount) {
-        CommandSender sender = stack.getSender();
-        String upperItem = itemName.toUpperCase();
-        try {
-            Material.valueOf(upperItem);
-        } catch (IllegalArgumentException e) {
-            sender.sendMessage(Component.text("Unknown item: " + itemName, NamedTextColor.RED));
-            return;
-        }
-        try {
-            CraftItemParameters params = new CraftItemParameters(upperItem, amount);
-            Goal craftGoal = goalFactory.createGoal("CRAFT_ITEM", params);
-            agent.assignGoal(craftGoal, params);
-            sender.sendMessage(
-                    Component.text("Instructing " + agent.getName() + " to craft " + amount + " " + itemName + ".", NamedTextColor.GREEN));
-        } catch (IllegalArgumentException e) {
-            sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
-            plugin.getLogger().log(Level.WARNING, "Failed to create CraftItemGoal from command.", e);
         }
     }
 

@@ -47,9 +47,6 @@ permissions:
   ionnerrus.command.give:
     description: Allows instructing agents to give items
     default: op
-  ionnerrus.command.craft:
-    description: Allows instructing agents to craft items
-    default: op
   ionnerrus.command.follow:
     description: Allows instructing agents to follow entities
     default: op
@@ -58,7 +55,4 @@ permissions:
     default: op
   ionnerrus.command.ask:
     description: Allows asking agents questions
-    default: op
-  ionnerrus.command.debug:
-    description: Allows attaching/detaching debug sessions and issuing debug control actions to agents.
     default: op

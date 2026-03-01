@@ -5,7 +5,6 @@ import com.ionsignal.minecraft.ionnerrus.agent.llm.LLMService;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.CommandRegistrar;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.IntegrationBootstrap;
 import com.ionsignal.minecraft.ionnerrus.bootstrap.ListenerRegistrar;
-import com.ionsignal.minecraft.ionnerrus.bootstrap.RecipeModifier;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 
 import org.bukkit.Bukkit;
@@ -33,7 +32,6 @@ public class IonNerrus extends JavaPlugin {
     // Lifecycle components
     private IntegrationBootstrap integrationBootstrap;
     private ListenerRegistrar listenerRegistrar;
-    private RecipeModifier recipeModifier;
 
     @Override
     public void onEnable() {
@@ -105,16 +103,6 @@ public class IonNerrus extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        // Apply recipe modifications
-        // Now receives config from container
-        try {
-            // Assign to field to preserve state for cleanup
-            this.recipeModifier = new RecipeModifier(this, services.getConfig());
-            Bukkit.getScheduler().runTaskLater(this,
-                    this.recipeModifier::disableNonWoodRecipesIfConfigured, 1L);
-        } catch (Exception e) {
-            getLogger().warning("Recipe modification failed (non-critical): " + e.getMessage());
-        }
         getLogger().info("IonNerrus v" + getPluginMeta().getVersion() + " has been enabled successfully.");
     }
 
@@ -136,15 +124,6 @@ public class IonNerrus extends JavaPlugin {
                 getLogger().severe("Error during agent despawn: " + e.getMessage());
                 e.printStackTrace();
             }
-        }
-        // Stop recipe modifications (non-critical, best-effort)
-        try {
-            // Use stored instance with null check
-            if (this.recipeModifier != null) {
-                this.recipeModifier.cleanup();
-            }
-        } catch (Exception e) {
-            getLogger().warning("Error during recipe cleanup: " + e.getMessage());
         }
         // Unregister event listeners (critical - prevents NPEs on next events)
         try {
@@ -187,7 +166,6 @@ public class IonNerrus extends JavaPlugin {
         // Explicitly clear lifecycle fields
         this.integrationBootstrap = null;
         this.listenerRegistrar = null;
-        this.recipeModifier = null;
         this.commandRegistrar = null;
         getLogger().info("IonNerrus has been disabled successfully.");
     }

@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.agent.tasks.impl;
 
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal.BlockPlacementResult;
 import com.ionsignal.minecraft.ionnerrus.agent.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.execution.ExecutionToken;
 import com.ionsignal.minecraft.ionnerrus.agent.skills.impl.PlaceBlockSkill;
@@ -25,11 +24,7 @@ public class PlaceBlockTask implements Task {
     public CompletableFuture<Void> execute(NerrusAgent agent, ExecutionToken token) {
         return new PlaceBlockSkill(material).execute(agent, token)
                 .thenAccept(placedLocationOpt -> {
-                    if (placedLocationOpt.isPresent()) {
-                        agent.postMessage(token, BlockPlacementResult.success(placedLocationOpt.get()));
-                    } else {
-                        agent.postMessage(token, BlockPlacementResult.failure());
-                    }
+                    // no-op
                 });
     }
 }

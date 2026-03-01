@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.goals;
 
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GatherBlockGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.GiveItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.PlaceBlockGoal;
@@ -10,13 +9,13 @@ import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.BuildGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.DigGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.FarmGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.MineGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.CraftItemGoal;
-import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.stubbed.CraftItemGoal;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.GatherBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.PlaceBlockParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.RequestItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.CraftItemParameters;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.parameters.FollowPlayerParameters;
+import com.ionsignal.minecraft.ionnerrus.agent.goals.impl.FollowPlayerGoal;
 
 import org.bukkit.Material;
 
@@ -24,11 +23,9 @@ import java.util.Set;
 
 public class GoalFactory {
     private final BlockTagManager blockTagManager;
-    private final RecipeService recipeService;
 
-    public GoalFactory(BlockTagManager blockTagManager, RecipeService recipeService) {
+    public GoalFactory(BlockTagManager blockTagManager) {
         this.blockTagManager = blockTagManager;
-        this.recipeService = recipeService;
     }
 
     public Goal createGoal(String name, Object parameters) {
@@ -59,7 +56,8 @@ public class GoalFactory {
                 return new GiveItemGoal(giveItemParams, materialToGive);
             case "CRAFT_ITEM":
                 CraftItemParameters craftParams = (CraftItemParameters) parameters;
-                return new CraftItemGoal(craftParams, recipeService, blockTagManager);
+                // MODIFIED: Use the simplified stub constructor
+                return new CraftItemGoal(craftParams);
             case "FOLLOW_PLAYER":
                 FollowPlayerParameters followParams = (FollowPlayerParameters) parameters;
                 return new FollowPlayerGoal(followParams);

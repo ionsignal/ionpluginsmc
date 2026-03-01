@@ -3,7 +3,6 @@ package com.ionsignal.minecraft.ionnerrus;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ionnerrus.agent.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.content.BlockTagManager;
-import com.ionsignal.minecraft.ionnerrus.agent.content.RecipeService;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistrar;
 import com.ionsignal.minecraft.ionnerrus.agent.goals.GoalRegistry;
@@ -30,7 +29,6 @@ public class ServiceContainer {
     // Configuration and content
     private final PluginConfig config;
     private final BlockTagManager blockTagManager;
-    private final RecipeService recipeService;
 
     // Goal system
     private final GoalRegistry goalRegistry;
@@ -53,7 +51,6 @@ public class ServiceContainer {
             NerrusManager nerrusManager,
             PluginConfig config,
             BlockTagManager blockTagManager,
-            RecipeService recipeService,
             GoalRegistry goalRegistry,
             GoalFactory goalFactory,
             LLMService llmService,
@@ -66,7 +63,6 @@ public class ServiceContainer {
         this.nerrusManager = nerrusManager;
         this.config = config;
         this.blockTagManager = blockTagManager;
-        this.recipeService = recipeService;
         this.goalRegistry = goalRegistry;
         this.goalFactory = goalFactory;
         this.llmService = llmService;
@@ -97,10 +93,9 @@ public class ServiceContainer {
             }
             // Layer 3: Content systems
             var blockTagManager = new BlockTagManager();
-            var recipeService = new RecipeService(blockTagManager);
             // Layer 4: Goal system
             var goalRegistry = new GoalRegistry();
-            var goalFactory = new GoalFactory(blockTagManager, recipeService);
+            var goalFactory = new GoalFactory(blockTagManager);
             // Layer 5: External integrations
             var llmService = initializeLLMService(plugin);
             var chatBubbleService = initializeChatBubbles(plugin);
@@ -130,7 +125,6 @@ public class ServiceContainer {
                     nerrusManager,
                     config,
                     blockTagManager,
-                    recipeService,
                     goalRegistry,
                     goalFactory,
                     llmService,
@@ -210,10 +204,6 @@ public class ServiceContainer {
         return blockTagManager;
     }
 
-    public RecipeService getRecipeService() {
-        return recipeService;
-    }
-
     public GoalRegistry getGoalRegistry() {
         return goalRegistry;
     }
@@ -267,7 +257,7 @@ public class ServiceContainer {
         // goalFactory and goalRegistry are stateless
         // ...
         // Layer 3: Content systems (no cleanup needed)
-        // recipeService and blockTagManager are stateless
+        // blockTagManager is stateless
         // ...
         // Layer 2: Platform-specific managers
         if (nerrusManager != null) {

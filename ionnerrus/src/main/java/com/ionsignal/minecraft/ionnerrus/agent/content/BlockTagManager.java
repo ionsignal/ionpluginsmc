@@ -12,17 +12,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.HashSet;
-// import java.util.stream.Collectors;
-// import java.util.stream.Stream;
 
 public class BlockTagManager {
     private final Map<String, Set<Material>> materialGroups = new HashMap<>();
     private final Set<String> gatherableGroups = new HashSet<>();
-    private final Set<Material> rawMaterials = new HashSet<>();
 
     public BlockTagManager() {
         loadMaterialGroups();
-        loadRawMaterials();
     }
 
     private void loadMaterialGroups() {
@@ -46,53 +42,6 @@ public class BlockTagManager {
         gatherableGroups.add("stone");
         gatherableGroups.add("dirt");
         gatherableGroups.add("sand");
-    }
-
-    private void loadRawMaterials() {
-        // This set defines materials that the RecipeService should NEVER try to craft,
-        // even if a "de-crafting" recipe (like from a storage block) exists.
-        // These are the terminal nodes of our crafting dependency graph.
-        // Mineral Resources
-        rawMaterials.add(Material.DIAMOND);
-        rawMaterials.add(Material.EMERALD);
-        rawMaterials.add(Material.LAPIS_LAZULI);
-        rawMaterials.add(Material.COAL);
-        rawMaterials.add(Material.CHARCOAL);
-        rawMaterials.add(Material.REDSTONE);
-        rawMaterials.add(Material.QUARTZ);
-        rawMaterials.add(Material.FLINT);
-        rawMaterials.add(Material.CLAY_BALL);
-        rawMaterials.add(Material.GLOWSTONE_DUST);
-        // Ingots (from smelting)
-        rawMaterials.add(Material.IRON_INGOT);
-        rawMaterials.add(Material.GOLD_INGOT);
-        rawMaterials.add(Material.COPPER_INGOT);
-        rawMaterials.add(Material.NETHERITE_INGOT);
-        rawMaterials.add(Material.NETHER_BRICK);
-        // Mob Drops
-        rawMaterials.add(Material.STRING);
-        rawMaterials.add(Material.BONE);
-        rawMaterials.add(Material.GUNPOWDER);
-        rawMaterials.add(Material.ROTTEN_FLESH);
-        rawMaterials.add(Material.SPIDER_EYE);
-        rawMaterials.add(Material.SLIME_BALL);
-        rawMaterials.add(Material.ENDER_PEARL);
-        rawMaterials.add(Material.BLAZE_ROD);
-        rawMaterials.add(Material.GHAST_TEAR);
-        rawMaterials.add(Material.LEATHER);
-        rawMaterials.add(Material.FEATHER);
-    }
-
-    /**
-     * Checks if a material is defined as a "raw" or "base" material that should be
-     * acquired from the world, not crafted.
-     *
-     * @param material
-     *            The material to check.
-     * @return True if the material is on the raw material list.
-     */
-    public boolean isRawMaterial(@NotNull Material material) {
-        return rawMaterials.contains(material);
     }
 
     /**
