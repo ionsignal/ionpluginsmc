@@ -27,5 +27,4 @@ public record SensoryEntity(
         Location location,
         Vector velocity,
         boolean isVisualTarget) {
-    // No logic methods needed for data carrier
 }
