@@ -3,7 +3,7 @@ minecraft = "1.21.10"
 paperweight = "2.0.0-beta.19"
 shadow = "9.3.1"
 
-# Jackson (Updated to stable version 2.18.2)
+# Jackson
 jackson = "2.13.4"
 
 # Terra
@@ -19,14 +19,14 @@ okhttp = "5.3.2"
 classgraph = "4.8.184"
 victools = "4.38.0"
 
-# IonCore (New additions)
+# IonCore
 gson = "2.13.2"
 adventure = "4.26.1"
-postgresql = "42.7.8"
-hikaricp = "7.0.2"
-vertx = "4.3.8"
 
-# Cloud (Added for Terra Addon)
+# JNATs
+jnats = "2.20.1"
+
+# Cloud
 cloud = "2.0.0-beta.10"
 cloudanotations = "2.0.0"
 
@@ -40,7 +40,7 @@ shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "minecraft" }
 paperweight = { module = "io.papermc.paperweight.userdev:io.papermc.paperweight.userdev.gradle.plugin", version.ref = "paperweight" }
 
-# Jackson (Added)
+# Jackson
 jackson-databind = { group = "com.fasterxml.jackson.core", name = "jackson-databind", version.ref = "jackson" }
 jackson-datatype-jdk8 = { group = "com.fasterxml.jackson.datatype", name = "jackson-datatype-jdk8", version.ref = "jackson" }
 jackson-datatype-jsr310 = { group = "com.fasterxml.jackson.datatype", name = "jackson-datatype-jsr310", version.ref = "jackson" }
@@ -53,7 +53,7 @@ tectonic-common = { group = "com.dfsek.tectonic", name = "common", version.ref =
 tectonic-yaml = { group = "com.dfsek.tectonic", name = "yaml", version.ref = "tectonic" }
 seismic = { group = "com.dfsek", name = "seismic", version.ref = "seismic" }
 
-# Cloud (Added)
+# Cloud
 cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud" }
 cloud-paper = { group = "org.incendo", name = "cloud-paper", version.ref = "cloud" }
 cloud-annotations = { group = "org.incendo", name = "cloud-annotations", version.ref = "cloudanotations" }
@@ -71,9 +71,6 @@ jsonschema-module-jackson = { group = "com.github.victools", name = "jsonschema-
 # IonCore Specific
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 adventure-api = { group = "net.kyori", name = "adventure-api", version.ref = "adventure" }
-postgresql = { group = "org.postgresql", name = "postgresql", version.ref = "postgresql" }
-hikaricp = { group = "com.zaxxer", name = "HikariCP", version.ref = "hikaricp" }
 
-# Vert.x
-vertx-core = { group = "io.vertx", name = "vertx-core", version.ref = "vertx" }
-vertx-pg-client = { group = "io.vertx", name = "vertx-pg-client", version.ref = "vertx" }
+# JNATs
+nats-client = { group = "io.nats", name = "jnats", version.ref = "jnats" }

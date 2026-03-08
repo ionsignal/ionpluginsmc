@@ -1,6 +1,7 @@
 package com.ionsignal.minecraft.ioncore;
 
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
+import com.ionsignal.minecraft.ioncore.config.TenantConfig;
 
 // STUBBED DEBUG REGISTRIES FOR IONGENESIS COMPILATION
 import com.ionsignal.minecraft.ioncore.debug.DebugRegistry;
@@ -10,6 +11,7 @@ import com.ionsignal.minecraft.ioncore.debug.SessionStatus;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationProvider;
 import com.ionsignal.minecraft.ioncore.debug.VisualizationRegistry;
 // END STUBBED DEBUG REGISTRIES
+import com.ionsignal.minecraft.ioncore.exceptions.ServiceInitializationException;
 
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -22,7 +24,6 @@ import java.util.concurrent.ExecutorService;
  */
 public class IonCore extends JavaPlugin {
     private static IonCore instance;
-
     private ServiceContainer serviceContainer;
 
     @Override
@@ -66,6 +67,11 @@ public class IonCore extends JavaPlugin {
     public ExecutorService getVirtualThreadExecutor() {
         ensureInitialized();
         return serviceContainer.getVirtualThreadExecutor();
+    }
+
+    public TenantConfig getTenantConfig() {
+        ensureInitialized();
+        return serviceContainer.getTenantConfig();
     }
 
     private static void ensureInitialized() {

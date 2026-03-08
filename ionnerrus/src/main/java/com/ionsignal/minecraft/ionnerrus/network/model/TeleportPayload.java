@@ -1,17 +1,15 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
 import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
-
-import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.*;
 
+import java.util.UUID;
+
 public record TeleportPayload(
-        @JsonProperty("owner") IonUser owner,
+        @JsonProperty("ownerId") UUID ownerId,
         @JsonProperty("definitionId") UUID definitionId,
         @JsonProperty("type") String type,
         @JsonProperty("location") Location location)
         implements IonCommand {
-
 }

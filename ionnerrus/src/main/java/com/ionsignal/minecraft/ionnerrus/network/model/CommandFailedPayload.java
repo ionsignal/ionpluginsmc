@@ -1,13 +1,16 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
 import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 
 import com.fasterxml.jackson.annotation.*;
 
+import org.jetbrains.annotations.Nullable;
+
+import java.util.UUID;
+
 public record CommandFailedPayload(
-        @JsonProperty("owner") IonUser owner,
+        @JsonProperty("type") String type,
+        @JsonProperty("ownerId") UUID ownerId,
         @JsonProperty("reason") String reason,
-        @JsonProperty("command") String command,
-        @JsonProperty("type") String type) implements IonCommand {
+        @Nullable @JsonProperty("command") String command) implements IonCommand {
 }

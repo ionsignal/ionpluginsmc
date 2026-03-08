@@ -1,8 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.commands;
 
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
-import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
+import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
+import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
@@ -31,17 +32,17 @@ import net.kyori.adventure.text.format.NamedTextColor;
 public class NerrusAgentCommands {
     private final AgentService agentService;
     private final IdentityService identityService;
-    private final PostgresEventBus eventBus;
+    private final IonEventBroker eventBroker;
     private final PayloadFactory payloadFactory;
 
     public NerrusAgentCommands(
             AgentService agentService,
             IdentityService identityService,
-            PostgresEventBus eventBus,
+            IonEventBroker eventBroker,
             PayloadFactory payloadFactory) {
         this.agentService = agentService;
         this.identityService = identityService;
-        this.eventBus = eventBus;
+        this.eventBroker = eventBroker;
         this.payloadFactory = payloadFactory;
     }
 
@@ -94,14 +95,14 @@ public class NerrusAgentCommands {
                 safeLoc.getWorld().getName(),
                 safeLoc.getX(), safeLoc.getY(), safeLoc.getZ(),
                 safeLoc.getYaw(), safeLoc.getPitch());
-        var envelope = payloadFactory.createRequestSpawnEnvelope(owner, config.id(), spawnLocation);
-        eventBus.broadcast(envelope).whenComplete((v, ex) -> {
+        var payload = payloadFactory.createRequestSpawnEnvelope(owner.id(), config.id(), spawnLocation);
+        eventBroker.broadcast(payload).whenCompleteAsync((v, ex) -> {
             if (ex != null) {
                 player.sendMessage(Component.text("Failed to contact network.", NamedTextColor.RED));
             } else {
                 player.sendMessage(Component.text("Requested spawn for persona '" + config.name() + "'...", NamedTextColor.GREEN));
             }
-        });
+        }, IonNerrus.getInstance().getMainThreadExecutor());
     }
 
     @Command("nerrus remove <agent>")
@@ -116,14 +117,14 @@ public class NerrusAgentCommands {
             var userOpt = identityService.getCachedIdentity(player.getUniqueId());
             if (userOpt.isPresent() && userOpt.get().isPresent()) {
                 IonUser owner = userOpt.get().get();
-                var envelope = payloadFactory.createRequestDespawnEnvelope(owner, agent.getPersona().getDefinitionId());
-                eventBus.broadcast(envelope).whenComplete((v, ex) -> {
+                var payload = payloadFactory.createRequestDespawnEnvelope(owner.id(), agent.getPersona().getDefinitionId());
+                eventBroker.broadcast(payload).whenCompleteAsync((v, ex) -> {
                     if (ex != null) {
                         sender.sendMessage(Component.text("Failed to contact network.", NamedTextColor.RED));
                     } else {
                         sender.sendMessage(Component.text("Requested despawn for agent " + name + "...", NamedTextColor.GREEN));
                     }
-                });
+                }, IonNerrus.getInstance().getMainThreadExecutor());
                 return;
             } else {
                 sender.sendMessage(Component.text("You must link your Runemind account to remove agents.", NamedTextColor.RED));

@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.agent.cognition;
 
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.autonomy.AutonomyEngine;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.Goal;
@@ -33,6 +32,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -450,11 +450,11 @@ public class NerrusAgent {
     }
 
     public void tick() {
-        // Standard processing
+        if (!persona.isSpawned()) {
+            return;
+        }
         processMessages();
-        // Tick the active task if one exists
         if (currentTask != null && currentContext != null) {
-            // Ensure we pass the correct token for the active context
             try {
                 currentTask.tick(this, currentContext.token());
             } catch (Exception e) {
@@ -462,7 +462,6 @@ public class NerrusAgent {
                         String.format("[%s] Task %s threw an exception during tick. Failing task.",
                                 getName(), currentTask.getClass().getSimpleName()),
                         e);
-                // Force-fail the task so the agent can recover
                 messages.offer(new TaskCompleted(currentTask, Optional.of(e)));
             }
         }
@@ -476,8 +475,8 @@ public class NerrusAgent {
         return persona.getName();
     }
 
-    public IonUser getOwner() {
-        return persona.getOwner();
+    public UUID getOwnerId() {
+        return persona.getOwnerId();
     }
 
     @Nullable

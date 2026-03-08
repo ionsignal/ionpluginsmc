@@ -1,19 +1,9 @@
-# IonCore Configuration
-# Database Configuration (PostgreSQL)
-# REQUIRED: Must be configured for the plugin to start.
-#
-# Credentials Resolution Order:
-# 1. Environment Variables (ION_DB_URL, ION_DB_USERNAME, ION_DB_PASSWORD)
-# 2. secrets.properties file in plugin folder
-# 3. config.yml (Below)
-database:
-  pool-settings:
-    maximum-pool-size: 5
-    connection-timeout: 5000 # 5 seconds
-  channels:
-    commands: "ion:commands"
-    events: "ion:events"
-
+# NATS Configuration
+tenant:
+  id: "tenant-default"
+nats:
+  url: "nats://localhost:4222"
+  token: ""
 # Web Configuration
 # Used for account linking and dashboard integration.
 web:

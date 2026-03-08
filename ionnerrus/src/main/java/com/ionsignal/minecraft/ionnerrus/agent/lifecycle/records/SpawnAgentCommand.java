@@ -1,7 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.agent.lifecycle.records;
 
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
-import com.ionsignal.minecraft.ionnerrus.network.model.Skin;
+import com.ionsignal.minecraft.ionnerrus.network.model.SkinPayload;
 
 import org.bukkit.Location;
 
@@ -17,8 +16,8 @@ import java.util.UUID;
 public record SpawnAgentCommand(
         @NotNull String name,
         @NotNull Location location,
-        @Nullable Skin skin,
+        @Nullable SkinPayload skin,
         @NotNull UUID definitionId,
         @NotNull UUID sessionId,
-        @NotNull IonUser owner) {
+        @NotNull UUID ownerId) {
 }

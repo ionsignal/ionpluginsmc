@@ -1,4 +1,4 @@
-package com.ionsignal.minecraft.ioncore;
+package com.ionsignal.minecraft.ioncore.exceptions;
 
 /**
  * Thrown when a critical service fails to initialize during plugin startup, note that non-critical

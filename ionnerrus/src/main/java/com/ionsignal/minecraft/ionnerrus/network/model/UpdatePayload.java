@@ -1,15 +1,17 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
 import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 
-import java.util.UUID;
+import org.jetbrains.annotations.Nullable;
 
 import com.fasterxml.jackson.annotation.*;
 
+import java.util.UUID;
+
 public record UpdatePayload(
-        @JsonProperty("owner") IonUser owner,
+        @JsonProperty("ownerId") UUID ownerId,
         @JsonProperty("definitionId") UUID definitionId,
-        @JsonProperty("type") String type)
+        @JsonProperty("type") String type,
+        @Nullable @JsonProperty("profile") PersonaProfile profile)
         implements IonCommand {
 }

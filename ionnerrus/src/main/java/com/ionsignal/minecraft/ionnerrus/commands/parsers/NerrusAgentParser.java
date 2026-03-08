@@ -1,5 +1,6 @@
 package com.ionsignal.minecraft.ionnerrus.commands.parsers;
 
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 
@@ -18,6 +19,7 @@ import org.incendo.cloud.suggestion.Suggestion;
 import org.incendo.cloud.suggestion.SuggestionProvider;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -26,9 +28,11 @@ import java.util.stream.Collectors;
  */
 public class NerrusAgentParser implements ArgumentParser<CommandSourceStack, NerrusAgent>, SuggestionProvider<CommandSourceStack> {
     private final AgentService agentService;
+    private final IdentityService identityService;
 
-    public NerrusAgentParser(AgentService agentService) {
+    public NerrusAgentParser(AgentService agentService, IdentityService identityService) {
         this.agentService = agentService;
+        this.identityService = identityService;
     }
 
     @Override
@@ -37,15 +41,26 @@ public class NerrusAgentParser implements ArgumentParser<CommandSourceStack, Ner
         String input = commandInput.readString();
         CommandSender sender = commandContext.sender().getSender();
         boolean isAdminOrConsole = !(sender instanceof Player) || sender.hasPermission("ionnerrus.admin");
+        // Just-In-Time Identity Resolution
+        UUID resolvedWebId = null;
+        if (!isAdminOrConsole && sender instanceof Player player) {
+            var userOpt = identityService.getCachedIdentity(player.getUniqueId());
+            if (userOpt.isPresent() && userOpt.get().isPresent()) {
+                resolvedWebId = userOpt.get().get().id();
+            } else {
+                return ArgumentParseResult
+                        .failure(new IllegalArgumentException("You must link your Runemind account to interact with agents."));
+            }
+        }
         // Filter agents based on ownership or admin status
+        final UUID finalWebId = resolvedWebId;
         List<NerrusAgent> matches = agentService.getAgents().stream()
                 .filter(agent -> agent.getName().equalsIgnoreCase(input) ||
                         String.valueOf(agent.getPersona().getSessionId()).equalsIgnoreCase(input))
                 .filter(agent -> {
                     if (isAdminOrConsole)
                         return true;
-                    Player player = (Player) sender;
-                    return player.getUniqueId().equals(agent.getPersona().getOwnerId());
+                    return finalWebId != null && finalWebId.equals(agent.getPersona().getOwnerId());
                 })
                 .toList();
         if (matches.isEmpty()) {
@@ -63,12 +78,20 @@ public class NerrusAgentParser implements ArgumentParser<CommandSourceStack, Ner
             @NonNull CommandInput input) {
         CommandSender sender = context.sender().getSender();
         boolean isAdminOrConsole = !(sender instanceof Player) || sender.hasPermission("ionnerrus.admin");
+        // Just-In-Time Identity Resolution
+        UUID resolvedWebId = null;
+        if (!isAdminOrConsole && sender instanceof Player player) {
+            var userOpt = identityService.getCachedIdentity(player.getUniqueId());
+            if (userOpt.isPresent() && userOpt.get().isPresent()) {
+                resolvedWebId = userOpt.get().get().id();
+            }
+        }
+        final UUID finalWebId = resolvedWebId;
         return CompletableFuture.supplyAsync(() -> agentService.getAgents().stream()
                 .filter(agent -> {
                     if (isAdminOrConsole)
                         return true;
-                    Player player = (Player) sender;
-                    return player.getUniqueId().equals(agent.getPersona().getOwnerId());
+                    return finalWebId != null && finalWebId.equals(agent.getPersona().getOwnerId());
                 })
                 .map(agent -> Suggestion.suggestion(agent.getName()))
                 .collect(Collectors.toList()));

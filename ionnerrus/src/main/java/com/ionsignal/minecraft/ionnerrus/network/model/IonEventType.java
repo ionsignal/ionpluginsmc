@@ -1,12 +1,11 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
 public enum IonEventType {
-    EVENT_PLAYER_JOIN((String) "event:player:join"), // EVENT_PLAYER_JOIN
-    EVENT_PLAYER_QUIT((String) "event:player:quit"), // EVENT_PLAYER_QUIT
-    EVENT_PERSONA_STATE((String) "event:persona:state"), // EVENT_PERSONA_STATE
-    REQUEST_PERSONA_SPAWN((String) "request:persona:spawn"), // REQUEST_PERSONA_SPAWN
-    REQUEST_PERSONA_DESPAWN((String) "request:persona:despawn"), // REQUEST_PERSONA_DESPAWN
-    REQUEST_PERSONA_LIST((String) "request:persona:list"); // REQUEST_PERSONA_LIST
+    EVENT_PLAYER_JOIN((String) "player.join"), // EVENT_PLAYER_JOIN
+    EVENT_PLAYER_QUIT((String) "player.quit"), // EVENT_PLAYER_QUIT
+    EVENT_PERSONA_STATE((String) "persona.state"), // EVENT_PERSONA_STATE
+    REQUEST_PERSONA_SPAWN((String) "persona.spawn.request"), // REQUEST_PERSONA_SPAWN
+    REQUEST_PERSONA_DESPAWN((String) "persona.despawn.request"); // REQUEST_PERSONA_DESPAWN
 
     private final String value;
 

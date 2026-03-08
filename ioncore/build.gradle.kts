@@ -22,7 +22,6 @@ val devJar by configurations.creating {
     }
 }
 
-// Prevents Vert.x's transitive Jackson from entering the shadow JAR.
 // Paper/Minecraft URLClassLoader owns core Jackson at runtime (2.13.4-2)
 configurations.runtimeClasspath {
     exclude(group = "com.fasterxml.jackson.core")
@@ -31,11 +30,9 @@ configurations.runtimeClasspath {
 }
 
 dependencies {
-    implementation(libs.vertx.core)
-    implementation(libs.vertx.pg.client)
-    // Compile-time Jackson references only.
-    // Effective runtime version is Paper/Minecraft bundled 2.13.4-2, provided via Paper/Minecraft shared URLClassLoader.
-    // The catalog version is pinned to 2.13.4 to match.
+    // NATS
+    implementation(libs.nats.client)
+    // JSON
     compileOnly(libs.jackson.databind)
     compileOnly(libs.jackson.datatype.jdk8)
     compileOnly(libs.jackson.datatype.jsr310)
@@ -53,13 +50,9 @@ tasks {
 
     shadowJar {
         archiveClassifier.set("")
-        mergeServiceFiles() // Required for Vert.x ServiceLoader
-        // Relocations
-        relocate("io.vertx", "com.ionsignal.minecraft.ioncore.lib.vertx")
-        relocate("io.netty", "com.ionsignal.minecraft.ioncore.lib.netty")
-        relocate("com.ongres", "com.ionsignal.minecraft.ioncore.lib.ongres")
+        mergeServiceFiles()
+        relocate("io.nats", "com.ionsignal.minecraft.ioncore.lib.nats")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ioncore.lib.classgraph")
-        // Exclude
         exclude("META-INF/maven/**")
         exclude("META-INF/*.RSA")
         exclude("META-INF/*.SF")

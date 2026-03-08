@@ -17,8 +17,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.concurrent.ExecutorService;
 
 /**
- * Central service container managing the lifecycle of all plugin services.
- * Services are instantiated in explicit dependency order and exposed via typed getters.
+ * Central service container managing the lifecycle of all plugin services where they are
+ * instantiated in explicit dependency order and exposed via typed getters.
  */
 public class ServiceContainer {
     private final IonNerrus plugin;
@@ -146,18 +146,14 @@ public class ServiceContainer {
         try {
             plugin.getLogger().info("IonCore detected. Initializing Network services...");
             var coreContainer = com.ionsignal.minecraft.ioncore.IonCore.getInstance().getServiceContainer();
-            var documentStore = coreContainer.getDocumentStore();
-            var commandRegistrar = coreContainer.getEventBus().getCommandRegistrar();
-            var eventBus = coreContainer.getEventBus();
+            var eventBroker = coreContainer.getEventBroker();
+            var commandRegistrar = eventBroker.getCommandRegistrar();
             var jsonService = coreContainer.getJsonService();
             ExecutorService virtualThreadExecutor = coreContainer.getVirtualThreadExecutor();
-            documentStore.registerCollection(NetworkService.COLLECTION_PERSONA_MANIFESTS);
-            plugin.getLogger().info("Registered document collection: " + NetworkService.COLLECTION_PERSONA_MANIFESTS);
             var bridge = new NetworkService(
                     plugin,
                     agentService,
-                    documentStore,
-                    eventBus,
+                    eventBroker,
                     commandRegistrar,
                     jsonService,
                     payloadFactory,

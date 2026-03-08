@@ -1,6 +1,5 @@
 package com.ionsignal.minecraft.ionnerrus.persona;
 
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.persona.animation.PlayerAnimation;
 import com.ionsignal.minecraft.ionnerrus.persona.components.PhysicalBody;
@@ -43,7 +42,7 @@ public class Persona {
     private final MetadataStorage metadata;
 
     @Nullable
-    private IonUser owner;
+    private UUID ownerId;
 
     @Nullable
     private UUID definitionId;
@@ -74,18 +73,13 @@ public class Persona {
         return definitionId;
     }
 
-    public void setOwner(@Nullable IonUser owner) {
-        this.owner = owner;
-    }
-
-    @Nullable
-    public IonUser getOwner() {
-        return owner;
+    public void setOwnerId(@Nullable UUID ownerId) {
+        this.ownerId = ownerId;
     }
 
     @Nullable
     public UUID getOwnerId() {
-        return owner != null ? owner.identity().uuid() : null;
+        return ownerId;
     }
 
     public void setSessionId(@Nullable UUID sessionId) {

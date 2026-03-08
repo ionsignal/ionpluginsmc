@@ -1,12 +1,11 @@
 package com.ionsignal.minecraft.ioncore;
 
-import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
-import com.ionsignal.minecraft.ioncore.database.DatabaseManager;
-import com.ionsignal.minecraft.ioncore.database.impl.PostgresDocumentStore;
+import com.ionsignal.minecraft.ioncore.config.TenantConfig;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.listeners.IdentityListener;
-import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
+import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
+import com.ionsignal.minecraft.ioncore.network.NatsBroker;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -14,16 +13,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Dependency Injection Root for IonCore.
- */
 public final class ServiceContainer {
     private final IonCore plugin;
 
     private JsonService jsonService;
-    private DatabaseManager databaseManager;
-    private DocumentStore documentStore;
-    private PostgresEventBus eventBus;
+    private TenantConfig tenantConfig;
+    private NatsBroker eventBroker;
     private IdentityService identityService;
     private ExecutorService virtualThreadExecutor;
 
@@ -32,40 +27,32 @@ public final class ServiceContainer {
     }
 
     public void initialize() {
-        plugin.getLogger().info("Initializing Core Services...");
+        plugin.getLogger().info("Initializing Core Services (Stateless Mode)...");
         try {
             // Instantiate VT Executor
             this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
             // Instantiate JsonService
             this.jsonService = new JsonService();
-            // Instantiate DatabaseManager
-            this.databaseManager = new DatabaseManager(plugin);
-            this.databaseManager.initialize();
-            // Instantiate DocumentStore
-            this.documentStore = new PostgresDocumentStore(databaseManager);
+            // Instantiate Tenant Config
+            this.tenantConfig = new TenantConfig(plugin);
+            // Instantiate NatsBroker
+            this.eventBroker = new NatsBroker(plugin, tenantConfig, jsonService, virtualThreadExecutor);
+            this.eventBroker.initialize();
             // Instantiate IdentityService
-            this.identityService = new IdentityService(plugin, databaseManager, jsonService);
-            // Instantiate PostgresEventBus
-            this.eventBus = new PostgresEventBus(plugin, databaseManager, jsonService);
-            this.eventBus.initialize();
+            this.identityService = new IdentityService(plugin, eventBroker, tenantConfig, jsonService);
             // Register Listeners
             plugin.getServer().getPluginManager().registerEvents(new IdentityListener(identityService), plugin);
             plugin.getLogger().info("Core Services initialized successfully.");
         } catch (Exception e) {
             plugin.getLogger().severe("CRITICAL: Failed to initialize Core Services.");
             e.printStackTrace();
-            // We do not disable the plugin here to allow for debugging,
-            // but functionality will be severely limited.
         }
     }
 
     public void shutdown() {
         plugin.getLogger().info("Shutting down Core Services...");
-        if (eventBus != null) {
-            eventBus.shutdown();
-        }
-        if (databaseManager != null) {
-            databaseManager.shutdown();
+        if (eventBroker != null) {
+            eventBroker.shutdown();
         }
         if (virtualThreadExecutor != null) {
             virtualThreadExecutor.shutdown();
@@ -87,22 +74,10 @@ public final class ServiceContainer {
         return jsonService;
     }
 
-    public @NotNull DatabaseManager getDatabaseManager() {
-        if (databaseManager == null)
-            throw new IllegalStateException("DatabaseManager not initialized");
-        return databaseManager;
-    }
-
-    public @NotNull DocumentStore getDocumentStore() {
-        if (documentStore == null)
-            throw new IllegalStateException("DocumentStore not initialized");
-        return documentStore;
-    }
-
-    public @NotNull PostgresEventBus getEventBus() {
-        if (eventBus == null)
-            throw new IllegalStateException("EventBus not initialized");
-        return eventBus;
+    public @NotNull IonEventBroker getEventBroker() {
+        if (eventBroker == null)
+            throw new IllegalStateException("EventBroker not initialized");
+        return eventBroker;
     }
 
     public @NotNull IdentityService getIdentityService() {
@@ -115,5 +90,11 @@ public final class ServiceContainer {
         if (virtualThreadExecutor == null)
             throw new IllegalStateException("VirtualThreadExecutor not initialized");
         return virtualThreadExecutor;
+    }
+
+    public @NotNull TenantConfig getTenantConfig() {
+        if (tenantConfig == null)
+            throw new IllegalStateException("TenantConfig not initialized");
+        return tenantConfig;
     }
 }

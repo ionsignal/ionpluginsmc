@@ -1,12 +1,9 @@
 package com.ionsignal.minecraft.ionnerrus.network;
 
 import com.ionsignal.minecraft.ioncore.IonCore;
-import com.ionsignal.minecraft.ioncore.api.data.DocumentStore;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
+import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
 import com.ionsignal.minecraft.ioncore.network.NetworkCommandRegistrar;
-import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
-import com.ionsignal.minecraft.ioncore.network.model.EventEnvelope;
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
@@ -14,21 +11,7 @@ import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.records.SpawnAgentCommand;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentRemoveEvent;
 import com.ionsignal.minecraft.ionnerrus.api.events.NerrusAgentSpawnEvent;
-import com.ionsignal.minecraft.ionnerrus.network.model.AgentConfig;
-import com.ionsignal.minecraft.ionnerrus.network.model.SessionStatus;
-import com.ionsignal.minecraft.ionnerrus.network.model.CoordinateSpawnLocation;
-import com.ionsignal.minecraft.ionnerrus.network.model.CommandFailedPayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.DespawnPayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.IonCommandType;
-import com.ionsignal.minecraft.ionnerrus.network.model.Location;
-import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListResponsePayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.PlayerSpawnLocation;
-import com.ionsignal.minecraft.ionnerrus.network.model.Skin;
-import com.ionsignal.minecraft.ionnerrus.network.model.UpdatePayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
-import com.ionsignal.minecraft.ionnerrus.network.model.SpawnPayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.SystemPersonaKillPayload;
-import com.ionsignal.minecraft.ionnerrus.network.model.TeleportPayload;
+import com.ionsignal.minecraft.ionnerrus.network.model.*;
 import com.ionsignal.minecraft.ionnerrus.persona.Persona;
 import com.ionsignal.minecraft.ionnerrus.persona.PersonaSkinData;
 
@@ -43,26 +26,25 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
-import org.jetbrains.annotations.NotNull;
-
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import com.google.common.base.Preconditions;
 
+import org.jetbrains.annotations.NotNull;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import java.util.logging.Level;
-import java.util.concurrent.TimeUnit;
 
 public class NetworkService implements Listener {
-    public static final String COLLECTION_PERSONA_MANIFESTS = "persona_manifests";
-
     private final IonNerrus plugin;
     private final AgentService agentService;
-    private final DocumentStore documentStore;
-    private final PostgresEventBus eventBus;
+    private final IonEventBroker eventBroker;
     private final JsonService jsonService;
     private final PayloadFactory payloadFactory;
     private final ExecutorService virtualThreadExecutor;
@@ -70,19 +52,18 @@ public class NetworkService implements Listener {
     public NetworkService(
             IonNerrus plugin,
             AgentService agentService,
-            DocumentStore documentStore,
-            PostgresEventBus eventBus,
+            IonEventBroker eventBroker,
             NetworkCommandRegistrar commandRegistrar,
             JsonService jsonService,
             PayloadFactory payloadFactory,
             ExecutorService virtualThreadExecutor) {
         this.plugin = plugin;
         this.agentService = agentService;
-        this.documentStore = documentStore;
-        this.eventBus = eventBus;
+        this.eventBroker = eventBroker;
         this.jsonService = jsonService;
         this.payloadFactory = payloadFactory;
         this.virtualThreadExecutor = virtualThreadExecutor;
+        // IonCommandType Registration
         registerCommandHandlers(commandRegistrar);
     }
 
@@ -107,9 +88,6 @@ public class NetworkService implements Listener {
         commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_UPDATE.getValue(), node -> {
             deserializeAndHandle(node, UpdatePayload.class, this::handlePersonaUpdate);
         });
-        commandRegistrar.registerHandler(IonCommandType.COMMAND_PERSONA_LIST.getValue(), node -> {
-            deserializeAndHandle(node, PersonaListResponsePayload.class, this::handlePersonaListResponse);
-        });
         plugin.getLogger().info("NerrusBridge: Listening via Shared JsonNode dispatch.");
     }
 
@@ -120,26 +98,25 @@ public class NetworkService implements Listener {
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to deserialize " + clazz.getSimpleName(), e);
             try {
-                if (node.has("owner") && node.has("type")) {
-                    IonUser owner = jsonService.treeToValue(node.get("owner"), IonUser.class);
+                if (node.has("ownerId") && node.has("type")) {
+                    UUID ownerId = UUID.fromString(node.get("ownerId").asText());
                     String type = node.get("type").asText();
-                    failCommand(owner, type, new IllegalArgumentException("Invalid payload format: " + e.getMessage()));
+                    failCommand(ownerId, type, new IllegalArgumentException("Invalid payload format: " + e.getMessage()));
                 }
             } catch (Exception fallbackEx) {
-                plugin.getLogger().severe("Payload was too malformed to extract owner for NACK response.");
+                plugin.getLogger().severe("Payload was too malformed to extract ownerId for NACK response.");
             }
         }
     }
 
-    private void failCommand(IonUser owner, String commandType, Throwable error) {
+    private void failCommand(UUID ownerId, String commandType, Throwable error) {
         Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network IO must not run on the primary thread");
         Throwable rootCause = unwrapException(error);
         String reason = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
-        String username = (owner != null && owner.identity() != null) ? owner.identity().username() : "UNKNOWN_USER";
-        plugin.getLogger().warning("Command " + commandType + " failed for user " + username + ": " + reason);
+        plugin.getLogger().warning("Command " + commandType + " failed for user " + ownerId + ": " + reason);
         try {
-            EventEnvelope nack = payloadFactory.createCommandFailedEnvelope(owner, commandType, reason);
-            eventBus.broadcast(nack).join();
+            var nack = payloadFactory.createCommandFailedEnvelope(ownerId, commandType, reason);
+            eventBroker.broadcast(nack).join();
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to broadcast SYSTEM_COMMAND_FAILED NACK: " + unwrapException(e).getMessage());
         }
@@ -155,11 +132,11 @@ public class NetworkService implements Listener {
     }
 
     private void handleCommandFailed(CommandFailedPayload payload) {
-        if (payload == null || payload.owner() == null || payload.owner().identity() == null) {
+        if (payload == null || payload.ownerId() == null) {
             throw new IllegalArgumentException("Received payload with invalid or missing owner structure.");
         }
         Bukkit.getScheduler().runTask(plugin, () -> {
-            Player player = Bukkit.getPlayer(payload.owner().identity().uuid());
+            Player player = Bukkit.getPlayer(payload.ownerId());
             if (player != null && player.isOnline()) {
                 player.sendMessage(Component.text("Command Failed: " + payload.reason(), NamedTextColor.RED));
             }
@@ -168,7 +145,7 @@ public class NetworkService implements Listener {
 
     private void handleSystemKill(SystemPersonaKillPayload payload) {
         if (payload == null || payload.sessionId() == null) {
-            throw new IllegalArgumentException("Received payload with invalid or missing owner structure.");
+            throw new IllegalArgumentException("Received payload with invalid or missing session structure.");
         }
         Bukkit.getScheduler().runTask(plugin, () -> {
             NerrusAgent target = agentService.findAgentBySessionId(payload.sessionId());
@@ -176,7 +153,6 @@ public class NetworkService implements Listener {
                 plugin.getLogger().warning("Executing SYSTEM_KILL for orphaned session: " + payload.sessionId());
                 agentService.despawnAgent(payload.sessionId());
             } else {
-                // Silently ignore if already dead (idempotency)
                 if (plugin.getLogger().isLoggable(Level.FINE)) {
                     plugin.getLogger().fine("SYSTEM_KILL ignored: Session " + payload.sessionId() + " not found locally.");
                 }
@@ -185,134 +161,132 @@ public class NetworkService implements Listener {
     }
 
     private void handleSpawnAgent(SpawnPayload payload) {
-        if (payload == null || payload.owner() == null || payload.owner().identity() == null) {
+        if (payload == null || payload.ownerId() == null) {
             throw new IllegalArgumentException("Received payload with invalid or missing owner structure.");
         }
-        IonUser owner = payload.owner();
+        if (payload.profile() == null || payload.profile().name() == null || payload.profile().name().isBlank()) {
+            failCommand(payload.ownerId(), payload.type(),
+                    new IllegalArgumentException("Cannot spawn agent: ECST Profile is missing or lacks a valid name."));
+            return;
+        }
+        UUID ownerId = payload.ownerId();
         String cmdType = payload.type();
         Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network handlers must run on Virtual Threads");
         try {
-            // Synchronous DB Fetch
-            var optJson = documentStore.fetchDocument(COLLECTION_PERSONA_MANIFESTS, payload.definitionId()).join();
-            if (optJson.isEmpty()) {
-                throw new IllegalArgumentException("Cannot spawn agent: Manifest not found in database.");
-            }
-            // Synchronous JSON Parse
-            AgentConfig manifest = jsonService.fromJson(optJson.get(), AgentConfig.class);
-            // Synchronous Bukkit Mutation
-            Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                org.bukkit.Location spawnLoc = resolveSpawnLocation(payload.location());
-                if (!spawnLoc.getChunk().isLoaded()) {
-                    spawnLoc.getChunk().load(true);
+            String agentName = payload.profile().name();
+            SkinPayload skinModel = payload.profile().skin();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    org.bukkit.Location spawnLoc = resolveSpawnLocation(payload.location());
+                    SpawnAgentCommand request = new SpawnAgentCommand(
+                            agentName,
+                            spawnLoc,
+                            skinModel,
+                            payload.definitionId(),
+                            payload.sessionId(),
+                            ownerId);
+                    agentService.spawnAgent(request).exceptionally(ex -> {
+                        Throwable rootCause = unwrapException(ex);
+                        if (rootCause instanceof java.util.concurrent.CancellationException) {
+                            if (plugin.getLogger().isLoggable(Level.FINE)) {
+                                plugin.getLogger().fine("Spawn command cancelled for " + agentName + ": " + rootCause.getMessage());
+                            }
+                        } else {
+                            virtualThreadExecutor.execute(() -> failCommand(ownerId, cmdType, rootCause));
+                        }
+                        return null;
+                    });
+                } catch (Throwable t) {
+                    virtualThreadExecutor.execute(() -> failCommand(ownerId, cmdType, t));
                 }
-                Skin skinModel = manifest.skin();
-                SpawnAgentCommand request = new SpawnAgentCommand(
-                        manifest.name(),
-                        spawnLoc,
-                        skinModel,
-                        payload.definitionId(),
-                        payload.sessionId(),
-                        owner);
-                agentService.spawnAgent(request);
-                return null;
-            }).get(5, TimeUnit.SECONDS);
+            });
         } catch (Throwable t) {
-            failCommand(owner, cmdType, t);
+            failCommand(ownerId, cmdType, t);
         }
     }
 
     private void handleDespawnAgent(DespawnPayload payload) {
-        if (payload == null || payload.owner() == null || payload.owner().identity() == null) {
+        if (payload == null || payload.ownerId() == null) {
             throw new IllegalArgumentException("Received payload with invalid or missing owner structure.");
         }
-        IonUser owner = payload.owner();
+        UUID ownerId = payload.ownerId();
         String cmdType = payload.type();
         Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network handlers must run on Virtual Threads");
         try {
-            Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                NerrusAgent target = agentService.findAgentByDefinitionId(payload.definitionId());
-                if (target != null) {
-                    agentService.despawnAgent(target);
-                } else {
-                    throw new IllegalArgumentException("Agent not found for despawn: " + payload.definitionId());
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    NerrusAgent target = agentService.findAgentByDefinitionId(payload.definitionId());
+                    if (target != null) {
+                        agentService.despawnAgent(target);
+                    } else {
+                        throw new IllegalArgumentException("Agent not found for despawn: " + payload.definitionId());
+                    }
+                } catch (Throwable t) {
+                    virtualThreadExecutor.execute(() -> failCommand(ownerId, cmdType, t));
                 }
-                return null;
-            }).get(5, TimeUnit.SECONDS);
+            });
         } catch (Throwable t) {
-            failCommand(owner, cmdType, t);
-        }
-    }
-
-    private void handlePersonaListResponse(PersonaListResponsePayload payload) {
-        if (payload == null || payload.owner() == null || payload.owner().identity() == null) {
-            throw new IllegalArgumentException("Received payload with invalid or missing owner structure.");
-        }
-        IonUser owner = payload.owner();
-        String cmdType = payload.type();
-        Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network handlers must run on Virtual Threads");
-        try {
-            Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                agentService.updatePersonaCache(payload.owner().identity().uuid(), payload.personas());
-                return null;
-            }).get(5, TimeUnit.SECONDS);
-        } catch (Throwable t) {
-            failCommand(owner, cmdType, t);
+            failCommand(ownerId, cmdType, t);
         }
     }
 
     private void handlePersonaUpdate(UpdatePayload payload) {
-        if (payload == null || payload.owner() == null || payload.owner().identity() == null || payload.definitionId() == null) {
+        if (payload == null || payload.ownerId() == null || payload.definitionId() == null) {
             throw new IllegalArgumentException("Received payload with invalid or missing owner structure.");
         }
-        if (plugin.getLogger().isLoggable(Level.FINE)) {
-            plugin.getLogger().fine("Received update ping for definition: " + payload.definitionId());
+        if (payload.profile() == null) {
+            if (plugin.getLogger().isLoggable(Level.FINE)) {
+                plugin.getLogger().fine("Update ping received for " + payload.definitionId() + " but no profile data was provided.");
+            }
+            return;
         }
-        IonUser owner = payload.owner();
+        UUID ownerId = payload.ownerId();
         String cmdType = payload.type();
         Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network handlers must run on Virtual Threads");
         try {
-            var optJson = documentStore.fetchDocument(COLLECTION_PERSONA_MANIFESTS, payload.definitionId()).join();
-            if (optJson.isEmpty()) {
-                throw new IllegalArgumentException("Cannot update agent: Manifest not found in database.");
-            }
-            AgentConfig manifest = jsonService.fromJson(optJson.get(), AgentConfig.class);
-            Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                NerrusAgent target = agentService.findAgentByDefinitionId(payload.definitionId());
-                if (target == null) {
-                    throw new IllegalArgumentException("Agent is not currently spawned.");
-                }
-                Persona persona = target.getPersona();
-                boolean skinChanged = false;
-                boolean nameChanged = false;
-                PersonaSkinData currentSkin = persona.getSkin();
-                PersonaSkinData newSkin = null;
-                if (manifest.skin() != null) {
-                    newSkin = new PersonaSkinData(
-                            manifest.skin().mojangTextureValue(),
-                            manifest.skin().mojangTextureSignature(),
-                            manifest.skin().type());
-                }
-                if (!Objects.equals(currentSkin, newSkin)) {
-                    persona.setSkin(newSkin);
-                    skinChanged = true;
-                    plugin.getLogger().info("Applied live skin update to agent: " + persona.getName());
-                }
-                String currentName = persona.getName();
-                String newName = manifest.name();
-                if (newName != null && !newName.equals(currentName)) {
-                    persona.setName(newName);
-                    nameChanged = true;
-                    plugin.getLogger().info("Applied live name update to agent: " + currentName + " -> " + newName);
-                }
-                if (!skinChanged && !nameChanged) {
-                    if (plugin.getLogger().isLoggable(Level.FINE)) {
-                        plugin.getLogger().fine("Update ping processed for " + persona.getName() + " but no state changes were detected.");
+            String newName = payload.profile().name();
+            SkinPayload newSkinPayload = payload.profile().skin();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    NerrusAgent target = agentService.findAgentByDefinitionId(payload.definitionId());
+                    if (target == null) {
+                        throw new IllegalArgumentException("Agent is not currently spawned.");
                     }
+                    Persona persona = target.getPersona();
+                    boolean skinChanged = false;
+                    boolean nameChanged = false;
+                    PersonaSkinData currentSkin = persona.getSkin();
+                    PersonaSkinData newSkin = null;
+                    if (newSkinPayload != null) {
+                        newSkin = new PersonaSkinData(
+                                newSkinPayload.mojangTextureValue(),
+                                newSkinPayload.mojangTextureSignature(),
+                                newSkinPayload.type());
+                    }
+                    if (!Objects.equals(currentSkin, newSkin)) {
+                        persona.setSkin(newSkin);
+                        skinChanged = true;
+                        plugin.getLogger().info("Applied live skin update to agent: " + persona.getName());
+                    }
+                    String currentName = persona.getName();
+                    if (newName != null && !newName.equals(currentName)) {
+                        target.assignGoal(null, null);
+                        persona.setName(newName);
+                        nameChanged = true;
+                        plugin.getLogger().info("Applied live name update to agent: " + currentName + " -> " + newName);
+                    }
+                    if (!skinChanged && !nameChanged) {
+                        if (plugin.getLogger().isLoggable(Level.FINE)) {
+                            plugin.getLogger()
+                                    .fine("Update ping processed for " + persona.getName() + " but no state changes were detected.");
+                        }
+                    }
+                } catch (Throwable t) {
+                    virtualThreadExecutor.execute(() -> failCommand(ownerId, cmdType, t));
                 }
-                return null;
-            }).get(5, TimeUnit.SECONDS);
+            });
         } catch (Throwable t) {
-            failCommand(owner, cmdType, t);
+            failCommand(ownerId, cmdType, t);
         }
     }
 
@@ -340,20 +314,20 @@ public class NetworkService implements Listener {
     public void onAgentSpawn(NerrusAgentSpawnEvent event) {
         NerrusAgent agent = event.getAgent();
         UUID sessionId = agent.getPersona().getSessionId();
-        IonUser owner = agent.getOwner();
+        UUID ownerId = agent.getOwnerId();
         UUID definitionId = agent.getPersona().getDefinitionId();
         String agentName = agent.getName();
-        if (sessionId == null || owner == null || definitionId == null) {
-            plugin.getLogger().warning("Cannot broadcast spawn state for agent " + agentName + ": Missing required IDs or Owner Snapshot.");
+        if (sessionId == null || ownerId == null || definitionId == null) {
+            plugin.getLogger().warning("Cannot broadcast spawn state for agent " + agentName + ": Missing required IDs.");
             return;
         }
         final com.ionsignal.minecraft.ionnerrus.network.model.Location locationModel = fromBukkitLocation(agent.getPersona().getLocation());
         virtualThreadExecutor.execute(() -> {
             Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network IO must not run on the primary thread");
             try {
-                EventEnvelope payload = payloadFactory.createAgentStateEnvelope(
-                        sessionId, owner, definitionId, agentName, locationModel, SessionStatus.ACTIVE);
-                eventBus.broadcast(payload).join();
+                var payload = payloadFactory.createAgentStateEnvelope(
+                        sessionId, ownerId, definitionId, locationModel, SessionStatus.ACTIVE);
+                eventBroker.broadcast(payload).join();
             } catch (Exception e) {
                 Throwable rootCause = unwrapException(e);
                 plugin.getLogger().severe("Orphan Prevention: Despawning agent " +
@@ -368,20 +342,24 @@ public class NetworkService implements Listener {
     @EventHandler
     public void onAgentRemove(NerrusAgentRemoveEvent event) {
         NerrusAgent agent = event.getAgent();
-        IonUser owner = agent.getOwner();
+        UUID ownerId = agent.getOwnerId();
         UUID sessionId = agent.getPersona().getSessionId();
         UUID definitionId = agent.getPersona().getDefinitionId();
-        String agentName = agent.getName();
-        if (sessionId == null || owner == null || definitionId == null) {
+        if (sessionId == null || ownerId == null || definitionId == null) {
             return;
         }
-        final com.ionsignal.minecraft.ionnerrus.network.model.Location locationModel = fromBukkitLocation(agent.getPersona().getLocation());
+        final com.ionsignal.minecraft.ionnerrus.network.model.Location locationModel;
+        if (agent.getPersona().isSpawned()) {
+            locationModel = fromBukkitLocation(agent.getPersona().getLocation());
+        } else {
+            locationModel = new Location("unknown", 0, 0, 0, 0, 0);
+        }
         virtualThreadExecutor.execute(() -> {
             Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network IO must not run on the primary thread");
             try {
-                EventEnvelope payload = payloadFactory.createAgentStateEnvelope(
-                        sessionId, owner, definitionId, agentName, locationModel, SessionStatus.OFFLINE);
-                eventBus.broadcast(payload).join();
+                var payload = payloadFactory.createAgentStateEnvelope(
+                        sessionId, ownerId, definitionId, locationModel, SessionStatus.OFFLINE);
+                eventBroker.broadcast(payload).join();
             } catch (Exception e) {
                 Throwable rootCause = unwrapException(e);
                 plugin.getLogger().warning("Failed to broadcast agent remove event: " + rootCause.getMessage());
@@ -394,21 +372,38 @@ public class NetworkService implements Listener {
         final MinecraftIdentity identity = createMinecraftIdentity(event.getPlayer());
         virtualThreadExecutor.execute(() -> {
             try {
-                var joinEnvelope = payloadFactory.createPlayerJoinEnvelope(identity);
-                eventBus.broadcast(joinEnvelope).join();
+                var joinPayload = payloadFactory.createPlayerJoinEnvelope(identity);
+                eventBroker.broadcast(joinPayload).join();
             } catch (Exception e) {
                 plugin.getLogger().warning("Failed to broadcast player join event: " + e.getMessage());
             }
         });
         IonCore.getInstance().getIdentityService().fetchIdentity(event.getPlayer()).thenAccept(userOpt -> {
             userOpt.ifPresent(user -> {
-                var listEnvelope = payloadFactory.createRequestPersonaListEnvelope(user);
-                virtualThreadExecutor.execute(() -> {
-                    try {
-                        eventBus.broadcast(listEnvelope).join();
-                    } catch (Exception e) {
-                        plugin.getLogger().warning("Failed to broadcast persona list request: " + e.getMessage());
+                UUID webOwnerId = user.id();
+                UUID minecraftUuid = user.identity().uuid();
+                ObjectNode req = jsonService.getObjectMapper().createObjectNode();
+                req.put("ownerId", webOwnerId.toString());
+                String tenantId = IonCore.getInstance().getTenantConfig().getTenantId();
+                String subject = "ion.req." + tenantId + ".persona.list";
+                eventBroker.requestAsync(subject, req).thenAccept(responseNode -> {
+                    if (responseNode == null)
+                        return;
+                    List<PersonaListItem> personas = new ArrayList<>();
+                    if (responseNode.isArray()) {
+                        for (JsonNode element : responseNode) {
+                            try {
+                                personas.add(jsonService.getObjectMapper().treeToValue(element, PersonaListItem.class));
+                            } catch (Exception e) {
+                                plugin.getLogger().warning("Failed to parse persona list item: " + e.getMessage());
+                            }
+                        }
                     }
+                    agentService.updatePersonaCache(minecraftUuid, personas);
+                }).exceptionally(ex -> {
+                    plugin.getLogger().warning(
+                            "NATS RPC timeout/error fetching persona list for " + event.getPlayer().getName() + ": " + ex.getMessage());
+                    return null;
                 });
             });
         }).exceptionally(ex -> {
@@ -422,8 +417,8 @@ public class NetworkService implements Listener {
         final MinecraftIdentity identity = createMinecraftIdentity(event.getPlayer());
         virtualThreadExecutor.execute(() -> {
             try {
-                var quitEnvelope = payloadFactory.createPlayerQuitEnvelope(identity);
-                eventBus.broadcast(quitEnvelope).join();
+                var quitPayload = payloadFactory.createPlayerQuitEnvelope(identity);
+                eventBroker.broadcast(quitPayload).join();
             } catch (Exception e) {
                 plugin.getLogger().warning("Failed to broadcast player quit event: " + e.getMessage());
             }

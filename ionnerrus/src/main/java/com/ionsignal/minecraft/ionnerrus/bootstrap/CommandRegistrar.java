@@ -2,7 +2,7 @@ package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.IonCore;
-import com.ionsignal.minecraft.ioncore.network.PostgresEventBus;
+import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalFactory;
@@ -19,12 +19,12 @@ import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 
-import io.leangen.geantyref.TypeToken;
-
 import org.incendo.cloud.annotations.AnnotationParser;
 import org.incendo.cloud.execution.ExecutionCoordinator;
 import org.incendo.cloud.paper.PaperCommandManager;
 import org.incendo.cloud.suggestion.Suggestion;
+
+import io.leangen.geantyref.TypeToken;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -34,9 +34,6 @@ import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-/**
- * Registers all plugin commands using Cloud Command Framework.
- */
 public class CommandRegistrar {
     private final IonNerrus plugin;
     private final AgentService agentService;
@@ -76,10 +73,10 @@ public class CommandRegistrar {
             // Register Active Agent Parser
             this.commandManager.parserRegistry().registerParserSupplier(
                     TypeToken.get(NerrusAgent.class),
-                    params -> new NerrusAgentParser(agentService));
+                    params -> new NerrusAgentParser(agentService, identityService));
             this.commandManager.parserRegistry().registerNamedParserSupplier(
                     "nerrus_agent",
-                    params -> new NerrusAgentParser(agentService));
+                    params -> new NerrusAgentParser(agentService, identityService));
             // Register Unspawned Definition Parser
             this.commandManager.parserRegistry().registerParserSupplier(
                     TypeToken.get(PersonaListItem.class),
@@ -93,24 +90,23 @@ public class CommandRegistrar {
             AnnotationParser<CommandSourceStack> annotationParser = new AnnotationParser<>(
                     commandManager,
                     CommandSourceStack.class);
-            // Fetch EventBus for commands that require network dispatch
-            PostgresEventBus eventBus = IonCore.getInstance().getServiceContainer().getEventBus();
+            IonEventBroker eventBroker = IonCore.getInstance().getServiceContainer().getEventBroker();
             annotationParser.parse(new NerrusAgentCommands(
-                    agentService, identityService, eventBus, payloadFactory));
-
+                    agentService, identityService, eventBroker, payloadFactory));
             annotationParser.parse(new NerrusGoalCommands(
                     agentService, goalFactory, blockTagManager, plugin));
-
             annotationParser.parse(new NerrusDirectiveCommands(
                     agentService, plugin.getLlmService()));
             plugin.getLogger().info("Registered commands via Cloud Command Framework.");
         } catch (Exception e) {
             plugin.getLogger().severe("Failed to initialize Cloud Command Manager: " + e.getMessage());
             e.printStackTrace();
-            // We do not disable the plugin here, but commands will be broken.
         }
     }
 
+    /**
+     * Registers suggestion providers.
+     */
     private void registerSuggestionProviders() {
         this.commandManager.parserRegistry().registerSuggestionProvider(
                 "block_tags",
@@ -134,7 +130,7 @@ public class CommandRegistrar {
                 new PersonaDefinitionParser(agentService));
         this.commandManager.parserRegistry().registerSuggestionProvider(
                 "owned_active_agents",
-                new NerrusAgentParser(agentService));
+                new NerrusAgentParser(agentService, identityService));
     }
 
     /**

@@ -1,14 +1,13 @@
 package com.ionsignal.minecraft.ionnerrus.network.model;
 
 import com.ionsignal.minecraft.ioncore.network.model.IonCommand;
-import com.ionsignal.minecraft.ioncore.network.model.IonUser;
-
-import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.*;
 
+import java.util.UUID;
+
 public record DespawnPayload(
-        @JsonProperty("owner") IonUser owner,
+        @JsonProperty("ownerId") UUID ownerId,
         @JsonProperty("definitionId") UUID definitionId,
         @JsonProperty("type") String type) implements IonCommand {
 }

@@ -21,11 +21,11 @@ import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -39,7 +39,7 @@ public class AgentService {
     private final LLMService llmService;
 
     // Persona Memory Management
-    private final Map<UUID, NerrusAgent> agents = new HashMap<>();
+    private final Map<UUID, NerrusAgent> agents = new ConcurrentHashMap<>();
     private final Map<UUID, List<PersonaListItem>> availablePersonasCache = new ConcurrentHashMap<>();
 
     public AgentService(IonNerrus plugin,
@@ -54,8 +54,9 @@ public class AgentService {
         this.llmService = llmService;
     }
 
-    public NerrusAgent spawnAgent(SpawnAgentCommand command) {
-        Preconditions.checkState(Bukkit.isPrimaryThread(), "Agents must be spawned on the main thread");
+    public CompletableFuture<NerrusAgent> spawnAgent(SpawnAgentCommand command) {
+        Preconditions.checkState(Bukkit.isPrimaryThread(), "Agents must be registered on the main thread");
+        CompletableFuture<NerrusAgent> future = new CompletableFuture<>();
         NerrusAgent existingClone = findAgentByDefinitionId(command.definitionId());
         if (existingClone != null) {
             plugin.getLogger().warning("Highlander Rule: Found existing physical clone for definition "
@@ -64,13 +65,14 @@ public class AgentService {
         }
         if (findAgentBySessionId(command.sessionId()) != null) {
             plugin.getLogger().warning("Agent with session ID " + command.sessionId() + " is already active.");
-            return findAgentBySessionId(command.sessionId());
+            future.complete(findAgentBySessionId(command.sessionId()));
+            return future;
         }
         Persona persona = personaRegistry.createPersona(EntityType.PLAYER, command.name(), Optional.empty());
         persona.getMetadata().setPersistent(NERRUS_AGENT_METADATA, true);
         persona.setSessionId(command.sessionId());
         persona.setDefinitionId(command.definitionId());
-        persona.setOwner(command.owner());
+        persona.setOwnerId(command.ownerId());
         if (command.skin() != null) {
             persona.setSkin(new PersonaSkinData(
                     command.skin().mojangTextureValue(),
@@ -79,18 +81,34 @@ public class AgentService {
         }
         NerrusAgent agent = new NerrusAgent(persona, plugin, goalRegistry, goalFactory, llmService);
         agents.put(persona.getUniqueId(), agent);
-        try {
-            persona.spawn(command.location());
-            agent.start();
-            plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
-            Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
-        } catch (Exception e) {
-            plugin.getLogger().severe("Error spawning agent " + agent.getName() + ": " + e.getMessage());
-            e.printStackTrace();
-            despawnAgent(command.sessionId());
-            throw new RuntimeException("Failed to physically spawn agent: " + e.getMessage(), e);
-        }
-        return agent;
+        command.location().getWorld().getChunkAtAsync(command.location()).thenAccept(chunk -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    if (!agents.containsKey(persona.getUniqueId())) {
+                        plugin.getLogger().info("Agent spawn aborted: Session " + command.sessionId() + " was removed during chunk load.");
+                        future.completeExceptionally(new CancellationException("Agent removed before physical spawn."));
+                        return;
+                    }
+                    persona.spawn(command.location());
+                    agent.start();
+                    plugin.getLogger().info("Successfully spawned agent: " + agent.getName());
+                    Bukkit.getPluginManager().callEvent(new NerrusAgentSpawnEvent(agent));
+                    future.complete(agent);
+                } catch (Exception e) {
+                    plugin.getLogger().severe("Error spawning agent " + agent.getName() + ": " + e.getMessage());
+                    e.printStackTrace();
+                    despawnAgent(command.sessionId());
+                    future.completeExceptionally(new RuntimeException("Failed to physically spawn agent: " + e.getMessage(), e));
+                }
+            });
+        }).exceptionally(ex -> {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                despawnAgent(command.sessionId());
+                future.completeExceptionally(new RuntimeException("Failed to load chunk for spawn: " + ex.getMessage(), ex));
+            });
+            return null;
+        });
+        return future;
     }
 
     public boolean despawnAgent(UUID sessionId) {
@@ -100,9 +118,7 @@ public class AgentService {
 
     public boolean despawnAgent(NerrusAgent agent) {
         if (agent != null) {
-            // Cancel active cognitive loops to prevent orphaned LLM calls on death
             agent.assignGoal(null, null);
-            // TODO: confirm this code
             Bukkit.getPluginManager().callEvent(new NerrusAgentRemoveEvent(agent));
             agents.remove(agent.getPersona().getUniqueId());
             personaRegistry.deregister(agent.getPersona());
@@ -142,7 +158,6 @@ public class AgentService {
             return CompletableFuture.completedFuture(null);
         }
         plugin.getLogger().info("Despawning " + agents.size() + " agent(s)...");
-        List<CompletableFuture<Void>> shutdownFutures = new ArrayList<>();
         List<NerrusAgent> agentList = new ArrayList<>(agents.values());
         for (NerrusAgent agent : agentList) {
             if (agent.getPersona().getSessionId() != null) {
@@ -155,7 +170,7 @@ public class AgentService {
         }
         agents.clear();
         plugin.getLogger().info("Despawned all Nerrus agents.");
-        return CompletableFuture.allOf(shutdownFutures.toArray(new CompletableFuture[0]));
+        return CompletableFuture.completedFuture(null);
     }
 
     public void shutdown() {
