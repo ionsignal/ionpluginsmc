@@ -25,7 +25,7 @@ public final class NetworkCommandRegistrar {
      * Registers a handler for a specific command type ID.
      *
      * @param typeId
-     *            The command type string (e.g., "command:persona:spawn")
+     *            The command type string (e.g., "persona.spawn")
      * @param handler
      *            The handler to invoke with the JsonNode payload.
      */
@@ -43,7 +43,7 @@ public final class NetworkCommandRegistrar {
      * Dispatches a command to its registered handler.
      *
      * @param payload
-     *            The raw JsonNode payload from the envelope
+     *            The raw JsonNode representing the command payload. // [Modification] Updated doc
      */
     public void dispatch(@NotNull JsonNode payload) {
         if (payload == null || payload.isNull()) {

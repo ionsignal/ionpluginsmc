@@ -45,10 +45,6 @@ public class JsonService {
 
     public <T> T fromJson(String json, Class<T> clazz) {
         try {
-            if (clazz.equals(com.ionsignal.minecraft.ioncore.network.model.CommandEnvelope.class)) {
-                java.util.logging.Logger.getLogger("IonCore").info(
-                        "Deserializing CommandEnvelope from: " + json.substring(0, Math.min(100, json.length())) + "...");
-            }
             return objectMapper.readValue(json, clazz);
         } catch (IOException e) {
             throw new RuntimeException("Failed to deserialize JSON to " + clazz.getSimpleName(), e);

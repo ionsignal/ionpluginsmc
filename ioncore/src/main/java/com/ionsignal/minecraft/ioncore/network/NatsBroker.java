@@ -85,7 +85,9 @@ public final class NatsBroker implements IonEventBroker {
                     this.dispatcher = nc.createDispatcher(msg -> {
                         virtualThreadExecutor.execute(() -> handleMessage(msg.getData()));
                     });
-                    String cmdSubject = "ion.cmd." + tenantConfig.getTenantId() + ".>";
+                    String cmdSubject = UniversalSubjectBuilder.buildTargetWildcard(
+                            SubjectTaxonomy.SubjectPrefix.COMMAND,
+                            tenantConfig.getTenantId());
                     dispatcher.subscribe(cmdSubject);
                     plugin.getLogger().info("[NATS] Subscribed to commands on: " + cmdSubject);
                     // Exit the retry loop once successfully connected
@@ -109,10 +111,7 @@ public final class NatsBroker implements IonEventBroker {
         try {
             String json = new String(data, StandardCharsets.UTF_8);
             JsonNode root = jsonService.readTree(json);
-            // Bridging Logic: If the payload is wrapped in a legacy CommandEnvelope, extract it.
-            // Otherwise, pass the raw root (preparing for Phase 2/3 Node.js raw payloads).
-            JsonNode payloadToDispatch = root.has("payload") ? root.get("payload") : root;
-            commandRegistrar.dispatch(payloadToDispatch);
+            commandRegistrar.dispatch(root);
         } catch (Exception e) {
             plugin.getLogger().severe("Critical error processing NATS message: " + e.getMessage());
             e.printStackTrace();
@@ -126,12 +125,18 @@ public final class NatsBroker implements IonEventBroker {
         }
         return CompletableFuture.runAsync(() -> {
             String json = jsonService.toJson(payload);
-            String type = "unknown";
-            if (payload instanceof IonEvent e)
+            String prefix;
+            String type;
+            if (payload instanceof IonEvent e) {
+                prefix = SubjectTaxonomy.SubjectPrefix.EVENT;
                 type = e.type();
-            else if (payload instanceof IonCommand c)
+            } else if (payload instanceof IonCommand c) {
+                prefix = SubjectTaxonomy.SubjectPrefix.COMMAND;
                 type = c.type();
-            String subject = "ion.evt." + tenantConfig.getTenantId() + "." + type;
+            } else {
+                throw new IllegalArgumentException("Payload must implement IonEvent or IonCommand");
+            }
+            String subject = UniversalSubjectBuilder.buildEventOrCommand(prefix, tenantConfig.getTenantId(), type);
             nc.publish(subject, json.getBytes(StandardCharsets.UTF_8));
         }, virtualThreadExecutor);
     }

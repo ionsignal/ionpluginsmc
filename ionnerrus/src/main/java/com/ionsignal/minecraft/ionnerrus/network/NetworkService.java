@@ -4,6 +4,8 @@ import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
 import com.ionsignal.minecraft.ioncore.network.NetworkCommandRegistrar;
+import com.ionsignal.minecraft.ioncore.network.SubjectTaxonomy;
+import com.ionsignal.minecraft.ioncore.network.UniversalSubjectBuilder;
 import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
@@ -91,26 +93,27 @@ public class NetworkService implements Listener {
         plugin.getLogger().info("NerrusBridge: Listening via Shared JsonNode dispatch.");
     }
 
+    /**
+     * Safely deserializes the raw IonCommand/IonEvent JSON node into the target domain model.
+     */
     private <T> void deserializeAndHandle(JsonNode node, Class<T> clazz, Consumer<T> handler) {
         try {
             T payload = jsonService.treeToValue(node, clazz);
             handler.accept(payload);
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Failed to deserialize " + clazz.getSimpleName(), e);
-            try {
-                if (node.has("ownerId") && node.has("type")) {
-                    UUID ownerId = UUID.fromString(node.get("ownerId").asText());
-                    String type = node.get("type").asText();
-                    failCommand(ownerId, type, new IllegalArgumentException("Invalid payload format: " + e.getMessage()));
-                }
-            } catch (Exception fallbackEx) {
-                plugin.getLogger().severe("Payload was too malformed to extract ownerId for NACK response.");
-            }
+            // If this fails, it is a catastrophic schema mismatch between Node.js and Java.
+            plugin.getLogger().log(Level.SEVERE,
+                    "Catastrophic schema mismatch. Failed to deserialize " + clazz.getSimpleName() + ". Dropping message.", e);
         }
     }
 
     private void failCommand(UUID ownerId, String commandType, Throwable error) {
         Preconditions.checkState(!Bukkit.isPrimaryThread(), "Network IO must not run on the primary thread");
+        if (ownerId == null) {
+            plugin.getLogger()
+                    .warning("Cannot send NACK for failed command '" + commandType + "': ownerId is null. Error: " + error.getMessage());
+            return;
+        }
         Throwable rootCause = unwrapException(error);
         String reason = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
         plugin.getLogger().warning("Command " + commandType + " failed for user " + ownerId + ": " + reason);
@@ -385,7 +388,11 @@ public class NetworkService implements Listener {
                 ObjectNode req = jsonService.getObjectMapper().createObjectNode();
                 req.put("ownerId", webOwnerId.toString());
                 String tenantId = IonCore.getInstance().getTenantConfig().getTenantId();
-                String subject = "ion.req." + tenantId + ".persona.list";
+                String subject = UniversalSubjectBuilder.build(
+                        SubjectTaxonomy.SubjectPrefix.REQUEST,
+                        tenantId,
+                        "persona",
+                        "list");
                 eventBroker.requestAsync(subject, req).thenAccept(responseNode -> {
                     if (responseNode == null)
                         return;

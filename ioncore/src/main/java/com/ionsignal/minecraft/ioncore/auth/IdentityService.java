@@ -4,6 +4,8 @@ import com.ionsignal.minecraft.ioncore.IonCore;
 import com.ionsignal.minecraft.ioncore.config.TenantConfig;
 import com.ionsignal.minecraft.ioncore.json.JsonService;
 import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
+import com.ionsignal.minecraft.ioncore.network.SubjectTaxonomy;
+import com.ionsignal.minecraft.ioncore.network.UniversalSubjectBuilder;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
 import com.ionsignal.minecraft.ioncore.network.model.MinecraftIdentity;
 
@@ -63,7 +65,11 @@ public class IdentityService {
         return pendingFetches.computeIfAbsent(player.getUniqueId(), uuid -> {
             ObjectNode req = jsonService.getObjectMapper().createObjectNode();
             req.put("minecraftUuid", player.getUniqueId().toString());
-            String subject = "ion.req." + tenantConfig.getTenantId() + ".identity.get";
+            String subject = UniversalSubjectBuilder.build(
+                    SubjectTaxonomy.SubjectPrefix.REQUEST,
+                    tenantConfig.getTenantId(),
+                    "identity",
+                    "get");
             return eventBroker.requestAsync(subject, req)
                     .thenApply(resp -> {
                         if (resp != null && resp.has("userId") && !resp.get("userId").isNull()) {
@@ -121,7 +127,11 @@ public class IdentityService {
         ObjectNode req = jsonService.getObjectMapper().createObjectNode();
         req.put("minecraftUuid", player.getUniqueId().toString());
         req.put("minecraftUsername", player.getName());
-        String subject = "ion.req." + tenantConfig.getTenantId() + ".identity.link.generate";
+        String subject = UniversalSubjectBuilder.build(
+                SubjectTaxonomy.SubjectPrefix.REQUEST,
+                tenantConfig.getTenantId(),
+                "identity",
+                "link.generate");
         return eventBroker.requestAsync(subject, req)
                 .thenApply(resp -> {
                     if (resp != null && resp.has("token")) {
