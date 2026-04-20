@@ -1,6 +1,6 @@
 [versions]
-minecraft = "1.21.10"
-paperweight = "2.0.0-beta.19"
+minecraft = "26.1.2"
+paperweight = "2.0.0-beta.21"
 shadow = "9.3.1"
 
 # Jackson
@@ -53,11 +53,6 @@ tectonic-common = { group = "com.dfsek.tectonic", name = "common", version.ref =
 tectonic-yaml = { group = "com.dfsek.tectonic", name = "yaml", version.ref = "tectonic" }
 seismic = { group = "com.dfsek", name = "seismic", version.ref = "seismic" }
 
-# Cloud
-cloud-core = { group = "org.incendo", name = "cloud-core", version.ref = "cloud" }
-cloud-paper = { group = "org.incendo", name = "cloud-paper", version.ref = "cloud" }
-cloud-annotations = { group = "org.incendo", name = "cloud-annotations", version.ref = "cloudanotations" }
-
 # BlueNBT
 bluenbt = { group = "de.bluecolored", name = "bluenbt", version.ref = "bluenbt" }
 
@@ -70,7 +65,6 @@ jsonschema-module-jackson = { group = "com.github.victools", name = "jsonschema-
 
 # IonCore Specific
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
-adventure-api = { group = "net.kyori", name = "adventure-api", version.ref = "adventure" }
 
 # JNATs
 nats-client = { group = "io.nats", name = "jnats", version.ref = "jnats" }

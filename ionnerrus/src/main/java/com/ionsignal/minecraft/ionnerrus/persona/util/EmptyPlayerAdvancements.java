@@ -11,7 +11,7 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.PlayerAdvancements;
 import net.minecraft.server.ServerAdvancementManager;
 import net.minecraft.server.level.ServerPlayer;
@@ -109,7 +109,7 @@ public class EmptyPlayerAdvancements extends PlayerAdvancements {
         }
 
         @Override
-        public AdvancementHolder get(@SuppressWarnings("null") ResourceLocation resourceLocation) {
+        public AdvancementHolder get(@SuppressWarnings("null") Identifier resourceLocation) {
             return null;
         }
 

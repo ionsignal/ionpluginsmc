@@ -21,12 +21,12 @@ public class NerrusManager {
 
     public boolean initialize() {
         String minecraftVersion = ServerVersion.getMinecraftVersion();
-        if ("1.21.10".equals(minecraftVersion)) {
+        if ("26.1.2".equals(minecraftVersion)) {
             getLogger().info("Initialized Persona management for Minecraft version " + minecraftVersion);
         } else {
             getLogger().severe(
                     "Unsupported server version: " + minecraftVersion
-                            + ". This version of IonNerrus requires Minecraft 1.21.10 or above. Disabling plugin. "
+                            + ". This version of IonNerrus requires Minecraft 26.1.2. Disabling plugin. "
                             + "Use ViaVersion for backwards compatibility.");
             Bukkit.getPluginManager().disablePlugin(plugin);
             return false;

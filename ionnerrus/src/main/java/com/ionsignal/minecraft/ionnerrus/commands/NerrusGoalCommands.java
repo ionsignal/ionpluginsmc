@@ -10,29 +10,31 @@ import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.interaction.G
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.content.BlockTagManager;
 
+import com.mojang.brigadier.Command;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+
 import io.papermc.paper.command.brigadier.CommandSourceStack;
-
-import org.bukkit.command.CommandSender;
-
-import org.incendo.cloud.annotation.specifier.Range;
-import org.incendo.cloud.annotations.Argument;
-import org.incendo.cloud.annotations.Command;
-import org.incendo.cloud.annotations.Default;
-import org.incendo.cloud.annotations.Permission;
+import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSelectorArgumentResolver;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+
+import java.util.List;
+
 /**
  * Handles physical Goal assignments.
+ * MODIFIED: Refactored to consume Brigadier CommandContext and utilize Paper's native arguments.
  */
 public class NerrusGoalCommands {
     @SuppressWarnings("unused")
     private final IonNerrus plugin;
-
     @SuppressWarnings("unused")
     private final AgentService agentService;
-
     private final GoalFactory goalFactory;
     private final BlockTagManager blockTagManager;
 
@@ -47,22 +49,12 @@ public class NerrusGoalCommands {
         this.plugin = plugin;
     }
 
-    @Command("nerrus gather <agent> <block_type> <amount>")
-    @Permission("ionnerrus.command.gather")
-    public void gatherBlock(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent,
-            @Argument(value = "block_type", suggestions = "block_tags") String blockType,
-            @Argument("amount") @Range(min = "1", max = "6400") int amount) {
+    public int gatherBlock(CommandContext<CommandSourceStack> ctx) {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        String groupName = ctx.getArgument("block_type", String.class);
+        int amount = ctx.getArgument("amount", Integer.class);
+        CommandSender sender = ctx.getSource().getSender();
 
-        CommandSender sender = stack.getSender();
-        String groupName = blockType.toLowerCase();
-        if (blockTagManager.getMaterialSet(groupName) == null) {
-            sender.sendMessage(Component.text("Invalid block type: " + groupName, NamedTextColor.RED));
-            String availableTypes = String.join(", ", blockTagManager.getRegisteredGroupNames());
-            sender.sendMessage(Component.text("Available types: " + availableTypes, NamedTextColor.GRAY));
-            return;
-        }
         try {
             GatherBlockParameters params = new GatherBlockParameters(groupName, amount);
             Goal gatherGoal = goalFactory.createGoal("GATHER_BLOCK", params);
@@ -72,20 +64,27 @@ public class NerrusGoalCommands {
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
         }
+        return Command.SINGLE_SUCCESS;
     }
 
-    @Command("nerrus give <agent> <target> <item> <amount>")
-    @Permission("ionnerrus.command.give")
-    public void giveItem(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent,
-            @Argument(value = "target", suggestions = "online_players") String targetName,
-            @Argument(value = "item", suggestions = "materials") String itemName,
-            @Argument("amount") @Range(min = "1", max = "6400") int amount) {
-        CommandSender sender = stack.getSender();
-        String upperItem = itemName.toUpperCase();
+    public int giveItem(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        // Resolve the target player using Paper's native selector
+        List<Player> targets = ctx.getArgument("target", PlayerSelectorArgumentResolver.class).resolve(ctx.getSource());
+        if (targets.isEmpty()) {
+            ctx.getSource().getSender().sendMessage(Component.text("No player found matching target.", NamedTextColor.RED));
+            return Command.SINGLE_SUCCESS;
+        }
+        String targetName = targets.get(0).getName();
+
+        // Extract the material name from the natively parsed ItemStack
+        ItemStack itemStack = ctx.getArgument("item", ItemStack.class);
+        String itemName = itemStack.getType().name();
+        int amount = ctx.getArgument("amount", Integer.class);
+        CommandSender sender = ctx.getSource().getSender();
+
         try {
-            GiveItemParameters params = new GiveItemParameters(upperItem, amount, targetName);
+            GiveItemParameters params = new GiveItemParameters(itemName, amount, targetName);
             Goal giveItemGoal = goalFactory.createGoal("GIVE_ITEM", params);
             agent.assignGoal(giveItemGoal, params);
             sender.sendMessage(Component.text(
@@ -93,19 +92,21 @@ public class NerrusGoalCommands {
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error creating goal: " + e.getMessage(), NamedTextColor.RED));
         }
+        return Command.SINGLE_SUCCESS;
     }
 
-    @Command("nerrus follow <agent> <target> [distance]")
-    @Permission("ionnerrus.command.follow")
-    public void follow(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent,
-            @Argument(value = "target", suggestions = "online_players") String targetName,
-            @Argument("distance") @Default("6.0") @Range(min = "1.0", max = "100.0") double targetDistance) {
-        CommandSender sender = stack.getSender();
+    public int follow(CommandContext<CommandSourceStack> ctx, double targetDistance) throws CommandSyntaxException {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        List<Player> targets = ctx.getArgument("target", PlayerSelectorArgumentResolver.class).resolve(ctx.getSource());
+        if (targets.isEmpty()) {
+            ctx.getSource().getSender().sendMessage(Component.text("No player found matching target.", NamedTextColor.RED));
+            return Command.SINGLE_SUCCESS;
+        }
+        String targetName = targets.get(0).getName();
+        CommandSender sender = ctx.getSource().getSender();
         double stopDist = Math.max(2.0, targetDistance);
         double followDist = stopDist + 4.0;
-        int duration = 30; // 30 seconds default
+        int duration = 30;
         try {
             FollowPlayerParameters params = new FollowPlayerParameters(targetName, followDist, stopDist, duration);
             Goal followGoal = goalFactory.createGoal("FOLLOW_PLAYER", params);
@@ -114,5 +115,6 @@ public class NerrusGoalCommands {
         } catch (IllegalArgumentException e) {
             sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
         }
+        return Command.SINGLE_SUCCESS;
     }
 }

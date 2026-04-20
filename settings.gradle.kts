@@ -14,5 +14,5 @@ rootProject.name = "ionpluginsmc"
 include(
     "ioncore",
     "ionnerrus",
-    "iongenesis"
+    // "iongenesis"
 )

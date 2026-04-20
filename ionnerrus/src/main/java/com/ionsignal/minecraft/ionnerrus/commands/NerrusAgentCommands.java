@@ -3,6 +3,7 @@ package com.ionsignal.minecraft.ionnerrus.commands;
 import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
 import com.ionsignal.minecraft.ioncore.network.model.IonUser;
+
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
@@ -12,22 +13,22 @@ import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocation;
 import com.ionsignal.minecraft.ionnerrus.network.model.SpawnLocationType;
 
+import com.mojang.brigadier.Command;
+import com.mojang.brigadier.context.CommandContext;
+
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-import org.incendo.cloud.annotations.Argument;
-import org.incendo.cloud.annotations.Command;
-import org.incendo.cloud.annotations.Permission;
-
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-
 /**
  * Handles Agent Lifecycle commands.
+ * MODIFIED: Refactored to consume Brigadier CommandContext.
  */
 public class NerrusAgentCommands {
     private final AgentService agentService;
@@ -46,55 +47,54 @@ public class NerrusAgentCommands {
         this.payloadFactory = payloadFactory;
     }
 
-    @Command("nerrus list")
-    @Permission("ionnerrus.command.list")
-    public void listAgents(CommandSourceStack stack) {
-        CommandSender sender = stack.getSender();
+    public int listAgents(CommandContext<CommandSourceStack> ctx) {
+        CommandSender sender = ctx.getSource().getSender();
         var agents = agentService.getAgents();
         if (agents.isEmpty()) {
             sender.sendMessage(Component.text("There are no active Nerrus agents.", NamedTextColor.YELLOW));
-            return;
+            return Command.SINGLE_SUCCESS;
         }
 
         sender.sendMessage(Component.text("Active Nerrus agents:", NamedTextColor.GOLD));
         for (NerrusAgent agent : agents) {
             sender.sendMessage(Component.text("- " + agent.getName(), NamedTextColor.GRAY));
         }
+        return Command.SINGLE_SUCCESS;
     }
 
-    @Command("nerrus stop <agent>")
-    @Permission("ionnerrus.command.stop")
-    public void stopAgent(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent) {
-        CommandSender sender = stack.getSender();
+    public int stopAgent(CommandContext<CommandSourceStack> ctx) {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        CommandSender sender = ctx.getSource().getSender();
+
         agent.assignGoal(null, null);
         sender.sendMessage(Component.text("Stopped current goal for agent " + agent.getName(), NamedTextColor.YELLOW));
+        return Command.SINGLE_SUCCESS;
     }
 
-    @Command("nerrus spawn <definition>")
-    @Permission("ionnerrus.command.spawn")
-    public void spawnAgent(
-            CommandSourceStack stack,
-            @Argument(value = "definition", parserName = "nerrus_definition") PersonaListItem config) {
+    public int spawnAgent(CommandContext<CommandSourceStack> ctx) {
+        PersonaListItem config = ctx.getArgument("definition", PersonaListItem.class);
+        CommandSourceStack stack = ctx.getSource();
+
         if (!(stack.getExecutor() instanceof Player player)) {
             stack.getSender().sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
-            return;
+            return Command.SINGLE_SUCCESS;
         }
-        // Ensure closed-loop constraints: Player must be linked
+
         var userOpt = identityService.getCachedIdentity(player.getUniqueId());
         if (userOpt.isEmpty() || userOpt.get().isEmpty()) {
             player.sendMessage(Component.text("You must link your Runemind account to spawn agents.", NamedTextColor.RED));
-            return;
+            return Command.SINGLE_SUCCESS;
         }
+
         IonUser owner = userOpt.get().get();
         Location safeLoc = findSafeSpawningLocation(player.getLocation());
-        // Construct the location payload
+
         SpawnLocation spawnLocation = new CoordinateSpawnLocation(
                 SpawnLocationType.COORDINATES.getValue(),
                 safeLoc.getWorld().getName(),
                 safeLoc.getX(), safeLoc.getY(), safeLoc.getZ(),
                 safeLoc.getYaw(), safeLoc.getPitch());
+
         var payload = payloadFactory.createRequestSpawnEnvelope(owner.id(), config.id(), spawnLocation);
         eventBroker.broadcast(payload).whenCompleteAsync((v, ex) -> {
             if (ex != null) {
@@ -103,17 +103,16 @@ public class NerrusAgentCommands {
                 player.sendMessage(Component.text("Requested spawn for persona '" + config.name() + "'...", NamedTextColor.GREEN));
             }
         }, IonNerrus.getInstance().getMainThreadExecutor());
+
+        return Command.SINGLE_SUCCESS;
     }
 
-    @Command("nerrus remove <agent>")
-    @Permission("ionnerrus.command.remove")
-    public void removeAgent(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent) {
-        CommandSender sender = stack.getSender();
+    public int removeAgent(CommandContext<CommandSourceStack> ctx) {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        CommandSender sender = ctx.getSource().getSender();
         String name = agent.getName();
+
         if (sender instanceof Player player) {
-            // Closed-loop despawn for players
             var userOpt = identityService.getCachedIdentity(player.getUniqueId());
             if (userOpt.isPresent() && userOpt.get().isPresent()) {
                 IonUser owner = userOpt.get().get();
@@ -125,23 +124,21 @@ public class NerrusAgentCommands {
                         sender.sendMessage(Component.text("Requested despawn for agent " + name + "...", NamedTextColor.GREEN));
                     }
                 }, IonNerrus.getInstance().getMainThreadExecutor());
-                return;
+                return Command.SINGLE_SUCCESS;
             } else {
                 sender.sendMessage(Component.text("You must link your Runemind account to remove agents.", NamedTextColor.RED));
-                return;
+                return Command.SINGLE_SUCCESS;
             }
         }
-        // Fallback for console or agents spawned outside the closed loop
+
         if (agentService.despawnAgent(agent)) {
             sender.sendMessage(Component.text("Force-removed agent " + name, NamedTextColor.GREEN));
         } else {
             sender.sendMessage(Component.text("Agent not found: " + name, NamedTextColor.RED));
         }
+        return Command.SINGLE_SUCCESS;
     }
 
-    /**
-     * Ported logic from legacy NerrusCommand to ensure agents don't spawn in walls.
-     */
     private Location findSafeSpawningLocation(Location loc) {
         if (loc.getWorld() == null)
             return loc;

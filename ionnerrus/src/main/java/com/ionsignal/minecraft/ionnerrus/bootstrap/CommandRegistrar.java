@@ -1,39 +1,36 @@
 package com.ionsignal.minecraft.ionnerrus.bootstrap;
 
-import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.IonCore;
+import com.ionsignal.minecraft.ioncore.auth.IdentityService;
 import com.ionsignal.minecraft.ioncore.network.IonEventBroker;
+
 import com.ionsignal.minecraft.ionnerrus.IonNerrus;
-import com.ionsignal.minecraft.ionnerrus.agent.cognition.NerrusAgent;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalFactory;
 import com.ionsignal.minecraft.ionnerrus.agent.cognition.behaviors.core.GoalRegistry;
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusAgentCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusDirectiveCommands;
 import com.ionsignal.minecraft.ionnerrus.commands.NerrusGoalCommands;
+import com.ionsignal.minecraft.ionnerrus.commands.parsers.BlockTagParser;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.NerrusAgentParser;
 import com.ionsignal.minecraft.ionnerrus.commands.parsers.PersonaDefinitionParser;
 import com.ionsignal.minecraft.ionnerrus.content.BlockTagManager;
 import com.ionsignal.minecraft.ionnerrus.network.PayloadFactory;
-import com.ionsignal.minecraft.ionnerrus.network.model.PersonaListItem;
+
+import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import io.papermc.paper.command.brigadier.Commands;
+import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
 
-import org.incendo.cloud.annotations.AnnotationParser;
-import org.incendo.cloud.execution.ExecutionCoordinator;
-import org.incendo.cloud.paper.PaperCommandManager;
-import org.incendo.cloud.suggestion.Suggestion;
+import java.util.List;
 
-import io.leangen.geantyref.TypeToken;
-
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.entity.Player;
-
-import java.util.Arrays;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
-
+/**
+ * Constructs and registers the Brigadier command tree for IonNerrus.
+ */
 public class CommandRegistrar {
     private final IonNerrus plugin;
     private final AgentService agentService;
@@ -42,9 +39,6 @@ public class CommandRegistrar {
     private final IdentityService identityService;
     private final PayloadFactory payloadFactory;
 
-    private PaperCommandManager<CommandSourceStack> commandManager;
-
-    @SuppressWarnings("UnstableApiUsage")
     public CommandRegistrar(
             IonNerrus plugin,
             AgentService agentService,
@@ -62,84 +56,93 @@ public class CommandRegistrar {
     }
 
     /**
-     * Registers all commands.
+     * Builds the Brigadier FSM tree and registers it to Paper.
+     * Called from inside the LifecycleEvents.COMMANDS handler.
      */
-    public void registerAll() {
-        try {
-            // Initialize Cloud PaperCommandManager using Builder
-            this.commandManager = PaperCommandManager.builder()
-                    .executionCoordinator(ExecutionCoordinator.simpleCoordinator())
-                    .buildOnEnable(plugin);
-            // Register Active Agent Parser
-            this.commandManager.parserRegistry().registerParserSupplier(
-                    TypeToken.get(NerrusAgent.class),
-                    params -> new NerrusAgentParser(agentService, identityService));
-            this.commandManager.parserRegistry().registerNamedParserSupplier(
-                    "nerrus_agent",
-                    params -> new NerrusAgentParser(agentService, identityService));
-            // Register Unspawned Definition Parser
-            this.commandManager.parserRegistry().registerParserSupplier(
-                    TypeToken.get(PersonaListItem.class),
-                    params -> new PersonaDefinitionParser(agentService));
-            this.commandManager.parserRegistry().registerNamedParserSupplier(
-                    "nerrus_definition",
-                    params -> new PersonaDefinitionParser(agentService));
-            // Register Suggestion Providers to prevent Tab Completion Degradation
-            registerSuggestionProviders();
-            // Initialize Annotation Parser with CommandSourceStack
-            AnnotationParser<CommandSourceStack> annotationParser = new AnnotationParser<>(
-                    commandManager,
-                    CommandSourceStack.class);
-            IonEventBroker eventBroker = IonCore.getInstance().getServiceContainer().getEventBroker();
-            annotationParser.parse(new NerrusAgentCommands(
-                    agentService, identityService, eventBroker, payloadFactory));
-            annotationParser.parse(new NerrusGoalCommands(
-                    agentService, goalFactory, blockTagManager, plugin));
-            annotationParser.parse(new NerrusDirectiveCommands(
-                    agentService, plugin.getLlmService()));
-            plugin.getLogger().info("Registered commands via Cloud Command Framework.");
-        } catch (Exception e) {
-            plugin.getLogger().severe("Failed to initialize Cloud Command Manager: " + e.getMessage());
-            e.printStackTrace();
-        }
+    public void registerCommands(Commands registrar) {
+        IonEventBroker eventBroker = IonCore.getInstance().getServiceContainer().getEventBroker();
+
+        NerrusAgentCommands agentCmds = new NerrusAgentCommands(agentService, identityService, eventBroker, payloadFactory);
+        NerrusGoalCommands goalCmds = new NerrusGoalCommands(agentService, goalFactory, blockTagManager, plugin);
+        NerrusDirectiveCommands directiveCmds = new NerrusDirectiveCommands(agentService, plugin.getLlmService());
+
+        // Custom Parsers
+        NerrusAgentParser agentParser = new NerrusAgentParser(agentService, identityService);
+        PersonaDefinitionParser defParser = new PersonaDefinitionParser(agentService);
+        BlockTagParser blockTagParser = new BlockTagParser(blockTagManager);
+
+        // Root Node: /nerrus
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("nerrus");
+
+        // /nerrus list
+        root.then(Commands.literal("list")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.list"))
+                .executes(agentCmds::listAgents));
+
+        // /nerrus stop <agent>
+        root.then(Commands.literal("stop")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.stop"))
+                .then(Commands.argument("agent", agentParser)
+                        .executes(agentCmds::stopAgent)));
+
+        // /nerrus spawn <definition>
+        root.then(Commands.literal("spawn")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.spawn"))
+                .then(Commands.argument("definition", defParser)
+                        .executes(agentCmds::spawnAgent)));
+
+        // /nerrus remove <agent>
+        root.then(Commands.literal("remove")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.remove"))
+                .then(Commands.argument("agent", agentParser)
+                        .executes(agentCmds::removeAgent)));
+
+        // /nerrus gather <agent> <block_type> <amount>
+        root.then(Commands.literal("gather")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.gather"))
+                .then(Commands.argument("agent", agentParser)
+                        .then(Commands.argument("block_type", blockTagParser)
+                                .then(Commands.argument("amount", IntegerArgumentType.integer(1, 6400))
+                                        .executes(goalCmds::gatherBlock)))));
+
+        // /nerrus give <agent> <target> <item> <amount>
+        root.then(Commands.literal("give")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.give"))
+                .then(Commands.argument("agent", agentParser)
+                        .then(Commands.argument("target", ArgumentTypes.player())
+                                .then(Commands.argument("item", ArgumentTypes.itemStack())
+                                        .then(Commands.argument("amount", IntegerArgumentType.integer(1, 6400))
+                                                .executes(goalCmds::giveItem))))));
+
+        // /nerrus follow <agent> <target> [distance]
+        root.then(Commands.literal("follow")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.follow"))
+                .then(Commands.argument("agent", agentParser)
+                        .then(Commands.argument("target", ArgumentTypes.player())
+                                .executes(ctx -> goalCmds.follow(ctx, 6.0)) // Default distance
+                                .then(Commands.argument("distance", DoubleArgumentType.doubleArg(1.0, 100.0))
+                                        .executes(ctx -> goalCmds.follow(ctx, ctx.getArgument("distance", Double.class)))))));
+
+        // /nerrus do <agent> <directive>
+        root.then(Commands.literal("do")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.do"))
+                .then(Commands.argument("agent", agentParser)
+                        .then(Commands.argument("directive", StringArgumentType.greedyString())
+                                .executes(directiveCmds::doDirective))));
+
+        // /nerrus ask <agent> <question>
+        root.then(Commands.literal("ask")
+                .requires(ctx -> ctx.getSender().hasPermission("ionnerrus.command.ask"))
+                .then(Commands.argument("agent", agentParser)
+                        .then(Commands.argument("question", StringArgumentType.greedyString())
+                                .executes(directiveCmds::askAgent))));
+
+        // Finally, register the constructed tree
+        registrar.register(root.build(), "IonNerrus Agent Management", List.of());
+        plugin.getLogger().info("Registered commands via Paper Lifecycle API.");
     }
 
-    /**
-     * Registers suggestion providers.
-     */
-    private void registerSuggestionProviders() {
-        this.commandManager.parserRegistry().registerSuggestionProvider(
-                "block_tags",
-                (ctx, input) -> CompletableFuture.supplyAsync(() -> blockTagManager.getRegisteredGroupNames().stream()
-                        .map(Suggestion::suggestion)
-                        .collect(Collectors.toList())));
-        this.commandManager.parserRegistry().registerSuggestionProvider(
-                "materials",
-                (ctx, input) -> CompletableFuture.supplyAsync(() -> Arrays.stream(Material.values())
-                        .filter(Material::isItem)
-                        .map(m -> Suggestion.suggestion(m.name().toLowerCase()))
-                        .collect(Collectors.toList())));
-        this.commandManager.parserRegistry().registerSuggestionProvider(
-                "online_players",
-                (ctx, input) -> CompletableFuture.supplyAsync(() -> Bukkit.getOnlinePlayers().stream()
-                        .map(Player::getName)
-                        .map(Suggestion::suggestion)
-                        .collect(Collectors.toList())));
-        this.commandManager.parserRegistry().registerSuggestionProvider(
-                "owned_available_personas",
-                new PersonaDefinitionParser(agentService));
-        this.commandManager.parserRegistry().registerSuggestionProvider(
-                "owned_active_agents",
-                new NerrusAgentParser(agentService, identityService));
-    }
-
-    /**
-     * Unregisters commands.
-     */
     public void unregisterAll() {
-        if (this.commandManager != null) {
-            this.commandManager = null;
-        }
-        plugin.getLogger().info("Unregistered command manager.");
+        plugin.getLogger().info("Command unregistration delegated to Paper Lifecycle.");
     }
 }

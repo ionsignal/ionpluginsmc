@@ -5,17 +5,6 @@ plugins {
 
 description = "An LLM powered NPC decision engine"
 
-// Configure paperweight for Mojang production mappings
-paperweight.reobfArtifactConfiguration.set(
-    io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
-)
-
-// Prevents openai-java's and other implementation dependencies' transitive Jackson and Kotlin
-// from entering the shadow JAR.
-//   - Jackson: Paper's URLClassLoader owns core Jackson at runtime (2.13.4-2); a bundled copy
-//     sits behind Paper's entries in first-found ordering and is never reached.
-//   - Kotlin: provided by IonCoreLoader's MavenLibraryResolver and inherited via join-classpath;
-//     bundling a second copy would create a duplicate classloader split.
 configurations.runtimeClasspath {
     exclude(group = "org.jetbrains.kotlin")
     exclude(group = "org.jetbrains.kotlinx")
@@ -26,21 +15,18 @@ configurations.runtimeClasspath {
 
 dependencies {
     // IonCore
-    compileOnly(project(":ioncore", configuration = "devJar"))
-    // Cloud Command Framework
-    implementation(libs.cloud.paper)
-    implementation(libs.cloud.annotations)
-    // Add your dependencies here
+    implementation(project(":ioncore")) {
+        isTransitive = false
+    }
     // LLM and HTTP dependencies (will be shaded)
     implementation(libs.openai.java)
     implementation(libs.okhttp)
+    // Reflection
     implementation(libs.classgraph)
     // JSON Schema Generation
     implementation(libs.jsonschema.generator)
     implementation(libs.jsonschema.module.jackson)
-    // Compile-time Jackson references only. Effective runtime version is Paper's bundled 2.13.4-2,
-    // provided via Paper's shared URLClassLoader. The catalog version is pinned to 2.13.4 to match.
-    // openai-java's transitive Jackson is excluded above and does not enter the shadow JAR.
+    // Compile-time Jackson references only
     compileOnly(libs.jackson.databind)
     compileOnly(libs.jackson.datatype.jdk8)
     compileOnly(libs.jackson.datatype.jsr310)
@@ -52,14 +38,17 @@ dependencies {
 }
 
 tasks {
-    // The regular jar task produces a dev JAR with Mojang mappings
+    // Disable the thin jar
     jar {
-        archiveClassifier.set("mojmap")
+        enabled = false
     }
-
-    // Shadow task shades dependencies into the JAR
     shadowJar {
-        archiveClassifier.set("") // No classifier for the final artifact
+        // Drop the "-all" classifier
+        archiveClassifier.set("")
+        // Exclude ioncore from the shadow jar
+        dependencies {
+            exclude(project(":ioncore"))
+        }
         // Relocate dependencies to avoid conflicts
         relocate("okio", "com.ionsignal.minecraft.ionnerrus.lib.okio")
         relocate("io.github.classgraph", "com.ionsignal.minecraft.ionnerrus.lib.classgraph")
@@ -72,7 +61,6 @@ tasks {
         exclude("META-INF/versions/**")
     }
 
-    // For MOJANG_PRODUCTION, shadowJar is the final artifact
     assemble {
         dependsOn(shadowJar)
     }
@@ -81,7 +69,7 @@ tasks {
         val props = mapOf(
             "version" to project.version,
             "description" to project.description,
-            "api" to "1.21"
+            "api" to providers.gradleProperty("supported_version").get()
         )
         inputs.properties(props)
         filesMatching(listOf("plugin.yml", "paper-plugin.yml")) {

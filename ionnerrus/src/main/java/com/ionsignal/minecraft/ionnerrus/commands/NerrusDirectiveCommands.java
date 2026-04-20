@@ -5,17 +5,15 @@ import com.ionsignal.minecraft.ionnerrus.agent.directors.AskDirector;
 import com.ionsignal.minecraft.ionnerrus.agent.lifecycle.AgentService;
 import com.ionsignal.minecraft.ionnerrus.llm.LLMService;
 
+import com.mojang.brigadier.Command;
+import com.mojang.brigadier.context.CommandContext;
+
 import io.papermc.paper.command.brigadier.CommandSourceStack;
-
-import org.bukkit.entity.Player;
-
-import org.incendo.cloud.annotation.specifier.Greedy;
-import org.incendo.cloud.annotations.Argument;
-import org.incendo.cloud.annotations.Command;
-import org.incendo.cloud.annotations.Permission;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+
+import org.bukkit.entity.Player;
 
 /**
  * Handles natural language LLM directives.
@@ -30,32 +28,28 @@ public class NerrusDirectiveCommands {
         this.llmService = llmService;
     }
 
-    @Command("nerrus do <agent> <directive>")
-    @Permission("ionnerrus.command.do")
-    public void doDirective(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent,
-            @Argument("directive") @Greedy String directive) {
-        if (!(stack.getExecutor() instanceof Player player)) {
-            stack.getSender().sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
-            return;
+    public int doDirective(CommandContext<CommandSourceStack> ctx) {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        String directive = ctx.getArgument("directive", String.class);
+        if (!(ctx.getSource().getExecutor() instanceof Player player)) {
+            ctx.getSource().getSender().sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
+            return Command.SINGLE_SUCCESS;
         }
         agent.assignDirective(directive, player);
         player.sendMessage(Component.text("Directive issued to " + agent.getName() + ": '" + directive + "'", NamedTextColor.GREEN));
+        return Command.SINGLE_SUCCESS;
     }
 
-    @Command("nerrus ask <agent> <question>")
-    @Permission("ionnerrus.command.ask")
-    public void askAgent(
-            CommandSourceStack stack,
-            @Argument(value = "agent", parserName = "nerrus_agent") NerrusAgent agent,
-            @Argument("question") @Greedy String question) {
-        if (!(stack.getExecutor() instanceof Player player)) {
-            stack.getSender().sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
-            return;
+    public int askAgent(CommandContext<CommandSourceStack> ctx) {
+        NerrusAgent agent = ctx.getArgument("agent", NerrusAgent.class);
+        String question = ctx.getArgument("question", String.class);
+        if (!(ctx.getSource().getExecutor() instanceof Player player)) {
+            ctx.getSource().getSender().sendMessage(Component.text("This command can only be run by a player.", NamedTextColor.RED));
+            return Command.SINGLE_SUCCESS;
         }
         player.sendMessage(Component.text("Asking " + agent.getName() + ": '" + question + "'", NamedTextColor.GRAY));
         AskDirector askDirector = new AskDirector(llmService);
         askDirector.executeQuery(agent, question, player);
+        return Command.SINGLE_SUCCESS;
     }
 }

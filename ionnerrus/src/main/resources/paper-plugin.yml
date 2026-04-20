@@ -1,11 +1,11 @@
 name: IonNerrus
-version: "${version}"
-api-version: "1.21"
+version: '${version}'
+api-version: '${api}'
 main: com.ionsignal.minecraft.ionnerrus.IonNerrus
 loader: com.ionsignal.minecraft.ionnerrus.IonNerrusLoader
-bootstrap: com.ionsignal.minecraft.ionnerrus.IonNerrusBootstrap
+bootstrapper: com.ionsignal.minecraft.ionnerrus.IonNerrusBootstrap
 author: IonSignal
-description: "${description}"
+description: '${description}'
 website: https://github.com/ionsignal/ionnerrus
 
 # Modern dependency declaration

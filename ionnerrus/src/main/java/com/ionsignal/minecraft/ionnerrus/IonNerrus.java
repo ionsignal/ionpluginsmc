@@ -7,6 +7,8 @@ import com.ionsignal.minecraft.ionnerrus.bootstrap.ListenerRegistrar;
 import com.ionsignal.minecraft.ionnerrus.chat.ChatBubbleService;
 import com.ionsignal.minecraft.ionnerrus.llm.LLMService;
 
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -24,30 +26,24 @@ public class IonNerrus extends JavaPlugin {
     private Executor mainThreadExecutor;
     private Executor offloadThreadExecutor;
 
-    // Added service container
     private ServiceContainer services;
     private CommandRegistrar commandRegistrar;
     private ComponentLogger componentLogger;
 
-    // Lifecycle components
     private IntegrationBootstrap integrationBootstrap;
     private ListenerRegistrar listenerRegistrar;
 
     @Override
     public void onEnable() {
-        // Singleton
         IonNerrus.instance = this;
-        // Logging level configuration
         enableDebugLogging();
-        // Check classpath dependency versions
         runClassloaderProbe();
-        // Load config before any service initialization
         saveDefaultConfig();
         reloadConfig();
-        // Create executors
+
         mainThreadExecutor = runnable -> Bukkit.getScheduler().runTask(this, runnable);
         offloadThreadExecutor = runnable -> getServer().getScheduler().runTaskAsynchronously(this, runnable);
-        // Initialize service container
+
         try {
             services = ServiceContainer.initialize(this);
         } catch (ServiceInitializationException e) {
@@ -63,15 +59,12 @@ public class IonNerrus extends JavaPlugin {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        // External integrations
         try {
-            // Assign to field to preserve state for cleanup
             this.integrationBootstrap = new IntegrationBootstrap(this);
             this.integrationBootstrap.initializeIonCoreIntegration();
         } catch (Exception e) {
             getLogger().warning("Non-critical integration failure: " + e.getMessage());
         }
-        // Register commands
         try {
             commandRegistrar = new CommandRegistrar(this,
                     services.getAgentService(),
@@ -80,17 +73,18 @@ public class IonNerrus extends JavaPlugin {
                     services.getGoalRegistry(),
                     services.getIdentityService(),
                     services.getPayloadFactory());
-            commandRegistrar.registerAll();
+
+            this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
+                commandRegistrar.registerCommands(event.registrar());
+            });
         } catch (Exception e) {
             getLogger().severe("Failed to register commands: " + e.getMessage());
             e.printStackTrace();
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        // Register event listeners
+
         try {
-            // Assign to field to preserve state for cleanup
-            // Removed services.getHudManager() from constructor
             this.listenerRegistrar = new ListenerRegistrar(
                     this,
                     services.getNerrusManager(),
@@ -110,11 +104,10 @@ public class IonNerrus extends JavaPlugin {
     public void onDisable() {
         getLogger().info("Disabling IonNerrus v" + getPluginMeta().getVersion() + " plugin.");
         if (services == null) {
-            // Plugin never initialized successfully - nothing to clean up
             getLogger().warning("Services were never initialized - skipping shutdown.");
             return;
         }
-        // Despawn agents before the chunk system gets too far into its halt sequence.
+
         if (services.getAgentService() != null) {
             getLogger().info("Despawning all agents before shutdown...");
             try {
@@ -125,9 +118,8 @@ public class IonNerrus extends JavaPlugin {
                 e.printStackTrace();
             }
         }
-        // Unregister event listeners (critical - prevents NPEs on next events)
+
         try {
-            // Use stored instance with null check
             if (this.listenerRegistrar != null) {
                 this.listenerRegistrar.unregisterAll();
             }
@@ -135,7 +127,7 @@ public class IonNerrus extends JavaPlugin {
             getLogger().severe("Error unregistering listeners: " + e.getMessage());
             e.printStackTrace();
         }
-        // Unregister commands (critical - prevents command execution after disable)
+
         try {
             if (this.commandRegistrar != null) {
                 this.commandRegistrar.unregisterAll();
@@ -144,35 +136,30 @@ public class IonNerrus extends JavaPlugin {
             getLogger().severe("Error unregistering commands: " + e.getMessage());
             e.printStackTrace();
         }
-        // Clean up external integrations (non-critical, best-effort)
+
         try {
-            // Use stored instance with null check
             if (this.integrationBootstrap != null) {
                 this.integrationBootstrap.cleanup();
             }
         } catch (Exception e) {
             getLogger().warning("Error cleaning up integrations: " + e.getMessage());
         }
-        // Shut down all core services (critical)
+
         try {
             services.shutdown();
         } catch (Exception e) {
             getLogger().severe("Error during service container shutdown: " + e.getMessage());
             e.printStackTrace();
         }
-        // Clear static references to prevent memory leaks (AFTER grace period)
+
         instance = null;
         services = null;
-        // Explicitly clear lifecycle fields
         this.integrationBootstrap = null;
         this.listenerRegistrar = null;
         this.commandRegistrar = null;
         getLogger().info("IonNerrus has been disabled successfully.");
     }
 
-    /**
-     * Helper method to enable debug logger from PaperMC
-     */
     private void enableDebugLogging() {
         try {
             this.componentLogger = getComponentLogger();
@@ -185,9 +172,6 @@ public class IonNerrus extends JavaPlugin {
         }
     }
 
-    /**
-     * Development Helper method to check classpath dependency versions
-     */
     private void runClassloaderProbe() {
         String jacksonVersion = com.fasterxml.jackson.databind.cfg.PackageVersion.VERSION.toString();
         getLogger().info("Runtime Jackson Version: " + jacksonVersion);

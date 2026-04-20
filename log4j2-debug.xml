@@ -20,7 +20,7 @@
                     <!-- Log root, Minecraft, Mojang and Bukkit loggers without prefix -->
                     <!-- Disable prefix for various plugins that bypass the plugin logger -->
                     <PatternMatch key=",net.minecraft.,Minecraft,com.mojang.,com.sk89q.,ru.tehkode.,Minecraft.AWE"
-                                  pattern="[%d{HH:mm:ss}] [%t/%level]: %stripAnsi{%msg}%n%xEx{full}" />
+                                  pattern="[%d{HH:mm:ss}][%t/%level]: %stripAnsi{%msg}%n%xEx{full}" />
                 </LoggerNamePatternSelector>
             </PatternLayout>
             <Policies>
@@ -30,18 +30,10 @@
             <DefaultRolloverStrategy max="1000"/>
         </RollingRandomAccessFile>
         <Async name="Async">
-            <AppenderRef ref="rewrite"/>
-        </Async>
-        <Rewrite name="rewrite">
-            <StacktraceDeobfuscatingRewritePolicy />
-            <AppenderRef ref="rewrite2"/>
-        </Rewrite>
-        <Rewrite name="rewrite2">
-            <ExtraClassInfoRewritePolicy />
             <AppenderRef ref="File"/>
             <AppenderRef ref="TerminalConsole" level="debug"/>
             <AppenderRef ref="ServerGuiConsole" level="debug"/>
-        </Rewrite>
+        </Async>
     </Appenders>
     <Loggers>
         <!-- Plugin-specific logger for IonNerrus with DEBUG level -->

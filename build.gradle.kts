@@ -21,14 +21,14 @@ val minecraftVersion: Provider<String> = providers.gradleProperty("minecraft_ver
 val projectVersion: Provider<String> = provider { version.toString() }
 val ioncore = project(":ioncore")
 val ionnerrus = project(":ionnerrus")
-val iongenesis = project(":iongenesis")
+// val iongenesis = project(":iongenesis")
 
-tasks {    
+tasks {
     runServer {
         // Use the default toolchain or specify directly
         javaLauncher.set(
             project.extensions.getByType<JavaToolchainService>().launcherFor {
-                languageVersion.set(JavaLanguageVersion.of(21))
+                languageVersion.set(JavaLanguageVersion.of(25))
                 vendor.set(JvmVendorSpec.ADOPTIUM)
             }
         )
@@ -52,15 +52,6 @@ tasks {
                     (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
                 }
         )
-
-        // IonGenesis
-        pluginJars(
-            iongenesis.tasks.named("shadowJar")
-                .flatMap { task ->
-                    @Suppress("UNCHECKED_CAST")
-                    (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
-                }
-        )
         
         // For MOJANG_PRODUCTION, use shadowJar output (IonNerrus)
         pluginJars(
@@ -71,9 +62,18 @@ tasks {
                 }
         )
 
+        // // IonGenesis
+        // pluginJars(
+        //     iongenesis.tasks.named("shadowJar")
+        //         .flatMap { task ->
+        //             @Suppress("UNCHECKED_CAST")
+        //             (task as org.gradle.api.tasks.bundling.AbstractArchiveTask).archiveFile
+        //         }
+        // )
+
         // Ensure Terra addon is copied before server starts
         dependsOn(ioncore.tasks.named("shadowJar"))
-        dependsOn(iongenesis.tasks.named("shadowJar"))
         dependsOn(ionnerrus.tasks.named("shadowJar"))
+        // dependsOn(iongenesis.tasks.named("shadowJar"))
     }
 }
